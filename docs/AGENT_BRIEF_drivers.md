@@ -6,8 +6,9 @@ partitioning, flashing and the phone's boot slots. Read this whole file first.
 ## 1. Where things are (2026-10-01)
 - Windows 11 Pro ARM64 **22621**, ru-RU, user `makr` (no password, autologon), boots to
   desktop through Mu-Silicium UEFI loaded from RAM (`fastboot boot`). Display = UEFI
-  framebuffer (1080x2400), UFS works, CPU works. **No input devices at all** (no touch,
-  no buttons, USB host has no VBUS). So every test is "deploy offline → boot → read logs offline".
+  framebuffer (1080x2400), UFS works, CPU works. Since 2026-10-01 USB host
+  (mouse/keyboard/flash via hub) and touch work, so drivers are installed by hand from a flash drive and
+  Windows can be shut down cleanly from Start (no more dirty NTFS). Buttons still don't work.
 - Test signing is ON in BCD (`16000049` on loader `{68d01361-c243-4f1a-b850-5681ad4345e2}`).
 - `drivers/TopazTouch` v0.1 is written, **builds in CI, not yet tested on hardware**.
   It is a root-enumerated KMDF driver that maps TLMM/GCC/QUP registers directly
@@ -104,14 +105,16 @@ The phone is reached **only through the laptop**: `ssh s8build` (then `adb`/`fas
 5. Hardware facts you discover go into `README.md` / this file.
 
 ## 6. Task list (priority order)
-1. **Touch** — test TopazTouch v0.1, read `C:\TopazTouch.log`. Open questions: does the
+1. **Touch** — DONE (v0.4, FT5452, see 2b). Remaining: IRQ-driven instead of polling, ACPI device later.
+   Original notes: test TopazTouch v0.1, read `C:\TopazTouch.log`. Open questions: does the
    FocalTech TDDI keep its firmware after UEFI (chip id at 0xA3), or must the driver
    upload firmware on every power-up (flash-less TDDI)? Coordinates are 12-bit in the
    classic FT protocol but DTB says `display-coords 0..10799 x 0..23999` (hi-res mode) —
    check raw logs. Then: IRQ-driven instead of polling, proper ACPI device later.
 2. **Buttons** — Vol+/Vol-/Power as a HID keyboard/consumer device (needs a minimal
    SPMI read path to PM6125 PON + PM6125 GPIO5).
-3. **USB OTG** — enable bq2589x OTG boost, rt1711h source role, DWC3 host mode so
+3. **USB OTG** — DONE in UEFI (see 2a). Remaining: VBUS without the manual cable swap, USB in the
+   flashed UEFI once the lead flashes it. Original notes: enable bq2589x OTG boost, rt1711h source role, DWC3 host mode so
    Windows' inbox XHCI works (hub + keyboard). Coordinate with the lead: may end up in UEFI.
 4. **Battery** — sm5602 fuel gauge → battery miniclass (percentage in taskbar).
 5. **Wi-Fi/BT** (WCN3990 behind MPSS) — research only.

@@ -2,7 +2,8 @@
 
 ## Boot with USB (keyboard/mouse/flash via hub)
 1. Phone in bootloader fastboot (`fastboot getvar is-userspace` -> `no`), cable to the laptop.
-2. `ssh s8build fastboot boot ~/work/win/uefi/Mu-topaz-v4-OTG3-RELEASE.img`
+2. `ssh s8build fastboot boot ~/work/win/uefi/Mu-topaz-v4-GOOD-usb-host-20261001.img`
+   (= `Mu-topaz-v4-OTG3-RELEASE.img`, sha256 `dba80b96…bfcdfb`; rebuild with `uefi/build_topaz_uefi.sh`)
 3. Wait for `>>> UNPLUG PC CABLE, PLUG THE HUB NOW (60 s) <<<` on screen, then swap the
    laptop cable for the hub. `OTG ON` = 5 V on the port; boot continues after 3 s.
    (The charger refuses OTG while the PC powers VBUS, so the swap must happen at this prompt.)
