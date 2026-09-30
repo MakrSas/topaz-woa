@@ -68,6 +68,28 @@ tx_depth 16, DFS level 0 = XO (perf 0x1), CLK_SEL 0. USB D+/D- switch GPIO66 = o
 Windows clock is 2022-05-07 (no RTC): test certs must have NotBefore in the past
 (TopazTouch install failed with 0x800B0101 because of this; fixed in CI).
 
+## 2c. Boot menu / dual boot (2026-10-01, in progress)
+Goal: UEFI on every power-on with a menu (Vol+/Vol- move, Power selects):
+**Windows / Android / Fastboot / Power off** (`TopazOtgDxe` BootMenu, shown at ReadyToBoot).
+- Layout (variant 1, chosen): `boot_a` = Mu UEFI, `recovery_a` = Android as a v4 image with its
+  own kernel (boot_a kernel + init_boot_a generic ramdisk, `android_as_recovery.img`).
+  TWRP only via `fastboot boot ~/work/win/uefi/recovery_a.img` from the laptop.
+- The stock TWRP recovery_a has **no kernel** (kernel_size 0): ABL takes the kernel from boot_a
+  in recovery mode -> the Android recovery image must carry its own kernel.
+- "Android"/"Fastboot" items reboot with an ABL reason: Mu's ResetSystem is plain PSCI and drops
+  reset data, so write PMIC PON SOFT_RB_SPARE via `gQcomPmicPonProtocolGuid`
+  (`SetSpareReg(0, EFI_PM_PON_SOFT_SPARE, reason << 1, 0xFE)`, 0x01 recovery, 0x02 fastboot)
+  and `EfiResetWarm`. Verified: menu "Android" opened TWRP (recovery_a).
+- The menu runs in a ReadyToBoot notify (TPL_CALLBACK) which blocks keypad polling ->
+  `RestoreTPL(TPL_APPLICATION)` for the interactive part, `RaiseTPL(TPL_CALLBACK)` before return.
+- Backups (sha256-verified vs the phone): `~/work/topaz/backup_20261001/{boot_a,init_boot_a,
+  vendor_boot_a,recovery_a,dtbo_a,vbmeta_a}.img`.
+- **TODO (variant 3): TWRP from the menu.** Put a kernel + TWRP into the unused slot b
+  (`boot_b`/`recovery_b`) and add a "TWRP" item that makes slot b active for one boot by
+  editing the A/B attributes in the GPT entries of boot_a/boot_b (what `fastboot set_active`
+  does). GPT is the most dangerous area: back up all LUN GPTs first, test on paper, keep
+  fastboot (Vol- + Power) as the escape.
+
 ## 3. Build
 Push to `main` (or a branch) → GitHub Actions `Build drivers` (windows-2022, WDK 26100)
 builds ARM64 Release, stamps INF, makes the catalog, **test-signs with a fresh

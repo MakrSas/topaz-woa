@@ -15,9 +15,11 @@
 #include <Library/IoLib.h>
 #include <Library/TimerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/UefiLib.h>
 #include <Library/PrintLib.h>
 #include <Guid/EventGroup.h>
+#include <Protocol/EFIPmicPon.h>
 
 #define TAG "TopazOtg: "
 
@@ -331,32 +333,64 @@ STATIC VOID ConPrint(CONST CHAR8 *Fmt, ...)
   gST->ConOut->OutputString (gST->ConOut, w);
 }
 
+/* TRUE if a key is waiting; drains it into *Key */
+STATIC BOOLEAN KeyPressed(EFI_INPUT_KEY *Key)
+{
+  return gST->ConIn != NULL && !EFI_ERROR (gST->ConIn->ReadKeyStroke (gST->ConIn, Key));
+}
+
+/* Try to put CHG_CONFIG back to 1 while boosting, so the phone still charges later. */
+STATIC VOID RestoreCharging(VOID)
+{
+  UINT8 r03 = 0, r0b = 0;
+
+  RegRead (BQ_ADDR, 0x03, &r03);
+  if (r03 & 0x10) {
+    return;
+  }
+  RegWrite (BQ_ADDR, 0x03, r03 | 0x10);
+  gBS->Stall (100 * 1000);
+  RegRead (BQ_ADDR, 0x0B, &r0b);
+  if ((r0b >> 5) != 7) {
+    RegWrite (BQ_ADDR, 0x03, r03);           /* boost dropped: this chip needs CHG_CONFIG=0 */
+    LOG ("CHG_CONFIG=1 kills boost on this chip, left at 0 (no charging until Android)\n");
+  } else {
+    LOG ("CHG_CONFIG restored to 1 with boost on\n");
+  }
+}
+
 /*
  * The boost only starts when VBUS has no external supply, and the chip drops
- * OTG_CONFIG while the PC cable is plugged in. So wait here until the user
- * swaps the PC cable for the hub, then enable OTG and check VBUS_STAT == 7.
+ * OTG_CONFIG while a PC/charger cable is plugged in. Wait until VBUS is free
+ * (or a key is pressed), then enable OTG and check VBUS_STAT == 7.
  */
 STATIC BOOLEAN WaitAndEnableOtg(UINTN Seconds)
 {
   UINTN  t;
   UINT8  r03 = 0, r0b = 0, r0c = 0, try = 0;
+  EFI_INPUT_KEY key;
 
   for (t = 0; t < Seconds * 4; t++) {
     RegRead (BQ_ADDR, 0x0B, &r0b);
     RegRead (BQ_ADDR, 0x03, &r03);
     if ((r0b >> 5) == 7) {
       LOG ("OTG ON: reg03=%02x reg0b=%02x after %u ms (try %u)\n", r03, r0b, (UINT32)(t * 250), try);
+      RestoreCharging ();
       return TRUE;
     }
     if ((r0b >> 5) == 0) {
-      /* no input source: request boost; 2nd+ attempt also clears CHG_CONFIG */
+      /* no input source: request boost; every 2nd attempt also clears CHG_CONFIG */
       try++;
       RegWrite (BQ_ADDR, 0x03, (try & 1) ? (r03 | 0x20) : ((r03 | 0x20) & ~0x10));
     }
     if ((t % 4) == 0) {
       RegRead (BQ_ADDR, 0x0C, &r0c);
-      ConPrint ("\r  wait %2us: reg03=%02x reg0b=%02x (vbus_stat=%u) reg0c=%02x try=%u   ",
-                (UINT32)(t / 4), r03, r0b, r0b >> 5, r0c, try);
+      ConPrint ("\r  USB 5V: vbus_stat=%u reg03=%02x reg0c=%02x (%us, any key = skip)   ",
+                r0b >> 5, r03, r0c, (UINT32)(Seconds - t / 4));
+    }
+    if (KeyPressed (&key)) {
+      LOG ("OTG skipped by key: reg03=%02x reg0b=%02x\n", r03, r0b);
+      return FALSE;
     }
     gBS->Stall (250 * 1000);
   }
@@ -382,24 +416,127 @@ STATIC VOID DumpLog(VOID)
   }
 }
 
+/* ---- Boot menu: Vol+/Vol- move, Power (any other key) selects ---------------- */
+
+enum { MENU_WINDOWS, MENU_ANDROID, MENU_FASTBOOT, MENU_POWEROFF, MENU_COUNT };
+STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Android", "Fastboot", "Power off" };
+
+/*
+ * Reboot into a specific ABL mode. Mu's ResetSystem is plain PSCI and drops the
+ * reset data, so do what Android's qpnp-power-on does for "reboot recovery":
+ * store the reason in PMIC PON SOFT_RB_SPARE (gen2 PON: reason << 1, bits 7:1)
+ * and do a warm reset (the spare register only survives a warm reset).
+ * ABL reads it back on the next boot. 0x01 = recovery (Android lives in
+ * recovery_a when this UEFI is flashed to boot_a), 0x02 = fastboot.
+ */
+#define ABL_REASON_RECOVERY  0x01
+#define ABL_REASON_FASTBOOT  0x02
+
+STATIC VOID RebootWithReason(UINT8 Reason)
+{
+  EFI_QCOM_PMIC_PON_PROTOCOL *pon = NULL;
+  EFI_STATUS s;
+  UINT8 before = 0, after = 0;
+
+  s = gBS->LocateProtocol (&gQcomPmicPonProtocolGuid, NULL, (VOID **)&pon);
+  if (!EFI_ERROR (s)) {
+    pon->GetSpareReg (0, EFI_PM_PON_SOFT_SPARE, &before);
+    s = pon->SetSpareReg (0, EFI_PM_PON_SOFT_SPARE, (UINT8)(Reason << 1), 0xFE);
+    pon->GetSpareReg (0, EFI_PM_PON_SOFT_SPARE, &after);
+  }
+  ConPrint ("  PON soft spare: %02x -> %02x (%r)\r\n", before, after, s);
+  gBS->Stall (2 * 1000 * 1000);
+  gRT->ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
+}
+
+STATIC VOID MenuDraw(UINTN Sel, UINTN Left)
+{
+  UINTN i;
+
+  gST->ConOut->SetCursorPosition (gST->ConOut, 0, 2);
+  for (i = 0; i < MENU_COUNT; i++) {
+    ConPrint ("  %a %a          \r\n", (i == Sel) ? ">>" : "  ", mMenu[i]);
+  }
+  ConPrint ("\r\n  Vol+/Vol- select, Power confirm. Default in %2us  \r\n", (UINT32)Left);
+}
+
+STATIC UINTN BootMenu(UINTN TimeoutSec)
+{
+  EFI_INPUT_KEY key;
+  UINTN sel = MENU_WINDOWS, ticks = 0, quiet = 0, left = TimeoutSec;
+  BOOLEAN touched = FALSE;
+
+  if (gST->ConIn == NULL || gST->ConOut == NULL) {
+    return MENU_WINDOWS;
+  }
+  /* Vol+ is held at power-on to get here: drop keys until the buttons are quiet for 0.5 s */
+  while (quiet < 5 && ticks < 50) {
+    quiet = KeyPressed (&key) ? 0 : quiet + 1;
+    gBS->Stall (100 * 1000);
+    ticks++;
+  }
+  gST->ConOut->ClearScreen (gST->ConOut);
+  ConPrint ("  ==== topaz: choose OS ====\r\n");
+  MenuDraw (sel, left);
+  for (ticks = 0; touched || ticks < TimeoutSec * 10; ticks++) {
+    if (KeyPressed (&key)) {
+      touched = TRUE;
+      if (key.ScanCode == SCAN_UP) {
+        sel = (sel + MENU_COUNT - 1) % MENU_COUNT;
+      } else if (key.ScanCode == SCAN_DOWN) {
+        sel = (sel + 1) % MENU_COUNT;
+      } else {
+        LOG ("menu: key scan=%x char=%x -> %a\n", key.ScanCode, key.UnicodeChar, mMenu[sel]);
+        return sel;
+      }
+      MenuDraw (sel, left);
+    }
+    if (!touched && (ticks % 10) == 0) {
+      left = TimeoutSec - ticks / 10;
+      MenuDraw (sel, left);
+    }
+    gBS->Stall (100 * 1000);
+  }
+  return sel;
+}
+
 STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
 {
+  EFI_INPUT_KEY key;
+  UINTN choice;
+
   gBS->CloseEvent (Event);
-  if (gST->ConOut != NULL) {
-    gST->ConOut->ClearScreen (gST->ConOut);
+  /*
+   * Notify functions run at TPL_CALLBACK, which blocks the keypad polling timer, so
+   * ConIn never sees a key. Drop to TPL_APPLICATION for the interactive part and raise
+   * back before returning to the event dispatcher.
+   */
+  gBS->RestoreTPL (TPL_APPLICATION);
+  choice = BootMenu (10);
+  if (choice == MENU_ANDROID) {
+    ConPrint ("\r\n  Rebooting to Android (recovery_a)...\r\n");
+    RebootWithReason (ABL_REASON_RECOVERY);
+  } else if (choice == MENU_FASTBOOT) {
+    ConPrint ("\r\n  Rebooting to fastboot...\r\n");
+    RebootWithReason (ABL_REASON_FASTBOOT);
+  } else if (choice == MENU_POWEROFF) {
+    ConPrint ("\r\n  Powering off...\r\n");
+    gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
   }
-  ConPrint ("==== TopazOtgDxe ====\r\n");
-  DumpLog ();
-  ConPrint ("\r\n>>> UNPLUG PC CABLE, PLUG THE HUB NOW (60 s) <<<\r\n");
-  mLogLen = 0;
-  ConPrint ("\r\n");
+
+  ConPrint ("\r\n  Windows. Unplug PC/charger cable, plug the hub.\r\n");
   if (WaitAndEnableOtg (60)) {
-    DumpLog ();
-    gBS->Stall (3 * 1000 * 1000);
+    ConPrint ("\r\n  USB 5V ON\r\n");
+    gBS->Stall (1 * 1000 * 1000);
   } else {
+    ConPrint ("\r\n  USB 5V not enabled. Log:\r\n");
     DumpLog ();
-    gBS->Stall (15 * 1000 * 1000);
+    ConPrint ("\r\n  Any key: continue\r\n");
+    while (!KeyPressed (&key)) {
+      gBS->Stall (100 * 1000);
+    }
   }
+  gBS->RaiseTPL (TPL_CALLBACK);
 }
 
 EFI_STATUS

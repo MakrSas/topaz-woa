@@ -11,6 +11,7 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  QcomPkg/QcomPkg.dec
 
 [LibraryClasses]
   BaseLib
@@ -20,8 +21,12 @@
   TimerLib
   UefiDriverEntryPoint
   UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
   UefiLib
   PrintLib
+
+[Protocols]
+  gQcomPmicPonProtocolGuid
 
 [Depex]
   TRUE
