@@ -34,13 +34,14 @@ MiCode kernel branch `topaz-t-oss` (github.com/MiCode/Xiaomi_Kernel_OpenSource) 
 vendor drivers are **not** in that tree (vendor modules). The phone's own `.ko` files and
 touch firmware are on the phone (vendor_dlkm / vendor) — pull them if needed.
 
-## 2b. Touch — works, calibrating (2026-10-01)
+## 2b. Touch — WORKS (2026-10-01)
 Installed manually from a flash drive (`tools/deploy/install-manual.cmd`, admin). v0.2 log:
 chip_id 0xA3=0x54, 0x9F=0x52 -> **FocalTech FT5452**, fw 0x36, vendor 0x48; answers before
 reset -> has its own flash, no fw upload needed. TLMM at driver start: gpio6/7 func 1,
 irq80 ctl=0xC3 (pull-up, 8 mA), rst86/avdd36 output high. GCC vote already 0x5BE0.
-Classic 12-bit FT decode is right, but range is ~1.2x the panel: max raw seen x=1264, y=2875
-on 1080x2400 -> v0.3 uses HID logical max 1295x2879. The fw repeats an "up" slot for many
+Classic 12-bit FT decode is right, but range is exactly 1.25x the panel: corner taps give raw
+x 0..1349, y 0..2999 (y saturates at 2999) on 1080x2400 -> v0.4 uses HID logical max 1349x2999.
+Edge contacts sometimes come with id 9. The fw repeats an "up" slot for many
 frames -> report the lift once. v0.1 log path `\SystemRoot\..` never worked (use `\??\C:\`).
 
 ## 2a. USB host — WORKS (2026-10-01)
