@@ -24,7 +24,7 @@ VOID LogOpen(VOID)
     InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     if (!NT_SUCCESS(ZwCreateFile(&g_LogFile, FILE_APPEND_DATA | SYNCHRONIZE, &oa, &iosb, NULL,
                                  FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN_IF,
-                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_WRITE_THROUGH, NULL, 0))) {
         g_LogFile = NULL;
     }
 }
@@ -47,7 +47,6 @@ static VOID LogWrite(PCSTR Text, SIZE_T Len)
     }
     ExAcquireFastMutex(&g_LogLock);
     ZwWriteFile(g_LogFile, NULL, NULL, NULL, &iosb, (PVOID)Text, (ULONG)Len, NULL, NULL);
-    ZwFlushBuffersFile(g_LogFile, &iosb);
     ExReleaseFastMutex(&g_LogLock);
 }
 
