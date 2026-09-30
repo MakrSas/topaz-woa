@@ -1,4 +1,6 @@
 @echo off
+net session >nul 2>&1 || (powershell -NoProfile -Command "Start-Process -Verb RunAs -FilePath '%~f0'" & exit /b)
+chcp 65001 >nul
 rem Run as Administrator. Installs test cert + TopazTouch root device, log -> %~dp0install.log
 cd /d "%~dp0"
 set L=%~dp0install.log
