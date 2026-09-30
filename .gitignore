@@ -1,0 +1,7 @@
+**/x64/
+**/ARM64/
+**/Debug/
+**/Release/
+*.user
+.vs/
+out/

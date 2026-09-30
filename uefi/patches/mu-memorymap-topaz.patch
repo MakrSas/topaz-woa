@@ -1,0 +1,17 @@
+diff --git a/Platforms/Xiaomi/tapasPkg/Library/MemoryMapLib/MemoryMapLib.c b/Platforms/Xiaomi/tapasPkg/Library/MemoryMapLib/MemoryMapLib.c
+index 0a533e4..33ef9b5 100644
+--- a/Platforms/Xiaomi/tapasPkg/Library/MemoryMapLib/MemoryMapLib.c
++++ b/Platforms/Xiaomi/tapasPkg/Library/MemoryMapLib/MemoryMapLib.c
+@@ -8,7 +8,11 @@ gMemoryDescriptor[] = {
+   // DDR Regions
+   {"HYP",                   0x45700000, 0x00600000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
+   {"SMEM",                  0x46000000, 0x00200000, AddMem, MEM_RES, WRITE_COMBINEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
+-  {"PIL Reserved",          0x4AB00000, 0x0A400000, AddMem, MEM_RES, WRITE_COMBINEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
++  // topaz (newer Xiaomi firmware) reserved regions missing in tapas map
++  {"AOP/SecApps",           0x45D00000, 0x00300000, AddMem, MEM_RES, WRITE_COMBINEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
++  {"CDSP Secure",           0x46200000, 0x01E00000, AddMem, MEM_RES, WRITE_COMBINEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
++  {"Removed/TZ Apps",       0x60000000, 0x03900000, AddMem, MEM_RES, WRITE_COMBINEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
++  {"PIL Reserved",          0x4AB00000, 0x0B800000, AddMem, MEM_RES, WRITE_COMBINEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
+   {"DXE Heap",              0x63900000, 0x04500000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
+   {"DBI Dump",              0x56700000, 0x00A00000, NoHob,  MMAP_IO, INITIALIZED, Conv,   UNCACHED_UNBUFFERED_XN},
+   {"Sched Heap",            0x57100000, 0x00400000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},

@@ -1,0 +1,42 @@
+name: Build drivers
+
+on:
+  push:
+    paths:
+      - "drivers/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Show installed WDK
+        shell: pwsh
+        run: |
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -ErrorAction SilentlyContinue | Select-Object Name
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Lib\*\km\arm64\vhfkm.lib" -ErrorAction SilentlyContinue | Select-Object FullName
+
+      - name: Build TopazTouch (ARM64 Release)
+        run: msbuild drivers\TopazTouch\TopazTouch.vcxproj /p:Configuration=Release /p:Platform=ARM64 /m /v:minimal
+
+      - name: Collect package
+        shell: pwsh
+        run: |
+          $out = "out\TopazTouch"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $pkg = Get-ChildItem -Recurse -Directory drivers\TopazTouch -Filter TopazTouch | Where-Object { Test-Path "$($_.FullName)\TopazTouch.inf" } | Select-Object -First 1
+          Copy-Item "$($pkg.FullName)\*" $out -Recurse
+          Get-ChildItem -Recurse drivers\TopazTouch -Include *.cer | Select-Object -First 1 | Copy-Item -Destination $out
+          $devcon = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Tools" -Recurse -Filter devcon.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "arm64" } | Select-Object -First 1
+          if ($devcon) { Copy-Item $devcon.FullName $out } else { Write-Warning "devcon arm64 not found" }
+          Get-ChildItem -Recurse $out | Select-Object FullName, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TopazTouch-arm64
+          path: out/TopazTouch

@@ -1,0 +1,35 @@
+diff --git a/FatPkg/EnhancedFatDxe/Init.c b/FatPkg/EnhancedFatDxe/Init.c
+index a9dc45e..d97d30b 100644
+--- a/FatPkg/EnhancedFatDxe/Init.c
++++ b/FatPkg/EnhancedFatDxe/Init.c
+@@ -369,6 +369,15 @@ FatOpenDevice (
+   Volume->FatSize = SectorsPerFat * BlockSize;
+ 
+   Volume->VolumeSize       = LShiftU64 (Sectors, BlockAlignment);
++  //
++  // topaz: reject FAT volumes that claim to be larger than their partition
++  // (Xiaomi bluetooth_a/b: 64 MiB FAT inside a 1 MiB partition hangs the UFS driver).
++  //
++  if (Volume->VolumeSize > MultU64x32 (Volume->BlockIo->Media->LastBlock + 1, Volume->BlockIo->Media->BlockSize)) {
++    DEBUG ((DEBUG_ERROR, "FAT: volume size %lx exceeds partition, ignoring\n", Volume->VolumeSize));
++    return EFI_VOLUME_CORRUPTED;
++  }
++
+   Volume->RootPos          = LShiftU64 (RootLba, BlockAlignment);
+   Volume->FirstClusterPos  = LShiftU64 (FirstClusterLba, BlockAlignment);
+   Volume->MaxCluster       = (Sectors - FirstClusterLba) >> SectorsPerClusterAlignment;
+@@ -384,6 +393,14 @@ FatOpenDevice (
+     }
+ 
+     FatType = Volume->MaxCluster < FAT_MAX_FAT12_CLUSTER ? Fat12 : Fat16;
++    //
++    // topaz: FAT12 with 4 KiB sectors (Xiaomi logfs) hangs this driver; nothing we need is FAT12.
++    //
++    if (FatType == Fat12) {
++      DEBUG ((DEBUG_ERROR, "FAT: skipping FAT12 volume\n"));
++      return EFI_UNSUPPORTED;
++    }
++
+     //
+     // fat12 & fat16 fat-entries are 2 bytes
+     //

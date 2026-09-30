@@ -1,0 +1,50 @@
+66,68c66,68
+<   INF Binaries/tapas/QcomPkg/Drivers/ChargerExDxe/ChargerExDxe.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/QcomChargerDxe/QcomChargerDxeLA.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbPwrCtrlDxe/UsbPwrCtrlDxe.inf
+---
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/ChargerExDxe/ChargerExDxe.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/QcomChargerDxe/QcomChargerDxeLA.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbPwrCtrlDxe/UsbPwrCtrlDxe.inf
+72c72
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbfnDwc3Dxe/UsbfnDwc3Dxe.inf
+---
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbfnDwc3Dxe/UsbfnDwc3Dxe.inf
+74,75c74,75
+<   INF Binaries/generic/QcomPkg/Drivers/XhciPciEmulationDxe/XhciPciEmulationDxe.inf
+<   INF Binaries/generic/QcomPkg/Drivers/XhciDxe/XhciDxe.inf
+---
+> #NOUSB   INF Binaries/generic/QcomPkg/Drivers/XhciPciEmulationDxe/XhciPciEmulationDxe.inf
+> #NOUSB   INF Binaries/generic/QcomPkg/Drivers/XhciDxe/XhciDxe.inf
+81,83c81,83
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
+---
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
+64,67c64,67
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbPwrCtrlDxe/UsbPwrCtrlDxe.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/QcomChargerDxe/QcomChargerDxeLA.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/ChargerExDxe/ChargerExDxe.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbfnDwc3Dxe/UsbfnDwc3Dxe.inf
+---
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbPwrCtrlDxe/UsbPwrCtrlDxe.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/QcomChargerDxe/QcomChargerDxeLA.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/ChargerExDxe/ChargerExDxe.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbfnDwc3Dxe/UsbfnDwc3Dxe.inf
+69,70c69,70
+<   INF Binaries/generic/QcomPkg/Drivers/XhciPciEmulationDxe/XhciPciEmulationDxe.inf
+<   INF Binaries/generic/QcomPkg/Drivers/XhciDxe/XhciDxe.inf
+---
+> #NOUSB   INF Binaries/generic/QcomPkg/Drivers/XhciPciEmulationDxe/XhciPciEmulationDxe.inf
+> #NOUSB   INF Binaries/generic/QcomPkg/Drivers/XhciDxe/XhciDxe.inf
+76,78c76,78
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
+<   INF Binaries/tapas/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
+---
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
+> #NOUSB   INF Binaries/tapas/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
