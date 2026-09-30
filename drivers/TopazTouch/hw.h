@@ -124,6 +124,9 @@
 #define TS_MAX_CONTACTS          10
 #define TS_DISPLAY_X             1080
 #define TS_DISPLAY_Y             2400
+/* FT5452 fw 0x36 reports ~1.2x the panel resolution (seen max raw 1264 x 2875 on 1080x2400) */
+#define TS_RAW_MAX_X             1295
+#define TS_RAW_MAX_Y             2879
 
 #define FTS_REG_CHIP_ID          0xA3
 #define FTS_REG_CHIP_ID2         0x9F

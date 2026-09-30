@@ -29,8 +29,8 @@
     0x55, 0x00, 0x65, 0x00, 0x45, 0x00,                                 \
     0xC0
 
-#define MAXX (TS_DISPLAY_X - 1)
-#define MAXY (TS_DISPLAY_Y - 1)
+#define MAXX TS_RAW_MAX_X
+#define MAXY TS_RAW_MAX_Y
 
 static const UCHAR g_ReportDescriptor[] = {
     0x05, 0x0D,             /* Usage Page (Digitizer) */
@@ -221,6 +221,10 @@ static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf)
         if (id >= TS_MAX_CONTACTS || event == 3) {
             continue;
         }
+        /* the fw keeps an "up" slot for many frames: report the lift only once */
+        if (!down && !(Ctx->ActiveMask & (1u << id))) {
+            continue;
+        }
         if (x > Ctx->MaxRawX || y > Ctx->MaxRawY) {
             Ctx->MaxRawX = max(Ctx->MaxRawX, x);
             Ctx->MaxRawY = max(Ctx->MaxRawY, y);
@@ -230,7 +234,7 @@ static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf)
             }
         }
         /* log every touch-down / lift with raw bytes of that slot */
-        if ((event == 0 || event == 1 || !(Ctx->ActiveMask & (1u << id))) && Ctx->RawLogged < 2000) {
+        if ((!down || !(Ctx->ActiveMask & (1u << id))) && Ctx->RawLogged < 2000) {
             Ctx->RawLogged++;
             LogPrint("%s id=%u x=%u y=%u raw=%02x %02x %02x %02x %02x %02x td=%02x\n",
                      event == 1 ? "up  " : "down", id, x, y, p[0], p[1], p[2], p[3], p[4], p[5], Buf[2]);
