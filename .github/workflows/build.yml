@@ -21,12 +21,6 @@ jobs:
           Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -ErrorAction SilentlyContinue | Select-Object Name
           Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Lib\*\km\arm64\vhfkm.lib" -ErrorAction SilentlyContinue | Select-Object FullName
 
-      - name: Inspect WDK targets (InfVerif / ApiValidator switches)
-        shell: pwsh
-        run: |
-          $t = "C:\Program Files (x86)\Windows Kits\10\build\10.0.26100.0\WindowsDriver.common.targets"
-          Select-String -Path $t -Pattern "InfVerif|ApiValidator_Enable|EnableInfVerif" | Select-Object -First 40 | ForEach-Object { "$($_.LineNumber): $($_.Line.Trim())" }
-
       - name: Build TopazTouch (ARM64 Release)
         run: msbuild drivers\TopazTouch\TopazTouch.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:EnableInfVerif=false /p:RunInfVerif=false /p:ApiValidator_Enable=false /m /v:minimal
 

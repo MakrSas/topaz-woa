@@ -76,4 +76,6 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- InfVerif.dll is missing on GitHub windows runners; skip INF verification. -->
+  <Target Name="InfVerif" />
 </Project>
