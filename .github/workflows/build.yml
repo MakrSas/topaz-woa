@@ -37,7 +37,7 @@ jobs:
           & $inf2cat.FullName /driver:"$((Resolve-Path $out).Path)" /os:10_NI_ARM64 /uselocaltime
           if ($LASTEXITCODE) { throw "inf2cat failed" }
 
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=topaz-woa test signing" -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(5)
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=topaz-woa test signing" -CertStoreLocation Cert:\CurrentUser\My -NotBefore (Get-Date "2015-01-01") -NotAfter (Get-Date "2045-01-01")
           Export-Certificate -Cert $cert -FilePath "$out\topaz-woa-test.cer" | Out-Null
           & "$bin\x64\signtool.exe" sign /fd sha256 /sha1 $cert.Thumbprint /s My "$out\TopazTouch.sys" "$out\TopazTouch.cat"
           if ($LASTEXITCODE) { throw "signtool failed" }

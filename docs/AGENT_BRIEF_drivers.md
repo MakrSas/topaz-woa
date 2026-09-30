@@ -34,6 +34,29 @@ MiCode kernel branch `topaz-t-oss` (github.com/MiCode/Xiaomi_Kernel_OpenSource) 
 vendor drivers are **not** in that tree (vendor modules). The phone's own `.ko` files and
 touch firmware are on the phone (vendor_dlkm / vendor) — pull them if needed.
 
+## 2a. USB host — WORKS (2026-10-01)
+Mouse through a bus-powered hub works in Windows with `Mu-topaz-v4-OTG3-RELEASE.img`
+(`~/work/win/uefi/`). Three pieces, all in UEFI (RAM boot, nothing flashed):
+1. Qualcomm USB DXEs enabled (tapas `UsbConfigDxe.patched.efi` already takes the host path
+   for platform type 0x22 = IDP; board-id 0x30022). DEBUG builds spam
+   `UsbPwrCtrlLib_GetVbusSourceOK Failed` forever (UsbPwrCtrlDxe polls a PMIC charger that
+   doesn't exist) — use RELEASE.
+2. `uefi/TopazOtgDxe` (tapasPkg driver): raw GENI I2C on QUP0 SE1, enables OTG boost on the
+   charger (0x6A). At ReadyToBoot it prints its log and waits up to 60 s for the PC cable to be
+   swapped for the hub: **the charger drops OTG_CONFIG while VBUS has an external supply**
+   (REG0B VBUS_STAT=1), so OTG can only be set after unplugging the PC.
+3. DSDT: `URS0`(QCOM0497/PNP0CA1)+`USB0`+`UFN0` replaced by a plain XHCI `USB0` (`PNP0D10`,
+   0x4E00000, GSIV 0x11F) — `uefi/patches/tapas-dsdt-xhci.diff`. With URS0 Windows' inbox
+   `urssynopsys` picked the FUNCTION role (no ID pin) and never exposed the host.
+
+Charger facts: REG14=0x4C (PN=001: not a genuine bq25890, likely SY6970/SC89890 clone, same
+register map), REG07=0x8D (watchdog already off), REG0A=0x73 (5.126 V / 1.4 A boost),
+REG03=0x1A. rt1711h VID/PID 29CF/1711, ROLE_CONTROL=0x0A (Rd/Rd). QUP0 SE1: fw proto 3 (I2C),
+tx_depth 16, DFS level 0 = XO (perf 0x1), CLK_SEL 0. USB D+/D- switch GPIO66 = output low (SoC).
+
+Windows clock is 2022-05-07 (no RTC): test certs must have NotBefore in the past
+(TopazTouch install failed with 0x800B0101 because of this; fixed in CI).
+
 ## 3. Build
 Push to `main` (or a branch) → GitHub Actions `Build drivers` (windows-2022, WDK 26100)
 builds ARM64 Release, stamps INF, makes the catalog, **test-signs with a fresh

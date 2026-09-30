@@ -1,0 +1,22 @@
+diff --git a/Platforms/Xiaomi/tapasPkg/Include/DXE.inc b/Platforms/Xiaomi/tapasPkg/Include/DXE.inc
+index ba35b43..de01faf 100644
+--- a/Platforms/Xiaomi/tapasPkg/Include/DXE.inc
++++ b/Platforms/Xiaomi/tapasPkg/Include/DXE.inc
+@@ -81,6 +81,7 @@
+   INF Binaries/tapas/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
+   INF Binaries/tapas/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
+   INF Binaries/tapas/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
++  INF tapasPkg/Drivers/TopazOtgDxe/TopazOtgDxe.inf
+   INF Binaries/tapas/QcomPkg/Drivers/HashDxe/HashDxe.inf
+   INF Binaries/tapas/QcomPkg/Drivers/CipherDxe/CipherDxe.inf
+   INF Binaries/tapas/QcomPkg/Drivers/MacDxe/MacDxe.inf
+diff --git a/Platforms/Xiaomi/tapasPkg/tapas.dsc b/Platforms/Xiaomi/tapasPkg/tapas.dsc
+index c8ee5d7..b3f0ca1 100644
+--- a/Platforms/Xiaomi/tapasPkg/tapas.dsc
++++ b/Platforms/Xiaomi/tapasPkg/tapas.dsc
+@@ -82,3 +82,5 @@
+   # ACPI Tables
+   #
+   tapas/AcpiTables.inf
++
++  tapasPkg/Drivers/TopazOtgDxe/TopazOtgDxe.inf

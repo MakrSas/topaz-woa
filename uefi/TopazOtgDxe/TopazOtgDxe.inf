@@ -1,0 +1,27 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = TopazOtgDxe
+  FILE_GUID                      = 5E2A1C7B-3F4D-4E8A-9B61-7A0C2D6E9F13
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = TopazOtgEntry
+
+[Sources]
+  TopazOtgDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  IoLib
+  TimerLib
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+  PrintLib
+
+[Depex]
+  TRUE

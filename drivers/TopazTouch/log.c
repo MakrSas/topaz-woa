@@ -5,7 +5,7 @@
 #include "driver.h"
 
 static HANDLE    g_LogFile;
-static FAST_MUTEX g_LogLock;
+static KMUTEX    g_LogLock;  /* not FAST_MUTEX: ZwWriteFile needs PASSIVE_LEVEL */
 static BOOLEAN   g_LogInit;
 
 VOID LogOpen(VOID)
@@ -15,7 +15,7 @@ VOID LogOpen(VOID)
     IO_STATUS_BLOCK iosb;
 
     if (!g_LogInit) {
-        ExInitializeFastMutex(&g_LogLock);
+        KeInitializeMutex(&g_LogLock, 0);
         g_LogInit = TRUE;
     }
     if (g_LogFile != NULL || KeGetCurrentIrql() != PASSIVE_LEVEL) {
@@ -45,9 +45,9 @@ static VOID LogWrite(PCSTR Text, SIZE_T Len)
     if (g_LogFile == NULL || KeGetCurrentIrql() != PASSIVE_LEVEL) {
         return;
     }
-    ExAcquireFastMutex(&g_LogLock);
+    KeWaitForSingleObject(&g_LogLock, Executive, KernelMode, FALSE, NULL);
     ZwWriteFile(g_LogFile, NULL, NULL, NULL, &iosb, (PVOID)Text, (ULONG)Len, NULL, NULL);
-    ExReleaseFastMutex(&g_LogLock);
+    KeReleaseMutex(&g_LogLock, FALSE);
 }
 
 VOID LogPrint(PCSTR Fmt, ...)
