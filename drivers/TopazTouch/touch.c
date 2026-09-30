@@ -1,6 +1,6 @@
 /*
  * FocalTech touch controller -> Windows multi-touch digitizer via VHF.
- * v0.1: polled (GPIO80 level + periodic poll), no ACPI, root-enumerated.
+ * v0.2: polled (GPIO80 level + periodic poll), no ACPI, root-enumerated.
  */
 #include "driver.h"
 
@@ -205,6 +205,7 @@ static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf)
     TOUCH_REPORT rpt;
     HID_XFER_PACKET pkt;
     ULONG i, n = 0;
+    USHORT mask = 0;
 
     RtlZeroMemory(&rpt, sizeof(rpt));
     rpt.ReportId = REPORTID_TOUCH;
@@ -215,22 +216,58 @@ static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf)
         UCHAR id = p[2] >> 4;
         ULONG x = ((ULONG)(p[0] & 0x0F) << 8) | p[1];
         ULONG y = ((ULONG)(p[2] & 0x0F) << 8) | p[3];
+        BOOLEAN down = (event != 1);                /* 0 down, 1 up, 2 contact, 3 none */
 
-        if (id >= TS_MAX_CONTACTS) {
+        if (id >= TS_MAX_CONTACTS || event == 3) {
             continue;
         }
-        rpt.Finger[n].Tip = (event == 1) ? 0 : 1;   /* 0 down, 1 up, 2 contact */
+        if (x > Ctx->MaxRawX || y > Ctx->MaxRawY) {
+            Ctx->MaxRawX = max(Ctx->MaxRawX, x);
+            Ctx->MaxRawY = max(Ctx->MaxRawY, y);
+            if (Ctx->RawLogged < 2000) {
+                Ctx->RawLogged++;
+                LogPrint("max raw x=%u y=%u\n", Ctx->MaxRawX, Ctx->MaxRawY);
+            }
+        }
+        /* log every touch-down / lift with raw bytes of that slot */
+        if ((event == 0 || event == 1 || !(Ctx->ActiveMask & (1u << id))) && Ctx->RawLogged < 2000) {
+            Ctx->RawLogged++;
+            LogPrint("%s id=%u x=%u y=%u raw=%02x %02x %02x %02x %02x %02x td=%02x\n",
+                     event == 1 ? "up  " : "down", id, x, y, p[0], p[1], p[2], p[3], p[4], p[5], Buf[2]);
+        }
+        rpt.Finger[n].Tip = down ? 1 : 0;
         rpt.Finger[n].Id = id;
         rpt.Finger[n].X = (USHORT)min(x, (ULONG)MAXX);
         rpt.Finger[n].Y = (USHORT)min(y, (ULONG)MAXY);
+        Ctx->LastX[id] = rpt.Finger[n].X;
+        Ctx->LastY[id] = rpt.Finger[n].Y;
+        if (down) {
+            mask |= (USHORT)(1u << id);
+        }
         n++;
     }
+    /* contacts that vanished without an "up" event: report them lifted */
+    for (i = 0; i < TS_MAX_CONTACTS && n < TS_MAX_CONTACTS; i++) {
+        BOOLEAN inReport = FALSE;
+        ULONG j;
+
+        if (!(Ctx->ActiveMask & (1u << i)) || (mask & (1u << i))) {
+            continue;
+        }
+        for (j = 0; j < n; j++) {
+            inReport |= (rpt.Finger[j].Id == i);
+        }
+        if (!inReport) {
+            rpt.Finger[n].Tip = 0;
+            rpt.Finger[n].Id = (UCHAR)i;
+            rpt.Finger[n].X = Ctx->LastX[i];
+            rpt.Finger[n].Y = Ctx->LastY[i];
+            n++;
+        }
+    }
+    Ctx->ActiveMask = mask;
     rpt.Count = (UCHAR)n;
 
-    if (n > 0 && Ctx->RawLogged < 40) {
-        Ctx->RawLogged++;
-        LogHex("raw:", Buf, 3 + 6 * 2);
-    }
     if (n == 0 || !Ctx->VhfStarted) {
         return;
     }
@@ -269,7 +306,7 @@ static VOID TouchThread(PVOID Context)
             }
             continue;
         }
-        wasTouching = (buf[2] & 0x0F) != 0 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS;
+        wasTouching = ((buf[2] & 0x0F) != 0 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS) || Ctx->ActiveMask != 0;
         TouchProcess(Ctx, buf);
     }
     LogPrint("thread exit (polls=%u errors=%u)\n", polls, errors);

@@ -1,5 +1,5 @@
 /*
- * Tiny file logger: \SystemRoot\..\TopazTouch.log (C:\TopazTouch.log).
+ * Tiny file logger: C:\TopazTouch.log (\??\C:\ - ".." is not resolved in NT paths).
  * Readable offline from TWRP (mount.ntfs) when Windows has no input.
  */
 #include "driver.h"
@@ -10,7 +10,7 @@ static BOOLEAN   g_LogInit;
 
 VOID LogOpen(VOID)
 {
-    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\SystemRoot\\..\\TopazTouch.log");
+    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\TopazTouch.log");
     OBJECT_ATTRIBUTES oa;
     IO_STATUS_BLOCK iosb;
 

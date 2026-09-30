@@ -86,6 +86,9 @@ typedef struct _DEVICE_CONTEXT {
 
     ULONG        LogicalMaxX, LogicalMaxY;
     ULONG        RawLogged;
+    ULONG        MaxRawX, MaxRawY;
+    USHORT       ActiveMask;                     /* contact ids reported down last frame */
+    USHORT       LastX[TS_MAX_CONTACTS], LastY[TS_MAX_CONTACTS];
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)
