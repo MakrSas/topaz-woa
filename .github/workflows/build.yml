@@ -15,26 +15,36 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
-      - name: Show installed WDK
+      - name: Build TopazTouch.sys (ARM64 Release)
+        run: msbuild drivers\TopazTouch\TopazTouch.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
+
+      - name: Package, catalog and test-sign
         shell: pwsh
         run: |
-          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -ErrorAction SilentlyContinue | Select-Object Name
-          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Lib\*\km\arm64\vhfkm.lib" -ErrorAction SilentlyContinue | Select-Object FullName
-
-      - name: Build TopazTouch (ARM64 Release)
-        run: msbuild drivers\TopazTouch\TopazTouch.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:EnableInfVerif=false /p:RunInfVerif=false /p:ApiValidator_Enable=false /m /v:minimal
-
-      - name: Collect package
-        shell: pwsh
-        run: |
-          $out = "out\TopazTouch"
+          $ErrorActionPreference = "Stop"
+          $kits = "C:\Program Files (x86)\Windows Kits\10"
+          $ver  = "10.0.26100.0"
+          $bin  = "$kits\bin\$ver"
+          $out  = "out\TopazTouch"
           New-Item -ItemType Directory -Force $out | Out-Null
-          $pkg = Get-ChildItem -Recurse -Directory drivers\TopazTouch -Filter TopazTouch | Where-Object { Test-Path "$($_.FullName)\TopazTouch.inf" } | Select-Object -First 1
-          Copy-Item "$($pkg.FullName)\*" $out -Recurse
-          Get-ChildItem -Recurse drivers\TopazTouch -Include *.cer | Select-Object -First 1 | Copy-Item -Destination $out
-          $devcon = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Tools" -Recurse -Filter devcon.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "arm64" } | Select-Object -First 1
+          Copy-Item drivers\TopazTouch\ARM64\Release\TopazTouch.sys $out
+          Copy-Item drivers\TopazTouch\TopazTouch.inf $out
+
+          & "$bin\x64\stampinf.exe" -f "$out\TopazTouch.inf" -d "*" -a "arm64" -v "0.1.${{ github.run_number }}.0" -k "1.15"
+          if ($LASTEXITCODE) { throw "stampinf failed" }
+
+          $inf2cat = Get-ChildItem "$kits\bin" -Recurse -Filter Inf2Cat.exe | Select-Object -First 1
+          & $inf2cat.FullName /driver:"$((Resolve-Path $out).Path)" /os:10_NI_ARM64 /uselocaltime
+          if ($LASTEXITCODE) { throw "inf2cat failed" }
+
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=topaz-woa test signing" -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(5)
+          Export-Certificate -Cert $cert -FilePath "$out\topaz-woa-test.cer" | Out-Null
+          & "$bin\x64\signtool.exe" sign /fd sha256 /sha1 $cert.Thumbprint /s My "$out\TopazTouch.sys" "$out\TopazTouch.cat"
+          if ($LASTEXITCODE) { throw "signtool failed" }
+
+          $devcon = Get-ChildItem "$kits\Tools" -Recurse -Filter devcon.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "arm64" } | Select-Object -First 1
           if ($devcon) { Copy-Item $devcon.FullName $out } else { Write-Warning "devcon arm64 not found" }
-          Get-ChildItem -Recurse $out | Select-Object FullName, Length
+          Get-ChildItem $out | Select-Object Name, Length | Format-Table -AutoSize
 
       - uses: actions/upload-artifact@v4
         with:

@@ -39,8 +39,8 @@
   </ImportGroup>
   <PropertyGroup>
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
-    <SignMode>TestSign</SignMode>
-    <EnableInf2cat>true</EnableInf2cat>
+    <SignMode>Off</SignMode>
+    <EnableInf2cat>false</EnableInf2cat>
     <EnableInfVerif>false</EnableInfVerif>
     <RunInfVerif>false</RunInfVerif>
     <ApiValidator_Enable>false</ApiValidator_Enable>
@@ -70,12 +70,7 @@
     <ClInclude Include="hw.h" />
   </ItemGroup>
   <ItemGroup>
-    <Inf Include="TopazTouch.inf" />
-  </ItemGroup>
-  <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <!-- InfVerif.dll is missing on GitHub windows runners; skip INF verification. -->
-  <Target Name="InfVerif" />
 </Project>
