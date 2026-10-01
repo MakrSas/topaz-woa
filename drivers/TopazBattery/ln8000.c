@@ -189,22 +189,34 @@ static VOID CpStart(PDEVICE_CONTEXT Ctx)
         return;
     }
 
+    /*
+     * 0. bq2589x charging off first: it would otherwise pull ~1.3 A at 9 V and push the
+     *    1.5 A-limited PPS into current limit (v0.11 first try: VBUS fell to 6 V). From here on
+     *    every failure goes through CpStop(), which turns it back on.
+     */
+    Ctx->CpActive = TRUE;
+    Ctx->CpRcp = FALSE;
+    Ctx->CpSteps = 0;
+    BqCharge(Ctx, FALSE);
+    PdWait(Ctx, 300);
+    LnReadAdc(Ctx, &vin, &iin, &vbat, &tdie);
+
     /* 1. VBUS = 2 x VBAT + 300 mV (Xiaomi's start point), adapter limited to 1.5 A */
     mv = ((2 * vbat + 300) / 20) * 20;
     mv = max(mv, Ctx->Pd.PpsMinMv);
     mv = min(mv, min(Ctx->Pd.PpsMaxMv, (ULONG)CP_PPS_MAX_MV));
     LogPrint("cp: START test: vbat %umV (gauge %umV, %d.%dC, soc %u.%u%%) -> PPS %umV %umA, target IBUS %umA\n",
              vbat, vg, temp / 10, temp % 10, soc / 10, soc % 10, mv, CP_PPS_MA, CP_TARGET_MA);
+    Ctx->CpPpsMv = mv;
     if (!PdSetPps(Ctx, mv, CP_PPS_MA)) {
-        LogPrint("cp: PPS request failed, not starting\n");
-        PdSetFixed(Ctx, "cp start failed");
+        CpStop(Ctx, "start: PPS request failed");
         return;
     }
     PdWait(Ctx, 300);
     LnReadAdc(Ctx, &vin, &iin, &vbat, &tdie);
+    LogPrint("cp: PPS %umV in place: vin=%umV iin=%umA vbat=%umV\n", mv, vin, iin, vbat);
     if (vin + 400 < mv || vin > mv + 400) {
-        LogPrint("cp: VBUS %umV does not match PPS %umV, not starting\n", vin, mv);
-        PdSetFixed(Ctx, "cp start failed");
+        CpStop(Ctx, "start: VBUS does not match the PPS request");
         return;
     }
 
@@ -215,18 +227,13 @@ static VOID CpStart(PDEVICE_CONTEXT Ctx)
     s |= LnUpdate(Ctx, LN_REG_FAULT_CTRL, 0x7C, 0x00);                      /* all protections on */
     s |= LnUpdate(Ctx, LN_REG_SYS_CTRL, LN_SYS_REV_IIN_DET, 0);             /* rcp off for the start */
     if (!NT_SUCCESS(s)) {
-        LogPrint("cp: ln8000 setup failed (%08x), not starting\n", s);
-        PdSetFixed(Ctx, "cp start failed");
+        LogPrint("cp: ln8000 setup failed (%08x)\n", s);
+        CpStop(Ctx, "start: ln8000 setup failed");
         return;
     }
     LnDump(Ctx, "before switching");
 
-    /* 3. hand the battery over: bq2589x charging off, pump switching */
-    Ctx->CpActive = TRUE;
-    Ctx->CpRcp = FALSE;
-    Ctx->CpSteps = 0;
-    Ctx->CpPpsMv = mv;
-    BqCharge(Ctx, FALSE);
+    /* 3. pump switching */
     s = LnUpdate(Ctx, LN_REG_SYS_CTRL, LN_SYS_STANDBY_EN | LN_SYS_EN_1TO1, 0);
     PdWait(Ctx, 100);
     I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN_REG_SYS_STS, &sts);
