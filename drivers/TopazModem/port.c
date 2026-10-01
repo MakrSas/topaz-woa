@@ -62,7 +62,9 @@ VOID *PhysAlloc(UINTN Size, UINT64 *Pa)
   UINTN i;
 
   lo.QuadPart = 0;
-  hi.QuadPart = 0xFFFFFFFF;
+  /* the modem computes end = addr + size in 32 bits: a buffer ending at 4 GiB (0xFFD00000 +
+     3 MiB in v0.2) wraps to 0 and rmtfs dies with "xpu lock failed". Stay well below. */
+  hi.QuadPart = 0xEFFFFFFF;
   bound.QuadPart = 0;
   Size = ALIGN_VALUE (Size, SIZE_4KB);
   for (i = 0; i < PHYS_MAX && mPhys[i].Va != NULL; i++) {
