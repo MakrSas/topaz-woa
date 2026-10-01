@@ -1,5 +1,10 @@
 # Handoff: Wi-Fi on topaz, from UEFI spike to a Windows driver (2026-10-01)
 
+> **Update 2026-10-01: section 2 is DONE.** `drivers/TopazModem` v0.3 reaches `WLAN FIRMWARE READY`
+> in Windows and keeps the modem up (log `docs/logs/TopazModem-v0.3.log`, details in
+> `RESEARCH_wifi.md` P2b). Deploy: `tools/deploy/install-modem.cmd` (copies `fw\` to `C:\topaz\fw`,
+> creates the one-shot `C:\topaz\modem.arm`, installs). Next is P4 (section 5).
+
 Read this together with `docs/RESEARCH_wifi.md` (facts and protocol details) and
 `docs/AGENT_BRIEF_drivers.md` (hardware, build/deploy rules).
 

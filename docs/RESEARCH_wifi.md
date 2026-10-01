@@ -109,7 +109,17 @@ Linux references: `drivers/remoteproc/qcom_q6v5_pas.c`, `drivers/firmware/qcom_s
         100 blocks, then "User-PD grace timer expired for wlan_process").
       - **Gotcha 2:** console output on the 1080x2400 GOP is slow (scrolling); spamming lines
         made the PD miss its grace timer. Use the timer counter for timestamps.
-- [ ] P2b Same in a Windows kernel driver `drivers/TopazModem` — plan and porting notes in `docs/HANDOFF_wifi_windows.md`.
+- [x] P2b+P3 in Windows: `drivers/TopazModem` v0.3 **2026-10-01: WLAN FIRMWARE READY under Windows**
+      (log `docs/logs/TopazModem-v0.3.log`): SMC from the Windows kernel works exactly like from UEFI,
+      READY 0.25 s after auth_and_reset, wlanmdsp.mbn over tftp in 0.4 s, FW_READY 4.3 s after GLINK
+      start, modem READY for 5.5+ min, 43 services. Lessons: v0.1 bugchecked on
+      `KeQueryInterruptTimePrecise(NULL)` (out param is mandatory); v0.2 rmtfs buffer at 0xFFD00000
+      (+3 MiB = 4 GiB) killed the modem with `rmts_api.c:1140:xpu lock failed -3145728` (the modem's
+      32-bit end address wraps) -> keep TZ/modem buffers below 0xF0000000.
+      Chip: chip_id 0x4130 family 0x4007, board_id 0xFF (-> bdwlan.bin), soc_id 0x40690000,
+      fw WLAN.HL.3.2.4-01083.3-QCAHLSWMTPLZ-1.47019.3.56296.4 (built 2024-01-18).
+      Open: SCM assign of the MSA regions returns ret=-2 res=0x56 (both regions); FW_READY comes
+      anyway (TZ/modem probably own MSA already) — revisit before the data path.
 - [x] P3 WLFW QMI handshake (`Wlfw.c`, Linux ath10k/qmi.c order) **2026-10-01: FW_READY received.**
       IND_REGISTER (fw_ready + msa_ready, client id 0x4b4e454c) -> HOST_CAP (daemon_support 0) ->
       MSA_INFO (0x51900000, 1 MiB) + SCM assign of the returned regions to MSS_MSA/WLAN(/WLAN_CE) ->
