@@ -8,6 +8,8 @@
 
 [Sources]
   TopazOtgDxe.c
+  AbSlot.c
+  AbSlot.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -24,9 +26,11 @@
   UefiRuntimeServicesTableLib
   UefiLib
   PrintLib
+  MemoryAllocationLib
 
 [Protocols]
   gQcomPmicPonProtocolGuid
+  gEfiBlockIoProtocolGuid
 
 [Depex]
   TRUE

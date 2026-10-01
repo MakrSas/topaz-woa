@@ -20,6 +20,7 @@
 #include <Library/PrintLib.h>
 #include <Guid/EventGroup.h>
 #include <Protocol/EFIPmicPon.h>
+#include "AbSlot.h"
 
 #define TAG "TopazOtg: "
 
@@ -418,8 +419,16 @@ STATIC VOID DumpLog(VOID)
 
 /* ---- Boot menu: Vol+/Vol- move, Power (any other key) selects ---------------- */
 
-enum { MENU_WINDOWS, MENU_ANDROID, MENU_FASTBOOT, MENU_POWEROFF, MENU_COUNT };
-STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Android", "Fastboot", "Power off" };
+enum { MENU_WINDOWS, MENU_ANDROID, MENU_TWRP, MENU_FASTBOOT, MENU_POWEROFF, MENU_COUNT };
+STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Android", "TWRP", "Fastboot", "Power off" };
+
+/*
+ * Layout: slot b boot_b = this UEFI (active by default), slot a = Android + TWRP in
+ * recovery_a. Android/TWRP switch the A/B attributes to slot a (Android switches back to
+ * b after boot with `bootctl set-active-boot-slot 1`).
+ */
+STATIC AB_SLOT_INFO mAb;
+STATIC EFI_STATUS   mAbStatus = EFI_NOT_READY;
 
 /*
  * Reboot into a specific ABL mode. Mu's ResetSystem is plain PSCI and drops the
@@ -478,6 +487,10 @@ STATIC UINTN BootMenu(UINTN TimeoutSec)
   gST->ConOut->ClearScreen (gST->ConOut);
   ConPrint ("  ==== topaz: choose OS ====\r\n");
   MenuDraw (sel, left);
+  ConPrint ("\r\n  slots: %r  a=%016lx b=%016lx\r\n", mAbStatus, mAb.AttrA, mAb.AttrB);
+  ConPrint ("  a: prio=%u act=%u retry=%u ok=%u unboot=%u   b: prio=%u act=%u retry=%u ok=%u unboot=%u\r\n",
+            AB_PRIO (mAb.AttrA), AB_ACTIVE (mAb.AttrA), AB_RETRY (mAb.AttrA), AB_SUCCESS (mAb.AttrA), AB_UNBOOT (mAb.AttrA),
+            AB_PRIO (mAb.AttrB), AB_ACTIVE (mAb.AttrB), AB_RETRY (mAb.AttrB), AB_SUCCESS (mAb.AttrB), AB_UNBOOT (mAb.AttrB));
   for (ticks = 0; touched || ticks < TimeoutSec * 10; ticks++) {
     if (KeyPressed (&key)) {
       touched = TRUE;
@@ -512,16 +525,50 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
    * back before returning to the event dispatcher.
    */
   gBS->RestoreTPL (TPL_APPLICATION);
-  choice = BootMenu (10);
-  if (choice == MENU_ANDROID) {
-    ConPrint ("\r\n  Rebooting to Android (recovery_a)...\r\n");
-    RebootWithReason (ABL_REASON_RECOVERY);
-  } else if (choice == MENU_FASTBOOT) {
-    ConPrint ("\r\n  Rebooting to fastboot...\r\n");
-    RebootWithReason (ABL_REASON_FASTBOOT);
-  } else if (choice == MENU_POWEROFF) {
-    ConPrint ("\r\n  Powering off...\r\n");
-    gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+
+  mAbStatus = AbSlotRead (&mAb);
+#ifdef TOPAZ_AB_FIX
+  /* one-off repair: attributes say a, GUIDs are still on b -> put the attributes back on b */
+  if (!EFI_ERROR (mAbStatus) && AB_ACTIVE (mAb.AttrA)) {
+    EFI_INPUT_KEY k;
+    EFI_STATUS st = AbSlotSetActive (&mAb, TRUE);
+    gST->ConOut->ClearScreen (gST->ConOut);
+    ConPrint ("  AB FIX: attributes back to slot b: %r\r\n  a=%016lx b=%016lx\r\n  Any key\r\n", st, mAb.AttrA, mAb.AttrB);
+    while (!KeyPressed (&k)) {
+      gBS->Stall (100 * 1000);
+    }
+  }
+#endif
+  if (!EFI_ERROR (mAbStatus) && AB_ACTIVE (mAb.AttrB) && !AB_SUCCESS (mAb.AttrB)) {
+    mAbStatus = AbSlotMarkBSuccessful (&mAb);        /* keep ABL from falling back to slot a */
+  }
+
+  for (;;) {
+    choice = BootMenu (10);
+    if (choice == MENU_ANDROID || choice == MENU_TWRP) {
+      EFI_STATUS st = EFI_ERROR (mAbStatus) ? mAbStatus :
+                      !AB_ACTIVE (mAb.AttrB) ? EFI_ALREADY_STARTED : AbSlotRequestA (&mAb);
+      ConPrint ("\r\n  request slot a (b unbootable): %r  a=%016lx b=%016lx\r\n", st, mAb.AttrA, mAb.AttrB);
+      if (EFI_ERROR (st)) {
+        ConPrint ("  NOT switched. Any key: back to menu\r\n");
+        while (!KeyPressed (&key)) {
+          gBS->Stall (100 * 1000);
+        }
+        continue;
+      }
+      gBS->Stall (1500 * 1000);
+      if (choice == MENU_TWRP) {
+        RebootWithReason (ABL_REASON_RECOVERY);
+      }
+      gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+    } else if (choice == MENU_FASTBOOT) {
+      ConPrint ("\r\n  Rebooting to fastboot...\r\n");
+      RebootWithReason (ABL_REASON_FASTBOOT);
+    } else if (choice == MENU_POWEROFF) {
+      ConPrint ("\r\n  Powering off...\r\n");
+      gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+    }
+    break;                                              /* Windows */
   }
 
   ConPrint ("\r\n  Windows. Unplug PC/charger cable, plug the hub.\r\n");

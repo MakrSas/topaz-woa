@@ -84,6 +84,24 @@ Goal: UEFI on every power-on with a menu (Vol+/Vol- move, Power selects):
   `RestoreTPL(TPL_APPLICATION)` for the interactive part, `RaiseTPL(TPL_CALLBACK)` before return.
 - Backups (sha256-verified vs the phone): `~/work/topaz/backup_20261001/{boot_a,init_boot_a,
   vendor_boot_a,recovery_a,dtbo_a,vbmeta_a}.img`.
+- **Variant 1 is impossible on this ABL**: in recovery mode it only boots kernel-less images
+  (the kernel always comes from boot_<slot>). Android-with-kernel and even the UEFI image in
+  recovery_a -> ABL falls back to fastboot. So OS selection needs the A/B slots.
+- Slot layout tried: slot b `boot_b` = UEFI (flashed, `fastboot set_active b` -> menu on every
+  power-on, works), slot a = Android + TWRP. Firmware _a/_b are byte-identical (checked).
+- **INCIDENT 2026-10-01 — never switch slots by flipping the active bit only.** Qualcomm keeps
+  the real partition type GUID on the active copy and gives every inactive copy the same
+  "inactive" GUID `77036cd4-03d5-42bb-8ed1-37e5a88baa34` (sde/LUN4: boot, vendor_boot, dtbo,
+  vbmeta, tz, abl, ...). ABL's SetActiveSlot swaps those GUIDs (SwitchPtnSlots) *and* sets the
+  attributes (MarkPtnActive on all _a/_b entries), deciding "current" from the attributes.
+  The menu flipped only boot_a/boot_b attributes -> attributes said a, GUIDs stayed on b ->
+  ABL could not load anything ("Failed to load/authenticate boot image: Device Error", even
+  `fastboot boot`), and every later `fastboot set_active` keeps the mismatch (it swaps both).
+  Fixed by `fastboot flash partition:4 ~/work/topaz/gpt_both4_20260930.bin` (MBR+hdr+4 entry
+  blocks + 4 backup entry blocks + backup hdr, from the 2026-09-30 LUN4 backup; layout and GUIDs
+  unchanged, only attributes differed) -> slot a boots again. Fresh GPT backups of all LUNs:
+  `~/work/topaz/gpt_backup_20261001/`. `vbmeta_system_a/_b` on sda are not GUID-swapped.
+- Leftover: boot_b still holds the MENU3 UEFI image (harmless while slot a is active).
 - **TODO (variant 3): TWRP from the menu.** Put a kernel + TWRP into the unused slot b
   (`boot_b`/`recovery_b`) and add a "TWRP" item that makes slot b active for one boot by
   editing the A/B attributes in the GPT entries of boot_a/boot_b (what `fastboot set_active`
