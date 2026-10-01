@@ -10,7 +10,8 @@
 #define TLMM_TILE_WEST       0x00100000ULL
 #define TLMM_PIN_STRIDE      0x1000
 #define TLMM_PIN_PA(tile, pin) (TLMM_BASE + (tile) + (ULONGLONG)(pin) * TLMM_PIN_STRIDE)
-#define TLMM_CTL             0x0
+#define TLMM_CTL             0x0      /* pull[1:0] func[5:2] drv[8:6] oe[9] */
+#define TLMM_IO              0x4      /* in[0] out[1] */
 #define TLMM_PULL_NONE       0
 #define TLMM_DRV_MA(ma)      (((ma) / 2) - 1)
 
