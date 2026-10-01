@@ -56,6 +56,7 @@ void __cdecl operator delete(void *P) noexcept
     PoolFree(P);
 }
 
+/* also the TLV library's delete(void *, ULONG_PTR): ULONG_PTR is size_t on ARM64 */
 void __cdecl operator delete(void *P, size_t) noexcept
 {
     PoolFree(P);
@@ -67,16 +68,6 @@ void __cdecl operator delete[](void *P) noexcept
 }
 
 void __cdecl operator delete[](void *P, size_t) noexcept
-{
-    PoolFree(P);
-}
-
-void __cdecl operator delete(void *P, ULONG_PTR) noexcept                       /* WIFICX TLV */
-{
-    PoolFree(P);
-}
-
-void __cdecl operator delete[](void *P, ULONG_PTR) noexcept
 {
     PoolFree(P);
 }
