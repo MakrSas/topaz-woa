@@ -62,3 +62,7 @@ VOID           ModemIdle(BOOLEAN Busy);           /* 1 ms sleep when idle, short
 VOID           LogSetLazy(BOOLEAN Lazy);          /* lazy: buffer lines, flush from ModemIdle() */
 VOID           LogFlush(VOID);
 extern volatile BOOLEAN gModemStop;
+
+/* P4 probes (wlanprobe.c), read-only */
+VOID           SmmuProbe(BOOLEAN All);
+VOID           CeProbe(VOID);

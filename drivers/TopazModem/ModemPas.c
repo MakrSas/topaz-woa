@@ -379,6 +379,7 @@ EFI_STATUS ModemPasTest(VOID)
   if (EFI_ERROR (ModemMapInit ())) {
     return EFI_OUT_OF_RESOURCES;
   }
+  SmmuProbe (TRUE);
   {
     /* The modem must start cold: its GLINK/QRTR peer state from an earlier boot is gone. */
     SMEM_PART_HDR *part = SmemPartition (0, 1);

@@ -363,6 +363,8 @@ VOID WlfwRx(CONST UINT8 *D, UINT32 Len)
       mFwReady = TRUE;
       Step ("FW READY");
       Out ("  t=%u.%03u *** WLAN FIRMWARE READY ***\r\n", (UINT32)(ModemMs () / 1000), (UINT32)(ModemMs () % 1000));
+      SmmuProbe (FALSE);
+      CeProbe ();
     } else {
       Out ("  wlfw: indication %x\r\n", msg);
     }
