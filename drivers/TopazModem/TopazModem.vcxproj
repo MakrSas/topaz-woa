@@ -70,6 +70,7 @@
     <ClCompile Include="log.c" />
     <ClCompile Include="ModemPas.c" />
     <ClCompile Include="ModemSvc.c" />
+    <ClCompile Include="pmic.c" />
     <ClCompile Include="port.c" />
     <ClCompile Include="scan.c" />
     <ClCompile Include="Smem.c" />

@@ -1,0 +1,311 @@
+==== TopazModem v0.10 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+armed: booting the modem
+
+  ==== Wi-Fi P1: modem (MPSS) PAS boot ====
+  map: SMEM FFFFED78A6C00000 APCS FFFFDD812C259000 GICD FFFFDD812C25A000
+  smmu: sCR0 00210406 (CLIENTPD 0 USFCFG 1) ID0 4c017e32 ID1 50000030 ID2 00005111: 50 SMRs, 48 CBs, page 1000 x64
+   SMR0 800000c0 (sid c0 mask 0) S2CR 00000000 type 0 cb 0
+    CB0: CBAR 0001f000 CBA2R 00000001 SCTLR 000000e0 TCR 00000000 TCR2 00024060
+        TTBR0 0000000000000000 MAIR 00000000 00000000 FSR 00000400 FAR 0001ffbffffb89ff
+   SMR1 800000a0 (sid a0 mask 0) S2CR 00000000 type 0 cb 0
+    CB0: CBAR 0001f000 CBA2R 00000001 SCTLR 000000e0 TCR 00000000 TCR2 00024060
+        TTBR0 0000000000000000 MAIR 00000000 00000000 FSR 00000400 FAR 0001ffbffffb89ff
+   SMR2 80000120 (sid 120 mask 0) S2CR 00000001 type 0 cb 1
+    CB1: CBAR 0001f000 CBA2R 00000001 SCTLR 000000e0 TCR 00000000 TCR2 40000065
+        TTBR0 0000000000000000 MAIR 00000000 00000000 FSR 00000400 FAR 000039a3fb7cf9ff
+   SMR3 80000100 (sid 100 mask 0) S2CR 00000002 type 0 cb 2
+    CB2: CBAR 0001f000 CBA2R 00000001 SCTLR 000000e0 TCR 00000000 TCR2 40030073
+        TTBR0 0000000000000000 MAIR 00000000 00000000 FSR 00000400 FAR 00007f0b9fff7071
+   SMR4 80020420 (sid 420 mask 2) S2CR 00000003 type 0 cb 3
+    CB3: CBAR 0001f000 CBA2R 00000001 SCTLR 000000e0 TCR 00000000 TCR2 0001c063
+        TTBR0 0000000000000000 MAIR 00000000 00000000 FSR 00000400 FAR 0000b3f7fdfaffff
+  smmu: WLAN stream 1a0: no match, USFCFG=1 -> FAULT
+  smmu: WLAN identity CB4 in SMR5: SMR 800101a0 S2CR 00000004 SCTLR 000000e0 (sync 0 us) -> OK (type 0 translate)
+  SMEM version 12, apps<->modem partition FFFFED78A6CDD000
+  call available: init=1 mem=1 auth=1 is_sup=1
+  modem.mdt: 0, 9100 bytes
+  phdrs=31 hash=1 region 4ab00000..51400000 relocate=1
+  hash from modem.b01: 0, 8056 of 8056 bytes
+  PAS init_image: ret=0 res=0 resumes=33 (meta 9100 bytes @efffd000)
+  PAS mem_setup: ret=0 res=0
+  segments loaded
+  PAS auth_and_reset: ret=0 res=0 resumes=233 (0/0 = TZ verified and started the modem)
+  SMEM version 12, ptable ok
+  apps<->modem partition: FFFFED78A6CDD000
+  map TCSR mutex: FFFFDD80FC7F0000
+  created apps->modem item 428: FFFFED78A6CE1070
+  apps->modem (428): magic 504d5324 v1 feat 01 pid 0->1 entries 0/16
+  t=0.00s modem wdog SPI pending=0
+  t=0.25s modem SMP2P item appeared (340 bytes)
+  t=0.25s SMP2P negotiated, features 01
+  t=0.25s slave-kernel=00000006 READY handover
+  ---- P2: GLINK/QRTR ----
+  \image\wlanmdsp.mbn: 3814776 bytes, crc32 a4fd8c71
+  glink desc FFFFED78A6CDD030 (modem made it) tx FFFFED78A6CDD060
+  t=0.000 modem RX FIFO FFFFED78A6CE1370, 16384 bytes
+  t=0.000 glink VERSION 1 features 7
+  t=0.000 glink VERSION_ACK 1 features 1
+  t=0.000 glink modem OPEN "glink_ssr" rcid 1
+  t=0.000 glink modem OPEN "IPCRTR" rcid 2
+  t=0.000 glink modem OPEN "SSM_RTR_MODEM_APPS" rcid 3
+  t=0.000 glink OPEN_ACK lcid 1
+  t=0.000 glink modem INTENT x1 (chan 2), have 1
+  t=0.000 glink modem INTENT x1 (chan 2), have 2
+  t=0.000 glink modem INTENT x1 (chan 2), have 3
+  t=0.000 IPCRTR open both ways, 8 intents sent
+  t=0.000 sent qrtr HELLO to node ffffffff
+  t=0.001 qrtr v1 HELLO from node 0
+  t=0.001 sent qrtr HELLO to node 0
+  announced pd-mapper 0x40, tftp 0x1000, rmtfs 0x0E
+  pd-mapper: "tms/pdr_enabled" -> 1 domain(s)
+  rmtfs: open /boot/modem_fs1 -> ok
+  pd-mapper: "tms/pddump_disabled" -> 0 domain(s)
+  t=0.005 qrtr type 6 from 0:fffffffe: 0 a 0 0
+  rmtfs: open /boot/modem_fs2 -> ok
+  t=0.008 qrtr type 6 from 0:fffffffe: 0 b 0 0
+  SCM assign efd00000+300000 -> 3 vmids: ret=0 res=0
+  rmtfs: alloc 300000 for caller 1 -> efd00000
+  t=0.016 qrtr type 6 from 0:fffffffe: 0 d 0 0
+  t=0.019 qrtr type 6 from 0:fffffffe: 0 e 0 0
+  t=0.019 qrtr type 6 from 0:fffffffe: 0 f 0 0
+  t=0.030 qrtr type 6 from 0:fffffffe: 0 10 0 0
+  t=0.193 qrtr type 6 from 0:fffffffe: 0 13 0 0
+  t=0.247 qrtr type 6 from 0:fffffffe: 0 14 0 0
+  t=0.251 glink modem OPEN "modem_apps" rcid 4
+  t=0.253 glink modem OPEN "LOOPBACK_CTL_MPSS" rcid 5
+  pd-mapper: "avs/audio" -> 0 domain(s)
+  pd-mapper: "kernel/elf_loader" -> 1 domain(s)
+  t=0.507 tftp WRQ server_check.txt seek 0 rsize 0 blk 7680 w 10
+  t=0.513 tftp RRQ wlanmdsp.mbn seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 3814776
+    t=0.515 sess 4101: modem ERROR 9 "End of Transfer" after 0 B
+  t=0.515 glink modem OPEN "DS" rcid 6
+  t=0.515 glink modem OPEN "DATA1" rcid 7
+  t=0.515 glink modem OPEN "DATA2" rcid 8
+  t=0.515 glink modem OPEN "DATA3" rcid 9
+  t=0.515 glink modem OPEN "DATA4" rcid 10
+  t=0.515 glink modem OPEN "DATA11" rcid 11
+  t=0.517 tftp RRQ wlanmdsp.mbn seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 3814776
+    t=0.519 sess 4102: modem ERROR 9 "End of Transfer" after 0 B
+  t=0.520 tftp RRQ wlanmdsp.mbn seek 0 rsize 3814776 blk 7680 w 10
+    t=0.521 sess 4103 ack 0 (0 B sent)
+  t=0.521 no modem intent for 7716 bytes, requesting (shown once)
+    t=0.567 sess 4103 ack 50 (384000 B sent)
+    t=0.611 sess 4103 ack 100 (768000 B sent)
+    t=0.657 sess 4103 ack 150 (1152000 B sent)
+    t=0.701 sess 4103 ack 200 (1536000 B sent)
+    t=0.747 sess 4103 ack 250 (1920000 B sent)
+    t=0.791 sess 4103 ack 300 (2304000 B sent)
+    t=0.837 sess 4103 ack 350 (2688000 B sent)
+    t=0.881 sess 4103 ack 400 (3072000 B sent)
+    t=0.927 sess 4103 ack 450 (3456000 B sent)
+    sess 4103 done: 3814776 B
+  t=1.064 *** WLFW service 0x45 up: inst 1 node 0 port 48 ***
+  wlfw: ind_register ok err 0, fw_status 0
+  wlfw: host_cap ok err 0
+  wlfw: msa_info ok err 0
+  wlfw: 2 MSA region(s)
+   region 0: 51900000 + 10000 secure 1
+  SCM assign 51900000+10000 -> 2 vmids: ret=fffffffffffffffe res=56
+   region 1: 51910000 + f0000 secure 0
+  SCM assign 51910000+f0000 -> 3 vmids: ret=fffffffffffffffe res=56
+  wlfw: MSA_READY indication
+  wlfw: msa_ready ok err 0
+  wlfw: cap ok err 0
+  wlfw: chip_id 4130 family 4007
+  wlfw: board_id ff
+  wlfw: soc_id 40690000
+  wlfw: fw_version 32497fff built 2024-01-18 04:57
+  wlfw: fw_build_id QC_IMAGE_VERSION_STRING=WLAN.HL.3.2.4-01083.3-QCAHLSWMTPLZ-1.47019.3.56296.4
+  wlfw: board data \image\bdwlan.bin, 26328 bytes
+  wlfw: board data sent in 5 segment(s)
+  wlfw: cal_report ok err 0, waiting for FW_READY
+  t=2.279 tftp RRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=2.281 tftp WRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10
+  t=2.285 tftp RRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=4.296 *** WLAN FIRMWARE READY ***
+  smmu: sCR0 00210406 (CLIENTPD 0 USFCFG 1) ID0 4c017e32 ID1 50000030 ID2 00005111: 50 SMRs, 48 CBs, page 1000 x64
+   SMR5 800101a0 (sid 1a0 mask 1) S2CR 00000004 type 0 cb 4  <== WLAN
+    CB4: CBAR 0001f000 CBA2R 00000001 SCTLR 000000e0 TCR 00000000 TCR2 00000060
+        TTBR0 0000000000000000 MAIR 00000000 00000000 FSR 00000400 FAR 000037197f7f7d61
+  smmu: WLAN stream 1a0: has a stream match (see above)
+  wlfw: wlan_cfg ok err 0
+  t=4.623 wlfw: wlan_mode mission ok err 0
+  ce wrapper: 00000000 00000000 00000000 deadc0de
+  ce0: sr 00000000/0 dr 51948300/20 ctrl1 00000080 idx s 0/0 d 1/0
+  ce1: sr 51945c00/20 dr 00000000/0 ctrl1 00000800 idx s 0/0 d 0/0
+  ce2: sr 51945380/40 dr 00000000/0 ctrl1 00000800 idx s 1/0 d 0/0
+  ce3: sr 00000000/0 dr 519457c0/20 ctrl1 00000080 idx s 0/0 d 0/0
+  ce4: sr 00000000/0 dr 51945e40/100 ctrl1 00000080 idx s 0/0 d 0/0
+  ce5: sr 00000000/0 dr 00000000/0 ctrl1 00000080 idx s 0/0 d 0/0
+  ce6: sr 5193de40/20 dr 5193e080/20 ctrl1 00004000 idx s 0/0 d 0/0
+  ce7: sr 00000000/0 dr 00000000/0 ctrl1 00000080 idx s 0/0 d 0/0
+  ce8: sr 00000000/0 dr 00000000/0 ctrl1 00000080 idx s 0/0 d 0/0
+  ce9: sr 51947e80/20 dr 00000000/0 ctrl1 00000800 idx s 0/0 d 0/0
+  ce10: sr 519480c0/20 dr 00000000/0 ctrl1 00000800 idx s 0/0 d 0/0
+  ce11: sr 5193e4c0/20 dr 00000000/0 ctrl1 00000800 idx s 0/0 d 0/0
+  ce: host memory efc5f000 + a1000
+  ce: 12 rings programmed
+  ce after init: rri lo/hi efc5f000/00000000
+   ce0: sr efc60000/10 dr 51948300/20 ctrl1 00080800 wm 00000010/00000020 misc 00000000 idx s 0/0 d 1/0 rri 00000000 rx 0 tx 0
+   ce1: sr 51945c00/20 dr efc69000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce2: sr 51945380/40 dr efc7b000/40 ctrl1 00080800 wm 00000040/00000040 misc 00000001 idx s 1/1 d 20/1 rri 00010001 rx 0 tx 0
+   ce3: sr efc8c000/20 dr 519457c0/20 ctrl1 00080800 wm 00000020/00000020 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce4: sr efc9d000/800 dr 51945e40/100 ctrl1 00080100 wm 00000800/00000100 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce5: sr 00000000/0 dr efca5000/200 ctrl1 00080080 wm 00000000/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce7: sr efcb7000/2 dr efcb8000/2 ctrl1 00080800 wm 00000002/00000002 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce8: sr 00000000/0 dr efcb9000/80 ctrl1 00080080 wm 00000000/00000080 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce9: sr 51947e80/20 dr efcca000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce10: sr 519480c0/20 dr efcdc000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce11: sr 5193e4c0/20 dr efcee000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+  t=4.751 htc rx ce2: eid 0 flags 0 len 12 trailer 0 (buf 20)
+    rx +00: 00 00 0c 00 00 00 00 00 01 00 02 00 88 08 16 00 01 00 00 00 
+  t=4.751 *** HTC READY: credit_count 2 credit_size 2184 max_endpoints 22 (extended) ***
+  htc: version 1, max msgs per bundle 0, alt data 0
+  t=4.751 htc: connect svc 300 flags 8
+  t=4.751 htc rx ce2: eid 0 flags 0 len 12 trailer 0 (buf 20)
+    rx +00: 00 00 0c 00 00 01 00 00 03 00 00 03 00 01 d0 07 00 00 00 00 
+  t=4.751 htc: connect resp svc 300 status 0 eid 1 max_msg 2000
+  t=4.751 htc: connect svc 100 flags 100
+  t=4.751 htc rx ce2: eid 0 flags 0 len 12 trailer 0 (buf 20)
+    rx +00: 00 00 0c 00 00 02 00 00 03 00 00 01 00 02 f8 07 00 00 00 00 
+  t=4.752 htc: connect resp svc 100 status 0 eid 2 max_msg 2040
+  t=4.752 htc: SETUP_COMPLETE_EX sent, waiting for WMI service ready
+  t=4.753 htc rx ce2: eid 2 flags 0 len 48 trailer 0 (buf 56)
+    rx +00: 02 00 30 00 00 03 00 00 03 00 00 00 14 00 2f 02 80 00 00 00 c8 f0 31 4c 00 00 51 00 00 81 00 70 
+    rx +20: 90 10 08 00 10 00 10 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  t=4.753 wmi: SERVICE_AVAILABLE, 48 bytes, ext map 4c31f0c8 00510000 70008100 00081090
+  t=4.753 htc rx ce2: eid 2 flags 0 len 316 trailer 0 (buf 324)
+    rx +00: 02 00 3c 01 00 04 00 00 01 00 00 00 80 00 20 00 ff 7f 49 32 00 00 00 01 32 04 00 00 51 43 41 5f 
+    rx +20: 4d 4c 00 00 00 00 00 00 00 00 00 00 03 00 00 00 06 00 00 00 01 00 00 00 13 38 00 00 32 11 90 73 
+  t=4.753 wmi: SERVICE_READY, 316 bytes
+  wmi: fw 32497fff abi 01000000/1074 ns 5f414351 00004c4d, phy_cap 3 rf_chains 1 ht 00003813 vht 73901132/fffe
+  wmi: tx power 63..63, sys_cap 0, max_frag 6, num_mem_reqs 0, max_scan_chans 68, bd 0
+  wmi: regdomain 406c ext 3f cap1 7 cap2 bc0 modes 91ff80d, 2G 2312-2732 5G 4912-6100
+  wmi: service map (128 B, nibble per 4 services 0..127) d7f3f99fa92a1d7fb04b708193d15e84
+  t=4.753 wmi: INIT (220 bytes, 0 chunk(s), full_reorder 1) sent, waiting for READY
+  t=4.753 htc rx ce2: eid 2 flags 0 len 440 trailer 0 (buf 448)
+    rx +00: 02 00 b8 01 00 05 00 00 09 40 00 00 4c 00 ac 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+    rx +20: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  t=4.753 wmi: SERVICE_READY_EXT, 440 bytes (ignored, like ath10k)
+  t=4.753 htc rx ce2: eid 2 flags 0 len 60 trailer 0 (buf 68)
+    rx +00: 02 00 3c 00 00 06 00 00 22 40 00 00 34 00 34 03 ff ff 1d 00 00 00 00 00 00 00 00 00 00 00 00 00 
+    rx +20: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  t=4.753 wmi: SERVICE_READY_EXT2, 60 bytes (ignored, like ath10k)
+  t=4.769 htc rx ce2: eid 2 flags 0 len 148 trailer 0 (buf 156)
+    rx +00: 02 00 94 00 00 07 00 00 01 a0 03 00 38 00 61 02 00 00 00 00 00 00 00 00 6e 61 00 00 01 00 00 00 
+    rx +20: 00 00 00 00 6c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 28 00 00 00 02 00 00 00 a0 00 00 00 
+  t=4.769 wmi: event 3a001, 148 bytes
+  t=4.769 wmi: READY event, 88 bytes
+  t=4.769 *** WMI READY: MAC 00:00:00:00:00:00 status 0, abi 01000000/1074 ***
+  t=4.769 htc: wmi cmd 3003 queued (no credit), 1 waiting
+  t=4.769 htc: wmi cmd 5001 queued (no credit), 2 waiting
+  t=4.769 htc: wmi cmd 3001 queued (no credit), 3 waiting
+  t=4.769 scan: chan list (37 ch) ok, vdev 0 create ok, passive scan 1 requested
+  t=4.769 wmi: event 401f, 1148 bytes
+  t=4.769 htc: credit report ep 0 +1 -> 1
+  t=4.769 htc: credit report ep 2 +1 -> 1
+  t=4.771 htc: credit report ep 0 +1 -> 2
+  t=4.771 htc: credit report ep 2 +1 -> 1
+  t=4.773 htc: credit report ep 0 +1 -> 3
+  t=4.773 htc: credit report ep 2 +1 -> 1
+  t=4.775 scan: STARTED reason 7 freq 5220 scan_id a001 vdev 0
+  t=4.775 htc: credit report ep 0 +1 -> 4
+  t=4.775 htc: credit report ep 2 +1 -> 1
+  t=4.781 scan: on 2412 MHz
+  t=4.931 scan: on 2417 MHz
+  t=5.085 scan: on 2422 MHz
+  ce status: rri lo/hi efc5f000/00000000
+   ce0: sr efc60000/10 dr 51948300/20 ctrl1 00080800 wm 00000010/00000020 misc 00000001 idx s 3/3 d 3/3 rri 00030003 rx 0 tx 3
+   ce1: sr 51945c00/20 dr efc69000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce2: sr 51945380/40 dr efc7b000/40 ctrl1 00080800 wm 00000040/00000040 misc 00000001 idx s 0/0 d 20/0 rri 00000000 rx 64 tx 0
+   ce3: sr efc8c000/20 dr 519457c0/20 ctrl1 00080800 wm 00000020/00000020 misc 00000001 idx s 4/4 d 5/4 rri 00040004 rx 0 tx 4
+   ce4: sr efc9d000/800 dr 51945e40/100 ctrl1 00080100 wm 00000800/00000100 misc 00000000 idx s 0/0 d ff/0 rri 00000000 rx 0 tx 0
+   ce5: sr 00000000/0 dr 519638c0/200 ctrl1 00080080 wm 00000000/00000200 misc 00000000 idx s 0/0 d 40/0 rri 00000000 rx 0 tx 0
+   ce7: sr efcb7000/2 dr efcb8000/2 ctrl1 00080800 wm 00000002/00000002 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce8: sr 5196fc40/40 dr 51970080/40 ctrl1 00081000 wm 00000040/00000040 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce9: sr 51947e80/20 dr efcca000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce10: sr 519480c0/20 dr efcdc000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce11: sr 5193e4c0/20 dr efcee000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+  t=7.021 wmi: event 1d00a, 16 bytes
+  t=10.271 tftp RRQ mcfg.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=10.274 tftp WRQ mcfg.tmp seek 0 rsize 0 blk 7680 w 10
+  t=10.278 tftp RRQ mcfg.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=10.280 tftp RRQ mbn_hw.dig seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 32
+    t=10.340 sess 410a: modem ERROR 9 "End of Transfer" after 0 B
+  t=10.340 tftp RRQ mbn_hw.dig seek 0 rsize 32 blk 7680 w 10
+    sess 410b done: 32 B
+  t=10.344 tftp RRQ mbn_sw.dig seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 32
+    t=10.385 sess 410c: modem ERROR 9 "End of Transfer" after 0 B
+  t=10.385 tftp RRQ mbn_sw.dig seek 0 rsize 32 blk 7680 w 10
+    sess 410d done: 32 B
+  t=10.433 scan: COMPLETED reason 0 freq 5825 scan_id a001 vdev 0
+  t=10.433 *** scan 1 done: 37 channels visited, 0 BSS known, 0 beacons/probe resp ***
+  ce status: rri lo/hi efc5f000/00000000
+   ce0: sr efc60000/10 dr 51948300/20 ctrl1 00080800 wm 00000010/00000020 misc 00000001 idx s 3/3 d 3/3 rri 00030003 rx 0 tx 3
+   ce1: sr 51945c00/20 dr efc69000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce2: sr 51945380/40 dr efc7b000/40 ctrl1 00080800 wm 00000040/00000040 misc 00000001 idx s 25/25 d 5/25 rri 00250025 rx 165 tx 0
+   ce3: sr efc8c000/20 dr 519457c0/20 ctrl1 00080800 wm 00000020/00000020 misc 00000001 idx s 4/4 d 5/4 rri 00040004 rx 0 tx 4
+   ce4: sr efc9d000/800 dr 51945e40/100 ctrl1 00080100 wm 00000800/00000100 misc 00000000 idx s 0/0 d ff/0 rri 00000000 rx 0 tx 0
+   ce5: sr 00000000/0 dr 519638c0/200 ctrl1 00080080 wm 00000000/00000200 misc 00000000 idx s 0/0 d 40/0 rri 00000000 rx 0 tx 0
+   ce7: sr efcb7000/2 dr efcb8000/2 ctrl1 00080800 wm 00000002/00000002 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce8: sr 5196fc40/40 dr 51970080/40 ctrl1 00081000 wm 00000040/00000040 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce9: sr 51947e80/20 dr efcca000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce10: sr 519480c0/20 dr efcdc000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce11: sr 5193e4c0/20 dr efcee000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+  t=20.433 scan: passive scan 2 requested
+  t=20.437 scan: STARTED reason 7 freq 5825 scan_id a002 vdev 0
+  t=20.437 htc: credit report ep 0 +1 -> 5
+  t=20.437 htc: credit report ep 2 +1 -> 1
+  t=20.439 scan: on 2412 MHz
+  t=20.591 scan: on 2417 MHz
+  t=20.745 scan: on 2422 MHz
+  ce status: rri lo/hi efc5f000/00000000
+   ce0: sr efc60000/10 dr 51948300/20 ctrl1 00080800 wm 00000010/00000020 misc 00000001 idx s 3/3 d 3/3 rri 00030003 rx 0 tx 3
+   ce1: sr 51945c00/20 dr efc69000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce2: sr 51945380/40 dr efc7b000/40 ctrl1 00080800 wm 00000040/00000040 misc 00000001 idx s 24/24 d 4/24 rri 00240024 rx 228 tx 0
+   ce3: sr efc8c000/20 dr 519457c0/20 ctrl1 00080800 wm 00000020/00000020 misc 00000001 idx s 5/5 d 6/5 rri 00050005 rx 0 tx 5
+   ce4: sr efc9d000/800 dr 51945e40/100 ctrl1 00080100 wm 00000800/00000100 misc 00000000 idx s 0/0 d ff/0 rri 00000000 rx 0 tx 0
+   ce5: sr 00000000/0 dr 519638c0/200 ctrl1 00080080 wm 00000000/00000200 misc 00000000 idx s 0/0 d 40/0 rri 00000000 rx 0 tx 0
+   ce7: sr efcb7000/2 dr efcb8000/2 ctrl1 00080800 wm 00000002/00000002 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce8: sr 5196fc40/40 dr 51970080/40 ctrl1 00081000 wm 00000040/00000040 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce9: sr 51947e80/20 dr efcca000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce10: sr 519480c0/20 dr efcdc000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce11: sr 5193e4c0/20 dr efcee000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+  t=26.099 scan: COMPLETED reason 0 freq 5825 scan_id a002 vdev 0
+  t=26.100 *** scan 2 done: 37 channels visited, 0 BSS known, 0 beacons/probe resp ***
+  t=30.000 status: slave-kernel 00000006, glink rx 1771 tx 1508, 45 services, WLFW: WMI scan done
+  ce status: rri lo/hi efc5f000/00000000
+   ce0: sr efc60000/10 dr 51948300/20 ctrl1 00080800 wm 00000010/00000020 misc 00000001 idx s 3/3 d 3/3 rri 00030003 rx 0 tx 3
+   ce1: sr 51945c00/20 dr efc69000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce2: sr 51945380/40 dr efc7b000/40 ctrl1 00080800 wm 00000040/00000040 misc 00000001 idx s 3c/3c d 1c/3c rri 003c003c rx 316 tx 0
+   ce3: sr efc8c000/20 dr 519457c0/20 ctrl1 00080800 wm 00000020/00000020 misc 00000001 idx s 5/5 d 6/5 rri 00050005 rx 0 tx 5
+   ce4: sr efc9d000/800 dr 51945e40/100 ctrl1 00080100 wm 00000800/00000100 misc 00000000 idx s 0/0 d ff/0 rri 00000000 rx 0 tx 0
+   ce5: sr 00000000/0 dr 519638c0/200 ctrl1 00080080 wm 00000000/00000200 misc 00000000 idx s 0/0 d 40/0 rri 00000000 rx 0 tx 0
+   ce7: sr efcb7000/2 dr efcb8000/2 ctrl1 00080800 wm 00000002/00000002 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce8: sr 5196fc40/40 dr 51970080/40 ctrl1 00081000 wm 00000040/00000040 misc 00000000 idx s 0/0 d 0/0 rri 00000000 rx 0 tx 0
+   ce9: sr 51947e80/20 dr efcca000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce10: sr 519480c0/20 dr efcdc000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+   ce11: sr 5193e4c0/20 dr efcee000/200 ctrl1 00080800 wm 00000020/00000200 misc 00000000 idx s 0/0 d 20/0 rri 00000000 rx 0 tx 0
+  t=36.100 scan: passive scan 3 requested
+  t=36.103 scan: STARTED reason 7 freq 5825 scan_id a003 vdev 0
+  t=36.103 htc: credit report ep 0 +1 -> 6
+  t=36.103 htc: credit report ep 2 +1 -> 1
+  t=36.107 scan: on 2412 MHz
+  t=36.259 scan: on 2417 MHz
+  t=36.411 scan: on 2422 MHz
+  t=41.767 scan: COMPLETED reason 0 freq 5825 scan_id a003 vdev 0
+  t=41.767 *** scan 3 done: 37 channels visited, 0 BSS known, 0 beacons/probe resp ***
+  t=60.001 status: slave-kernel 00000006, glink rx 1771 tx 1508, 45 services, WLFW: WMI scan done
+  t=90.001 status: slave-kernel 00000006, glink rx 1771 tx 1508, 45 services, WLFW: WMI scan done
+  t=120.001 status: slave-kernel 00000006, glink rx 1776 tx 1513, 45 services, WLFW: WMI scan done
+  t=150.002 status: slave-kernel 00000006, glink rx 1776 tx 1513, 45 services, WLFW: WMI scan done

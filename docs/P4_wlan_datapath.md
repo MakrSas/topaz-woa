@@ -123,3 +123,19 @@ credits come back in HTC trailers).
 Next (v0.10): passive scan over WMI — SCAN_CHAN_LIST (all passive), VDEV_CREATE (vdev 0 STA, local MAC
 02:54:4f:50:41:5a), START_SCAN; beacons arrive as WMI MGMT_RX (0x7001). HTC credit reports are now logged
 and WMI commands queue while the endpoint has no credit.
+
+## Passive scan runs but hears nothing (TopazModem v0.10, log docs/logs/TopazModem-v0.10.log)
+
+- WMI credit flow works: the 3 commands queued behind INIT's credit go out as the firmware returns
+  credits in HTC trailers (credit report ep 2 +1 after each command; ep 0 also gets credits).
+- SCAN_CHAN_LIST (37 ch, all passive) + VDEV_CREATE (vdev 0 STA) + START_SCAN accepted: **scan STARTED,
+  visits all 37 channels at the 150 ms passive dwell, COMPLETED reason 0**; three scans, same result.
+- But **0 MGMT_RX events: not a single beacon** in ~16 s of listening.
+- Prime suspect: the WCN3950 RF rails are off. Stock DT (`~/work/topaz/backup/fdt.dts`, icnss@c800000):
+  vdd-cx-mx = PM6125 **L8**, vdd-1.8-xo = **L16**, vdd-1.3-rfa = **L17**, vdd-3.3-ch0 = **L23**
+  (BT also L9). They are RPM-SMD regulators (ldoa 8/16/17/23); downstream icnss votes them on when the
+  WLFW service arrives, before the QMI handshake. Nobody does that here. SPMI addresses (mainline
+  pm6125_regulators): Ln at 0x4000 + 0x100*(n-1); enable = reg 0x46 bit 7.
+- v0.11 checks it read-only: SPMI observer reads of those rails (before the modem boots and after scan 1)
+  + WMI CHAN_INFO per channel (noise floor, rx_clear, **rx_frame_count**) to tell "radio deaf" from
+  "frames received but not forwarded".

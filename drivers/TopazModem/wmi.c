@@ -352,6 +352,7 @@ VOID WmiRx(CONST UINT8 *D, UINT32 Len)
     break;
   case WMI_EV_CHAN_INFO:                           /* per-channel stats during scans */
     mChanInfo++;
+    ScanChanInfo (D + 4, Len - 4);
     break;
   default:
     if (mUnknown++ < 32) {

@@ -68,7 +68,7 @@ STATIC CONST UINT8 mOurMac[6] = { 0x02, 0x54, 0x4F, 0x50, 0x41, 0x5A };
 typedef struct { UINT8 Bssid[6]; CHAR8 Ssid[33]; UINT8 Chan; INT8 Rssi; UINT16 Seen; } BSS;
 
 STATIC BSS     mBss[MAX_BSS];
-STATIC UINT32  mNumBss, mScans, mForeign, mFrames, mOtherFrames;
+STATIC UINT32  mNumBss, mScans, mForeign, mFrames, mOtherFrames, mChanInfo;
 STATIC UINTN   mNextScanMs;
 STATIC BOOLEAN mStarted, mScanning;
 
@@ -216,6 +216,9 @@ VOID ScanEvent(CONST UINT8 *Tlvs, UINT32 Len)
          mScans, mForeign, mNumBss, mFrames);
     mForeign = 0;
     mNextScanMs = mScans < MAX_SCANS ? ModemMs () + RESCAN_MS : 0;
+    if (mScans == 1) {
+      PmicProbe ();                                /* rails again, now that the radio was used */
+    }
     Step ("WMI scan done");
   }
 }
@@ -316,6 +319,23 @@ VOID ScanPoll(VOID)
 
 VOID ScanSummary(VOID)
 {
-  Out ("  scan: %u scan(s) done, %u BSS, %u beacons/probe resp, %u other frames\r\n", mScans, mNumBss, mFrames,
-       mOtherFrames);
+  Out ("  scan: %u scan(s) done, %u BSS, %u beacons/probe resp, %u other frames, %u chan info\r\n", mScans,
+       mNumBss, mFrames, mOtherFrames, mChanInfo);
+}
+
+/* wmi_tlv_chan_info_event: is the radio receiving at all? (rx_frame_count, noise floor) */
+VOID ScanChanInfo(CONST UINT8 *Tlvs, UINT32 Len)
+{
+  CONST UINT32 *c;
+
+  mChanInfo++;
+  if (Len < 4 + 52 || mScans != 0) {               /* first scan only: 37 lines */
+    return;
+  }
+  c = (CONST UINT32 *)(Tlvs + 4);
+  if ((c[2] & 1) == 0) {                           /* WMI_CHAN_INFO_FLAG_COMPLETE: end of the channel */
+    return;
+  }
+  Out ("  chinfo %u MHz: err %u nf %d rx_clear %u cycle %u rx_frames %u tx_frames %u mac_clk %u\r\n", c[1], c[0],
+       (INT32)c[3], c[4], c[5], c[8], c[11], c[12]);
 }

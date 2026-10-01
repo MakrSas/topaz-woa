@@ -85,4 +85,6 @@ VOID           ScanEvent(CONST UINT8 *Tlvs, UINT32 Len);
 VOID           ScanMgmtRx(CONST UINT8 *Tlvs, UINT32 Len);
 VOID           ScanPoll(VOID);
 VOID           ScanSummary(VOID);
+VOID           ScanChanInfo(CONST UINT8 *Tlvs, UINT32 Len);
+VOID           PmicProbe(VOID);                                /* pmic.c, read-only */
 VOID           WlfwSetStep(CONST CHAR8 *S);
