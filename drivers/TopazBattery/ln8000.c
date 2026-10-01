@@ -82,3 +82,223 @@ BOOLEAN LnReadAdc(PDEVICE_CONTEXT Ctx, PULONG VinMv, PULONG IinMa, PULONG VbatMv
     *TdieRaw = (((ULONG)a[8] & 0x0F) << 6) | ((a[7] & 0xFC) >> 2);                 /* 0x10/0x11 */
     return TRUE;
 }
+
+/* ---- charge pump control (33 W step 3: first switching test at IBUS 1 A) --------------------
+ * Sequence after Xiaomi's ln8000 driver (init_device / set_charging_enable): limits first,
+ * reverse-current protection off for the start and on once current flows, STANDBY_EN=0 +
+ * EN_1TO1=0 = 2:1 switching. The bq2589x keeps powering the system with its charging off.
+ * The PPS voltage is moved in 20 mV steps once a second to hold IBUS near the target.
+ */
+#define CP_TARGET_MA       1000      /* first test */
+#define CP_ABORT_MA        1500      /* software trip on ln8000 IIN */
+#define CP_PPS_MA          1500      /* adapter current limit (PPS operating current) */
+#define CP_IIN_CTRL_MA     1500      /* ln8000 input limit / OCP reference */
+#define CP_VFLOAT_MV       4400      /* nopmi fv-max */
+#define CP_VBAT_MAX_MV     4350      /* stop above (ln8000 ADC or fuel gauge) */
+#define CP_VBAT_START_MV   4300
+#define CP_TEMP_MAX_TENTHS 420
+#define CP_SOC_MIN_TENTHS  300
+#define CP_SOC_MAX_TENTHS  800
+#define CP_GAUGE_MAX_MA    3000      /* battery current at IBUS 1 A is ~2 A */
+#define CP_PPS_MAX_MV      9600
+#define CP_TEST_STEPS      120       /* seconds */
+#define LN_SYS_STANDBY_EN  0x08
+#define LN_SYS_REV_IIN_DET 0x04
+#define LN_SYS_EN_1TO1     0x01
+#define LN_STS_SWITCHING   0x04
+#define LN_FAULT1_MASK     0xCA      /* WDT, VBAT OV, VAC OV, VIN OV */
+#define LN_FAULT2_IIN_OC   0x80
+
+static NTSTATUS LnUpdate(PDEVICE_CONTEXT Ctx, UCHAR Reg, UCHAR Mask, UCHAR Val)
+{
+    UCHAR v = 0;
+    NTSTATUS s = I2cReadByte(&Ctx->Bus, LN8000_ADDR, Reg, &v);
+
+    if (NT_SUCCESS(s)) {
+        s = I2cWriteByte(&Ctx->Bus, LN8000_ADDR, Reg, (UCHAR)((v & ~Mask) | (Val & Mask)));
+    }
+    return s;
+}
+
+static VOID BqCharge(PDEVICE_CONTEXT Ctx, BOOLEAN On)
+{
+    UCHAR r03 = 0;
+
+    if (NT_SUCCESS(I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, &r03))) {
+        UCHAR w = On ? (UCHAR)(r03 | CHG_CHG_CONFIG) : (UCHAR)(r03 & ~CHG_CHG_CONFIG);
+        if (w != r03) {
+            I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, w);
+        }
+    }
+}
+
+/* Pump to standby, bq2589x charging back, fixed PDO. Safe to call at any time. */
+VOID CpStop(PDEVICE_CONTEXT Ctx, PCSTR Why)
+{
+    NTSTATUS s;
+
+    if (!Ctx->CpActive) {
+        return;
+    }
+    s = LnUpdate(Ctx, LN_REG_SYS_CTRL, LN_SYS_STANDBY_EN, LN_SYS_STANDBY_EN);
+    Ctx->CpActive = FALSE;
+    Ctx->CpRcp = FALSE;
+    BqCharge(Ctx, TRUE);    /* JEITA policy re-checks it on the next poll */
+    LogPrint("cp: STOP (%s) after %u s: standby (%08x), bq2589x charging on\n", Why, Ctx->CpSteps, s);
+    if (Ctx->Pd.State == PD_ST_READY && Ctx->Pd.PpsMv != 0) {
+        PdSetFixed(Ctx, "charge pump stopped");
+    }
+    LnDump(Ctx, "after stop");
+}
+
+static BOOLEAN CpSnapshot(PDEVICE_CONTEXT Ctx, PLONG Temp, PULONG Soc, PULONG Vgauge, PLONG Igauge)
+{
+    KIRQL irql;
+    BOOLEAN valid;
+
+    KeAcquireSpinLock(&Ctx->SnapLock, &irql);
+    valid = Ctx->Snap.Valid;
+    *Temp = Ctx->Snap.TempTenthsC;
+    *Soc = Ctx->Snap.SocTenths;
+    *Vgauge = Ctx->Snap.VoltageMv;
+    *Igauge = Ctx->Snap.CurrentMa;
+    KeReleaseSpinLock(&Ctx->SnapLock, irql);
+    return valid;
+}
+
+static VOID CpStart(PDEVICE_CONTEXT Ctx)
+{
+    ULONG vin, iin, vbat, tdie, soc, vg, mv;
+    LONG temp, ig;
+    UCHAR sts = 0, f1 = 0, f2 = 0;
+    NTSTATUS s = STATUS_SUCCESS;
+
+    Ctx->CpTried = TRUE;
+    if (!CpSnapshot(Ctx, &temp, &soc, &vg, &ig) || temp >= CP_TEMP_MAX_TENTHS || soc < CP_SOC_MIN_TENTHS ||
+        soc > CP_SOC_MAX_TENTHS || vg >= CP_VBAT_START_MV) {
+        LogPrint("cp: not starting: temp %d soc %u vbat %u (need < %u, %u..%u, < %u)\n", temp, soc, vg,
+                 CP_TEMP_MAX_TENTHS, CP_SOC_MIN_TENTHS, CP_SOC_MAX_TENTHS, CP_VBAT_START_MV);
+        return;
+    }
+    I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN_REG_SYS_STS, &sts);
+    I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN_REG_FAULT1_STS, &f1);
+    I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN_REG_FAULT2_STS, &f2);
+    if (!LnReadAdc(Ctx, &vin, &iin, &vbat, &tdie) || (f1 & LN_FAULT1_MASK) || (f2 & LN_FAULT2_IIN_OC) ||
+        (sts & LN_STS_SWITCHING) || vbat < 3000 || vbat >= CP_VBAT_START_MV) {
+        LogPrint("cp: not starting: ln8000 sts=%02x f1=%02x f2=%02x vbat=%u\n", sts, f1, f2, vbat);
+        return;
+    }
+
+    /* 1. VBUS = 2 x VBAT + 300 mV (Xiaomi's start point), adapter limited to 1.5 A */
+    mv = ((2 * vbat + 300) / 20) * 20;
+    mv = max(mv, Ctx->Pd.PpsMinMv);
+    mv = min(mv, min(Ctx->Pd.PpsMaxMv, (ULONG)CP_PPS_MAX_MV));
+    LogPrint("cp: START test: vbat %umV (gauge %umV, %d.%dC, soc %u.%u%%) -> PPS %umV %umA, target IBUS %umA\n",
+             vbat, vg, temp / 10, temp % 10, soc / 10, soc % 10, mv, CP_PPS_MA, CP_TARGET_MA);
+    if (!PdSetPps(Ctx, mv, CP_PPS_MA)) {
+        LogPrint("cp: PPS request failed, not starting\n");
+        PdSetFixed(Ctx, "cp start failed");
+        return;
+    }
+    PdWait(Ctx, 300);
+    LnReadAdc(Ctx, &vin, &iin, &vbat, &tdie);
+    if (vin + 400 < mv || vin > mv + 400) {
+        LogPrint("cp: VBUS %umV does not match PPS %umV, not starting\n", vin, mv);
+        PdSetFixed(Ctx, "cp start failed");
+        return;
+    }
+
+    /* 2. ln8000 limits (still in standby) */
+    s |= I2cWriteByte(&Ctx->Bus, LN8000_ADDR, LN_REG_V_FLOAT_CTRL, (UCHAR)((CP_VFLOAT_MV - 3725) / 5));
+    s |= LnUpdate(Ctx, LN_REG_IIN_CTRL, 0x7F, (UCHAR)(CP_IIN_CTRL_MA / 50));
+    s |= LnUpdate(Ctx, LN_REG_GLITCH_CTRL, 0x0C, 1 << 2);                   /* VAC OVP 11 V */
+    s |= LnUpdate(Ctx, LN_REG_FAULT_CTRL, 0x7C, 0x00);                      /* all protections on */
+    s |= LnUpdate(Ctx, LN_REG_SYS_CTRL, LN_SYS_REV_IIN_DET, 0);             /* rcp off for the start */
+    if (!NT_SUCCESS(s)) {
+        LogPrint("cp: ln8000 setup failed (%08x), not starting\n", s);
+        PdSetFixed(Ctx, "cp start failed");
+        return;
+    }
+    LnDump(Ctx, "before switching");
+
+    /* 3. hand the battery over: bq2589x charging off, pump switching */
+    Ctx->CpActive = TRUE;
+    Ctx->CpRcp = FALSE;
+    Ctx->CpSteps = 0;
+    Ctx->CpPpsMv = mv;
+    BqCharge(Ctx, FALSE);
+    s = LnUpdate(Ctx, LN_REG_SYS_CTRL, LN_SYS_STANDBY_EN | LN_SYS_EN_1TO1, 0);
+    PdWait(Ctx, 100);
+    I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN_REG_SYS_STS, &sts);
+    LnReadAdc(Ctx, &vin, &iin, &vbat, &tdie);
+    LogPrint("cp: switching on (%08x): sys_sts=%02x vin=%umV iin=%umA vbat=%umV\n", s, sts, vin, iin, vbat);
+    if (!NT_SUCCESS(s) || !(sts & LN_STS_SWITCHING)) {
+        CpStop(Ctx, "did not enter switching");
+    }
+}
+
+/* Called once a second from the Type-C state machine while we are an attached sink. */
+VOID CpStep(PDEVICE_CONTEXT Ctx)
+{
+    ULONG vin, iin, vbat, tdie, soc, vg, mv;
+    LONG temp, ig;
+    UCHAR sts = 0, f1 = 0, f2 = 0;
+    PCSTR why = NULL;
+
+    if (!Ctx->CpActive) {
+        if (!Ctx->CpTried && Ctx->Pd.State == PD_ST_READY && Ctx->Pd.PpsPos != 0 && Ctx->Pd.PpsTested) {
+            CpStart(Ctx);
+        }
+        return;
+    }
+    Ctx->CpSteps++;
+    CpSnapshot(Ctx, &temp, &soc, &vg, &ig);
+    if (!NT_SUCCESS(I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN_REG_SYS_STS, &sts)) ||
+        !NT_SUCCESS(I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN_REG_FAULT1_STS, &f1)) ||
+        !NT_SUCCESS(I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN_REG_FAULT2_STS, &f2)) ||
+        !LnReadAdc(Ctx, &vin, &iin, &vbat, &tdie)) {
+        CpStop(Ctx, "ln8000 i2c error");
+        return;
+    }
+    LogPrint("cp %3u: vin=%umV iin=%umA vbat=%umV pps=%umV | gauge %umV %dmA %d.%dC | sts=%02x f1=%02x f2=%02x rcp=%u\n",
+             Ctx->CpSteps, vin, iin, vbat, Ctx->CpPpsMv, vg, ig, temp / 10, temp % 10, sts, f1, f2, Ctx->CpRcp);
+
+    if ((f1 & LN_FAULT1_MASK) || (f2 & LN_FAULT2_IIN_OC))      why = "ln8000 fault";
+    else if (!(sts & LN_STS_SWITCHING))                         why = "ln8000 left switching";
+    else if (iin > CP_ABORT_MA)                                 why = "IBUS above 1.5 A";
+    else if (vbat >= CP_VBAT_MAX_MV || vg >= CP_VBAT_MAX_MV)    why = "VBAT limit";
+    else if (temp >= CP_TEMP_MAX_TENTHS)                        why = "battery temperature";
+    else if (ig > CP_GAUGE_MAX_MA)                              why = "battery current above 3 A";
+    else if (vin < 2 * vbat + 50)                               why = "VBUS too low (reverse current risk)";
+    else if (Ctx->Pd.State != PD_ST_READY || Ctx->Pd.PpsMv == 0) why = "PD contract lost";
+    else if (Ctx->CpSteps >= CP_TEST_STEPS)                     why = "test done (120 s)";
+    if (why != NULL) {
+        CpStop(Ctx, why);
+        return;
+    }
+
+    /* reverse current protection once current flows (Xiaomi: IIN > 200 mA, headroom > 300 mV) */
+    if (!Ctx->CpRcp && iin > 200 && vin > 2 * vbat + 300) {
+        LnUpdate(Ctx, LN_REG_SYS_CTRL, LN_SYS_REV_IIN_DET, LN_SYS_REV_IIN_DET);
+        Ctx->CpRcp = TRUE;
+        LogPrint("cp: reverse current protection on\n");
+    }
+
+    /* hold IBUS near the target with 20 mV PPS steps */
+    mv = Ctx->CpPpsMv;
+    if (iin + 100 < CP_TARGET_MA && vin < 2 * vbat + 800) {
+        mv += 20;
+    } else if (iin > CP_TARGET_MA + 50) {
+        mv -= 20;
+    }
+    mv = min(mv, min(Ctx->Pd.PpsMaxMv, (ULONG)CP_PPS_MAX_MV));
+    mv = max(mv, 2 * vbat + 100);
+    mv = (mv / 20) * 20;
+    if (mv != Ctx->CpPpsMv) {
+        if (!PdSetPps(Ctx, mv, CP_PPS_MA)) {
+            CpStop(Ctx, "PPS step failed");
+            return;
+        }
+        Ctx->CpPpsMv = mv;
+    }
+}

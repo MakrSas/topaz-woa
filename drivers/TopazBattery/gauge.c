@@ -147,8 +147,10 @@ static VOID TcStartToggling(PDEVICE_CONTEXT Ctx, PCSTR Why)
 {
     NTSTATUS a, b;
 
+    CpStop(Ctx, Why);
     ChgSetOtg(Ctx, FALSE, Why);
     PdDetach(Ctx);
+    Ctx->CpTried = FALSE;
     a = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_DRP_TOGGLE);
     b = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_COMMAND, TCPC_CMD_LOOK4CONNECTION);
     if (!NT_SUCCESS(a) || !NT_SUCCESS(b)) {
@@ -249,6 +251,7 @@ static VOID TcStep(PDEVICE_CONTEXT Ctx)
         } else {
             Ctx->TcDetachSteps = 0;
             PdService(Ctx);
+            CpStep(Ctx);
         }
         break;
     }
@@ -566,7 +569,7 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     s.Cycles = cyc & 0x1FF;
 
     s.OnLine = CHG_VBUS_STAT(s.ChgReg0B) >= 1 && CHG_VBUS_STAT(s.ChgReg0B) <= 6 && CHG_PG_STAT(s.ChgReg0B);
-    s.Charging = s.OnLine && (CHG_CHRG_STAT(s.ChgReg0B) == 1 || CHG_CHRG_STAT(s.ChgReg0B) == 2);
+    s.Charging = s.OnLine && (CHG_CHRG_STAT(s.ChgReg0B) == 1 || CHG_CHRG_STAT(s.ChgReg0B) == 2 || Ctx->CpActive);
     s.ChargeDone = s.OnLine && CHG_CHRG_STAT(s.ChgReg0B) == 3;
 
     if (CHG_VBUS_STAT(s.ChgReg0B) != Ctx->LastVbusStat) {
@@ -580,7 +583,7 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     {
         /* No trusted temperature -> no charging changes beyond the old on/off policy */
         ULONG zone = s.Valid ? JeitaUpdate(Ctx, s.TempTenthsC) : Ctx->JeitaZone;
-        BOOLEAN allow = zone >= JEITA_ZONES || g_Jeita[zone].IchgMa != 0;
+        BOOLEAN allow = (zone >= JEITA_ZONES || g_Jeita[zone].IchgMa != 0) && !Ctx->CpActive;
 
         ChargerPolicy(Ctx, s.ChgReg03, s.ChgReg0B, allow);
         if (zone < JEITA_ZONES && s.OnLine) {
@@ -645,6 +648,7 @@ VOID BattTcSinkOnly(PDEVICE_CONTEXT Ctx)
     if (!Ctx->HwReady || !Ctx->TcpcOk) {
         return;
     }
+    CpStop(Ctx, "D0 exit");
     PdDetach(Ctx);
     s = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SINK_RD_RD);
     LogPrint("type-c: [%s] -> Rd/Rd on D0 exit (%08x)\n", g_TcNames[Ctx->TcState], s);

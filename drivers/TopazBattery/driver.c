@@ -14,7 +14,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS status;
 
     LogOpen();
-    LogPrint("==== TopazBattery v0.10 (PD 3.0, PPS test with the pump off) ====\n");
+    LogPrint("==== TopazBattery v0.11 (ln8000 charge pump test, IBUS 1 A) ====\n");
 
     WDF_DRIVER_CONFIG_INIT(&config, TopazEvtDeviceAdd);
     config.EvtDriverUnload = TopazEvtDriverUnload;

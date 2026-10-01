@@ -89,7 +89,7 @@ static const PCSTR g_PdNames[] = { "off", "wait-caps", "wait-accept", "wait-ps-r
 
 /* ---- buffered log (the log file is write-through: too slow inside the negotiation) ---------- */
 
-#define PD_LOG_LINES 24
+#define PD_LOG_LINES 48
 #define PD_LOG_LEN   200
 static CHAR  g_PdLog[PD_LOG_LINES][PD_LOG_LEN];
 static ULONG g_PdLogN, g_PdLogLost;
@@ -115,7 +115,7 @@ static VOID PdLog(_In_z_ _Printf_format_string_ PCSTR Fmt, ...)
     g_PdLogN++;
 }
 
-static VOID PdLogFlush(VOID)
+VOID PdLogFlush(VOID)
 {
     ULONG i;
 
@@ -646,4 +646,35 @@ VOID PdDetach(PDEVICE_CONTEXT Ctx)
 PCSTR PdStateName(PDEVICE_CONTEXT Ctx)
 {
     return g_PdNames[Ctx->Pd.State];
+}
+
+/* ---- for the charge pump control (ln8000.c) ----------------------------------------------- */
+
+BOOLEAN PdSetPps(PDEVICE_CONTEXT Ctx, ULONG Mv, ULONG Ma)
+{
+    BOOLEAN ok;
+
+    g_PdT0 = KeQueryInterruptTime();
+    ok = PdRequest(Ctx, TRUE, Mv, Ma);
+    if (!ok) {
+        PdLog("PPS %umV %umA: FAILED (state %s)", Mv, Ma, g_PdNames[Ctx->Pd.State]);
+    }
+    PdLogFlush();
+    return ok;
+}
+
+VOID PdSetFixed(PDEVICE_CONTEXT Ctx, PCSTR Why)
+{
+    g_PdT0 = KeQueryInterruptTime();
+    if (Ctx->Pd.State == PD_ST_READY && Ctx->Pd.PpsMv != 0) {
+        PdBackToFixed(Ctx, Why);
+    }
+    PdLogFlush();
+}
+
+VOID PdWait(PDEVICE_CONTEXT Ctx, ULONG Ms)
+{
+    g_PdT0 = KeQueryInterruptTime();
+    PdIdle(Ctx, Ms);
+    PdLogFlush();
 }

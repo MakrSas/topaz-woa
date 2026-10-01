@@ -140,6 +140,11 @@ typedef struct _DEVICE_CONTEXT {
     ULONG        TcVbusNoCcSteps;   /* TOGGLING: steps with charger VBUS but no CC result */
     BOOLEAN      TcChanged;         /* run the battery poll on the next tick */
     PD_PORT      Pd;
+    BOOLEAN      CpActive;          /* ln8000 switching: bq2589x charging is held off */
+    BOOLEAN      CpTried;           /* one test run per attach */
+    BOOLEAN      CpRcp;             /* reverse current protection enabled */
+    ULONG        CpSteps;
+    ULONG        CpPpsMv;
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)
@@ -165,5 +170,11 @@ PCSTR    PdStateName(_In_ PDEVICE_CONTEXT Ctx);
 VOID     LnDump(_In_ PDEVICE_CONTEXT Ctx, _In_z_ PCSTR Why);
 BOOLEAN  LnReadAdc(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG VinMv, _Out_ PULONG IinMa, _Out_ PULONG VbatMv, _Out_ PULONG TdieRaw);
 VOID     PdPpsTest(_In_ PDEVICE_CONTEXT Ctx);
+VOID     PdLogFlush(VOID);
+BOOLEAN  PdSetPps(_In_ PDEVICE_CONTEXT Ctx, _In_ ULONG Mv, _In_ ULONG Ma);
+VOID     PdSetFixed(_In_ PDEVICE_CONTEXT Ctx, _In_z_ PCSTR Why);
+VOID     PdWait(_In_ PDEVICE_CONTEXT Ctx, _In_ ULONG Ms);
+VOID     CpStep(_In_ PDEVICE_CONTEXT Ctx);
+VOID     CpStop(_In_ PDEVICE_CONTEXT Ctx, _In_z_ PCSTR Why);
 NTSTATUS BattClassInit(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattClassUnload(_In_ PDEVICE_CONTEXT Ctx);
