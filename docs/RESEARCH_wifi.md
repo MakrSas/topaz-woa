@@ -59,8 +59,14 @@ Linux references: `drivers/remoteproc/qcom_q6v5_pas.c`, `drivers/firmware/qcom_s
 
 ## 4. Plan
 
-- [ ] P0 Collect firmware from Android: `/vendor/firmware_mnt/image/modem.*`, `wlanmdsp.mbn`,
-      `bdwlan*`, `/vendor/etc/wifi/*`, plus the `modem`, `modemst1/2`, `fsg` partitions.
+- [x] P0 Firmware — all of it is in the `modem_a` (NON-HLOS, FAT16, 4 KiB sectors) backup,
+      extracted to `~/work/wifi/fw/image/` (`7z x modem_a.img`):
+      - `modem.mdt` + `modem.b00..b29` (Hexagon ELF, 31 phdrs, loads at 0x4AB00000.., one segment at 0x51400000)
+      - `wlanmdsp.mbn` 3.8 MB — **WLAN.HL.3.2.4**-01083.3-QCAHLSWMTPLZ (ath10k WCN3990 "HL3.x" family);
+        the modem fetches it over QRTR TFTP (Linux: `tqftpserv`)
+      - board data `bdwlan.bin` + `bdwlan.1xx/2xx/bxx` variants (picked by board id via WLFW QMI)
+      - `modemr.jsn` / `modemuw.jsn` = pd-mapper service lists (root_pd, qmi instance 180: servreg, pdr, gps)
+      - EFS backups for rmtfs: `modemst1`, `modemst2`, `fsg` (in `~/work/topaz/backup`)
 - [ ] P1 Spike in UEFI (cheapest place to experiment, RAM boot): Qualcomm `ScmDxe` protocol
       (`EFIScm.h`) for PAS calls, load MPSS, watch smp2p "ready" / IPCRTR HELLO in SMEM.
 - [ ] P2 Same in a Windows kernel driver (SMEM, GLINK-SMEM, QRTR, rmtfs/pd-mapper equivalents).
