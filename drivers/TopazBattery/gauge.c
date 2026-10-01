@@ -213,6 +213,7 @@ static VOID TcStep(PDEVICE_CONTEXT Ctx)
                 ChgSetOtg(Ctx, FALSE, "charger attached");
                 TcSetState(Ctx, TC_SNK, "partner Rp");
                 PdAttach(Ctx, cc);          /* sets polarity, negotiates (busy, up to 4 s) */
+                LnDump(Ctx, "after PD");
             }
             return;
         }
@@ -297,6 +298,7 @@ NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
         LogPrint("charge pumps: sc8551@66 reg13=%02x (%08x), ln8000@51 reg00=%02x reg01=%02x (%08x)\n",
                  a, sa, b0, b1, sb);
     }
+    LnDump(Ctx, "driver start");
 
     TcpcInit(Ctx);
     Ctx->TcLastCc = 0xFF;

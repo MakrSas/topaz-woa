@@ -27,6 +27,7 @@
 #define PD_CTRL_VCONN_SWAP     11
 #define PD_CTRL_WAIT           12
 #define PD_CTRL_SOFT_RESET     13
+#define PD_CTRL_NOT_SUPPORTED  16        /* PD 3.0 */
 #define PD_DATA_SRC_CAP        1
 #define PD_DATA_REQUEST        2
 #define PD_DATA_SNK_CAP        4
@@ -37,8 +38,10 @@
 #define PD_HDR_ID(h)           (((h) >> 9) & 7)
 #define PD_HDR_CNT(h)          (((h) >> 12) & 7)
 #define PD_HDR_EXT(h)          (((h) >> 15) & 1)
-/* our header: UFP, spec rev 2.0, power role sink */
-#define PD_HDR(type, id, cnt)  ((USHORT)((type) | (1u << 6) | (((id) & 7u) << 9) | (((cnt) & 7u) << 12)))
+/* our header: UFP, power role sink, spec revision field rev (1 = 2.0, 2 = 3.0) */
+#define PD_HDR(type, rev, id, cnt) ((USHORT)((type) | (((rev) & 3u) << 6) | (((id) & 7u) << 9) | (((cnt) & 7u) << 12)))
+#define PD_REV20               1
+#define PD_REV30               2
 
 #define PDO_TYPE(p)            ((p) >> 30)          /* 0 fixed, 1 battery, 2 variable, 3 APDO */
 #define PDO_FIXED_MV(p)        ((((p) >> 10) & 0x3FF) * 50)
@@ -59,6 +62,7 @@
 #define TCPC_REG_RX_DATA       0x34
 #define TCPC_REG_TRANSMIT      0x50
 #define TCPC_TRANSMIT_SOP_R3   0x30      /* SOP, nRetryCount 3 (PD 2.0) */
+#define TCPC_TRANSMIT_SOP_R2   0x20      /* SOP, nRetryCount 2 (PD 3.0) */
 #define TCPC_REG_TX_BYTE_CNT   0x51
 #define TCPC_REG_TX_HDR        0x52
 #define TCPC_REG_TX_DATA       0x54
@@ -151,7 +155,7 @@ static VOID RmwBit0(PDEVICE_CONTEXT Ctx, UCHAR Reg, BOOLEAN Set)
 static NTSTATUS PdTx(PDEVICE_CONTEXT Ctx, ULONG Type, ULONG Cnt, const ULONG *Obj)
 {
     PPD_PORT pd = &Ctx->Pd;
-    USHORT hdr = PD_HDR(Type, pd->TxId, Cnt), alert = 0;
+    USHORT hdr = PD_HDR(Type, pd->Rev, pd->TxId, Cnt), alert = 0;
     UCHAR data[1 + 7 * 4];
     ULONGLONG end;
     NTSTATUS s;
@@ -164,7 +168,8 @@ static NTSTATUS PdTx(PDEVICE_CONTEXT Ctx, ULONG Type, ULONG Cnt, const ULONG *Ob
         RtlCopyMemory(&data[1], Obj, 4 * Cnt);              /* little endian, as on the wire */
         s = GeniI2cWrite(&Ctx->Bus, TCPC_ADDR, data, 1 + 4 * Cnt, TRUE);
     }
-    if (NT_SUCCESS(s)) s = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_TRANSMIT, TCPC_TRANSMIT_SOP_R3);
+    if (NT_SUCCESS(s)) s = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_TRANSMIT,
+                                        pd->Rev >= PD_REV30 ? TCPC_TRANSMIT_SOP_R2 : TCPC_TRANSMIT_SOP_R3);
     if (!NT_SUCCESS(s)) {
         PdLog("tx type %u: i2c error %08x", Type, s);
         return s;
@@ -201,6 +206,7 @@ static VOID PdResetProtocol(PDEVICE_CONTEXT Ctx)
 {
     Ctx->Pd.TxId = 0;
     Ctx->Pd.RxId = 0xFF;
+    Ctx->Pd.Rev = PD_REV30;     /* highest we speak; lowered by the source's revision */
 }
 
 /* ---- policy ------------------------------------------------------------------------------- */
@@ -218,6 +224,7 @@ static VOID PdOnSourceCaps(PDEVICE_CONTEXT Ctx, const ULONG *Pdo, ULONG Cnt, ULO
     warm = !Ctx->Snap.Valid || temp >= PD_WARM_TENTHS;
     KeReleaseSpinLock(&Ctx->SnapLock, irql);
 
+    pd->Rev = min(max(Rev, (ULONG)PD_REV20), (ULONG)PD_REV30);
     ma = PDO_FIXED_MA(Pdo[0]);
     if (!warm) {
         for (i = 0; i < Cnt; i++) {
@@ -241,7 +248,8 @@ static VOID PdOnSourceCaps(PDEVICE_CONTEXT Ctx, const ULONG *Pdo, ULONG Cnt, ULO
     }
 
     /* logging only after the Request is out (tSenderResponse) */
-    PdLog("Source_Capabilities rev %u.0, %u PDOs%s:", Rev + 1, Cnt, warm ? " (battery warm or unknown: 5 V only)" : "");
+    PdLog("Source_Capabilities rev %u.0 (using %u.0), %u PDOs%s:", Rev + 1, pd->Rev + 1, Cnt,
+          warm ? " (battery warm or unknown: 5 V only)" : "");
     for (i = 0; i < Cnt; i++) {
         ULONG p = Pdo[i];
         switch (PDO_TYPE(p)) {
@@ -261,7 +269,9 @@ static VOID PdOnMessage(PDEVICE_CONTEXT Ctx, USHORT Hdr, const ULONG *Obj)
     ULONG type = PD_HDR_TYPE(Hdr), cnt = PD_HDR_CNT(Hdr), id = PD_HDR_ID(Hdr);
 
     if (cnt == 0 && type == PD_CTRL_SOFT_RESET) {
+        ULONG rev = pd->Rev;
         PdResetProtocol(Ctx);
+        pd->Rev = rev;
         PdTx(Ctx, PD_CTRL_ACCEPT, 0, NULL);
         PdLog("Soft_Reset -> Accept, waiting for capabilities");
         pd->RxId = id;
@@ -275,7 +285,10 @@ static VOID PdOnMessage(PDEVICE_CONTEXT Ctx, USHORT Hdr, const ULONG *Obj)
     pd->RxId = id;
 
     if (PD_HDR_EXT(Hdr)) {
-        PdLog("extended message type %u ignored", type);
+        if (pd->Rev >= PD_REV30) {
+            PdTx(Ctx, PD_CTRL_NOT_SUPPORTED, 0, NULL);
+        }
+        PdLog("extended message type %u -> %s", type, pd->Rev >= PD_REV30 ? "Not_Supported" : "ignored");
         return;
     }
     if (cnt != 0) {
@@ -287,8 +300,14 @@ static VOID PdOnMessage(PDEVICE_CONTEXT Ctx, USHORT Hdr, const ULONG *Obj)
         case PD_DATA_VDM:
             PdLog("VDM %08x ignored", Obj[0]);
             return;
+        case 6:     /* Alert (PD 3.0): informational */
+            PdLog("Alert %08x", Obj[0]);
+            return;
         default:
-            PdLog("data message type %u cnt %u ignored", type, cnt);
+            if (pd->Rev >= PD_REV30) {
+                PdTx(Ctx, PD_CTRL_NOT_SUPPORTED, 0, NULL);
+            }
+            PdLog("data message type %u cnt %u -> %s", type, cnt, pd->Rev >= PD_REV30 ? "Not_Supported" : "ignored");
             return;
         }
     }
@@ -322,14 +341,28 @@ static VOID PdOnMessage(PDEVICE_CONTEXT Ctx, USHORT Hdr, const ULONG *Obj)
         break;
     }
     case PD_CTRL_GET_SRC_CAP:
+        /* sink-only port: PD 3.0 says Not_Supported, PD 2.0 Reject */
+        PdTx(Ctx, pd->Rev >= PD_REV30 ? PD_CTRL_NOT_SUPPORTED : PD_CTRL_REJECT, 0, NULL);
+        PdLog("Get_Source_Cap -> %s", pd->Rev >= PD_REV30 ? "Not_Supported" : "Reject");
+        break;
     case PD_CTRL_DR_SWAP:
     case PD_CTRL_PR_SWAP:
     case PD_CTRL_VCONN_SWAP:
         PdTx(Ctx, PD_CTRL_REJECT, 0, NULL);
         PdLog("control %u -> Reject", type);
         break;
-    default:
+    case PD_CTRL_GOODCRC:
+    case PD_CTRL_GOTOMIN:
+    case PD_CTRL_PING:
+    case PD_CTRL_NOT_SUPPORTED:
         PdLog("control %u ignored", type);
+        break;
+    default:
+        /* PD 3.0 requests we don't implement (Get_Status, Get_Source_Cap_Extended, ...) */
+        if (pd->Rev >= PD_REV30) {
+            PdTx(Ctx, PD_CTRL_NOT_SUPPORTED, 0, NULL);
+        }
+        PdLog("control %u -> %s", type, pd->Rev >= PD_REV30 ? "Not_Supported" : "ignored");
         break;
     }
 }

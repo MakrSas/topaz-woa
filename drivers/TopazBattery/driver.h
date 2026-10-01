@@ -103,6 +103,7 @@ typedef struct _PD_PORT {
     ULONG     ContractMv, ContractMa;   /* 0 = implicit 5 V contract */
     ULONG     Rx;               /* Source_Capabilities received */
     ULONG     HardResets;
+    ULONG     Rev;              /* spec revision field we send: 1 = 2.0, 2 = 3.0 */
 } PD_PORT, *PPD_PORT;
 
 typedef struct _DEVICE_CONTEXT {
@@ -154,5 +155,6 @@ VOID     PdAttach(_In_ PDEVICE_CONTEXT Ctx, _In_ UCHAR Cc);
 VOID     PdService(_In_ PDEVICE_CONTEXT Ctx);
 VOID     PdDetach(_In_ PDEVICE_CONTEXT Ctx);
 PCSTR    PdStateName(_In_ PDEVICE_CONTEXT Ctx);
+VOID     LnDump(_In_ PDEVICE_CONTEXT Ctx, _In_z_ PCSTR Why);
 NTSTATUS BattClassInit(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattClassUnload(_In_ PDEVICE_CONTEXT Ctx);

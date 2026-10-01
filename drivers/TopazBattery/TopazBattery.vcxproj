@@ -65,6 +65,7 @@
     <ClCompile Include="gauge.c" />
     <ClCompile Include="hwio.c" />
     <ClCompile Include="log.c" />
+    <ClCompile Include="ln8000.c" />
     <ClCompile Include="pd.c" />
   </ItemGroup>
   <ItemGroup>
