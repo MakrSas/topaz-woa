@@ -148,6 +148,7 @@ static VOID TcStartToggling(PDEVICE_CONTEXT Ctx, PCSTR Why)
     NTSTATUS a, b;
 
     ChgSetOtg(Ctx, FALSE, Why);
+    PdDetach(Ctx);
     a = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_DRP_TOGGLE);
     b = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_COMMAND, TCPC_CMD_LOOK4CONNECTION);
     if (!NT_SUCCESS(a) || !NT_SUCCESS(b)) {
@@ -211,6 +212,7 @@ static VOID TcStep(PDEVICE_CONTEXT Ctx)
                 I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SINK_RD_RD);
                 ChgSetOtg(Ctx, FALSE, "charger attached");
                 TcSetState(Ctx, TC_SNK, "partner Rp");
+                PdAttach(Ctx, cc);          /* sets polarity, negotiates (busy, up to 4 s) */
             }
             return;
         }
@@ -244,6 +246,7 @@ static VOID TcStep(PDEVICE_CONTEXT Ctx)
             }
         } else {
             Ctx->TcDetachSteps = 0;
+            PdService(Ctx);
         }
         break;
     }
@@ -284,6 +287,16 @@ NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, &r03);
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0B, &r0b);
     LogPrint("charger: reg03=%02x reg0b=%02x\n", r03, r0b);
+
+    {
+        /* which charge pump is fitted (both are in the DTB; one is populated) - reads only */
+        UCHAR a = 0, b0 = 0, b1 = 0;
+        NTSTATUS sa = I2cReadByte(&Ctx->Bus, SC8551_ADDR, SC8551_REG_DEVICE_ID, &a);
+        NTSTATUS sb = I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN8000_REG_DEVICE_ID, &b0);
+        I2cReadByte(&Ctx->Bus, LN8000_ADDR, LN8000_REG_DEVICE_ID + 1, &b1);
+        LogPrint("charge pumps: sc8551@66 reg13=%02x (%08x), ln8000@51 reg00=%02x reg01=%02x (%08x)\n",
+                 a, sa, b0, b1, sb);
+    }
 
     TcpcInit(Ctx);
     Ctx->TcLastCc = 0xFF;
@@ -427,9 +440,13 @@ static ULONG JeitaUpdate(PDEVICE_CONTEXT Ctx, LONG Tenths)
  * Input limit from what the source says it can give: Type-C Rp advert first, then the
  * charger's own BC1.2 result. 0 = leave the charger's own choice alone.
  */
-static ULONG InputLimitMa(UCHAR R0B, UCHAR Cc)
+static ULONG InputLimitMa(PDEVICE_CONTEXT Ctx, UCHAR R0B, UCHAR Cc)
 {
     ULONG rp = 0;
+
+    if (Ctx->Pd.State == PD_ST_READY && Ctx->Pd.ContractMa != 0) {
+        return min(Ctx->Pd.ContractMa, CHG_IINLIM_MAX_MA);     /* explicit PD contract */
+    }
 
     if (Cc != 0xFF) {
         rp = max(TCPC_CC1(Cc), TCPC_CC2(Cc));
@@ -452,7 +469,7 @@ static ULONG InputLimitMa(UCHAR R0B, UCHAR Cc)
 static VOID ChargerLimits(PDEVICE_CONTEXT Ctx, ULONG Zone, UCHAR R0B, UCHAR Cc)
 {
     UCHAR r00 = 0, r04 = 0, r06 = 0, w00, w04, w06;
-    ULONG iin = InputLimitMa(R0B, Cc);
+    ULONG iin = InputLimitMa(Ctx, R0B, Cc);
 
     if (!NT_SUCCESS(I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG00, &r00)) ||
         !NT_SUCCESS(I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG04, &r04)) ||
@@ -580,10 +597,11 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     ChargerAdc(Ctx, s.OnLine || (Ctx->Polls % 12) == 0);
     if ((Ctx->Polls++ % 12) == 0 || notify) {    /* every minute, or on change */
         LogPrint("poll: err=%08x st=%04x soc=%04x(%u.%u%%) v=%04x(%umV) i=%04x(%dmA) tex=%04x(%d.%dC) cap=%04x(%umAh) cyc=%u "
-                 "chg r03=%02x r0b=%02x online=%u charging=%u done=%u cc=%02x tc=%s\n",
+                 "chg r03=%02x r0b=%02x online=%u charging=%u done=%u cc=%02x tc=%s pd=%s %umV\n",
                  e, st, soc, s.SocTenths / 10, s.SocTenths % 10, volt, s.VoltageMv, curr, s.CurrentMa,
                  tex, s.TempTenthsC / 10, (s.TempTenthsC < 0 ? -s.TempTenthsC : s.TempTenthsC) % 10,
-                 cap, s.FullMah, s.Cycles, s.ChgReg03, s.ChgReg0B, s.OnLine, s.Charging, s.ChargeDone, Ctx->TcLastCc, g_TcNames[Ctx->TcState]);
+                 cap, s.FullMah, s.Cycles, s.ChgReg03, s.ChgReg0B, s.OnLine, s.Charging, s.ChargeDone, Ctx->TcLastCc, g_TcNames[Ctx->TcState],
+                 PdStateName(Ctx), Ctx->Pd.ContractMv);
     }
     if (notify) {
         Ctx->LastNotifiedState = state;
@@ -624,6 +642,7 @@ VOID BattTcSinkOnly(PDEVICE_CONTEXT Ctx)
     if (!Ctx->HwReady || !Ctx->TcpcOk) {
         return;
     }
+    PdDetach(Ctx);
     s = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SINK_RD_RD);
     LogPrint("type-c: [%s] -> Rd/Rd on D0 exit (%08x)\n", g_TcNames[Ctx->TcState], s);
 }

@@ -174,6 +174,12 @@
 #define CHG_VREG_HOT_MV          4100      /* jeita_temp_t3_to_t4_cv, 48..60 degC */
 #define CHG_ICHG_HOT_MA          1024      /* DTB allows 2350; kept lower on purpose */
 
+/* ---- charge pumps (33 W path), only probed (read only) for now -------------- */
+#define SC8551_ADDR              0x66
+#define SC8551_REG_DEVICE_ID     0x13
+#define LN8000_ADDR              0x51
+#define LN8000_REG_DEVICE_ID     0x00
+
 /* ---- battery pack (topaz: 5000 mAh nominal, 4.45 V max) ------------------ */
 #define BATT_DESIGN_MAH          5000
 #define BATT_NOMINAL_MV          3870

@@ -85,6 +85,26 @@ typedef struct _BATT_SNAPSHOT {
     BOOLEAN OnLine, Charging, ChargeDone;
 } BATT_SNAPSHOT, *PBATT_SNAPSHOT;
 
+/* ---- USB-PD sink (pd.c) -------------------------------------------------- */
+
+#define PD_ST_OFF          0
+#define PD_ST_WAIT_CAPS    1
+#define PD_ST_WAIT_ACCEPT  2
+#define PD_ST_WAIT_PS_RDY  3
+#define PD_ST_READY        4
+#define PD_ST_NO_PD        5
+
+typedef struct _PD_PORT {
+    ULONG     State;
+    ULONGLONG StateSince;       /* KeQueryInterruptTime */
+    ULONG     TxId;             /* our MessageID counter */
+    ULONG     RxId;             /* last received MessageID, 0xFF = none */
+    ULONG     ReqMv, ReqMa;     /* last Request */
+    ULONG     ContractMv, ContractMa;   /* 0 = implicit 5 V contract */
+    ULONG     Rx;               /* Source_Capabilities received */
+    ULONG     HardResets;
+} PD_PORT, *PPD_PORT;
+
 typedef struct _DEVICE_CONTEXT {
     WDFDEVICE    Device;
     WDFWAITLOCK  ClassInitLock;
@@ -111,6 +131,7 @@ typedef struct _DEVICE_CONTEXT {
     ULONG        TcDetachSteps;     /* SRC/SNK: consecutive steps that look detached */
     ULONG        TcVbusNoCcSteps;   /* TOGGLING: steps with charger VBUS but no CC result */
     BOOLEAN      TcChanged;         /* run the battery poll on the next tick */
+    PD_PORT      Pd;
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)
@@ -129,5 +150,9 @@ NTSTATUS BattThreadStart(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattThreadStop(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattOtgOff(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattTcSinkOnly(_In_ PDEVICE_CONTEXT Ctx);
+VOID     PdAttach(_In_ PDEVICE_CONTEXT Ctx, _In_ UCHAR Cc);
+VOID     PdService(_In_ PDEVICE_CONTEXT Ctx);
+VOID     PdDetach(_In_ PDEVICE_CONTEXT Ctx);
+PCSTR    PdStateName(_In_ PDEVICE_CONTEXT Ctx);
 NTSTATUS BattClassInit(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattClassUnload(_In_ PDEVICE_CONTEXT Ctx);

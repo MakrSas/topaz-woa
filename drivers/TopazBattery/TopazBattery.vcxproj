@@ -65,6 +65,7 @@
     <ClCompile Include="gauge.c" />
     <ClCompile Include="hwio.c" />
     <ClCompile Include="log.c" />
+    <ClCompile Include="pd.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="driver.h" />
