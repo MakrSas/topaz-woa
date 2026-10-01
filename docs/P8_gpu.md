@@ -107,3 +107,13 @@ animations need the GPU.
   does not poll them) — check once the CP touches memory.
 - Next (v0.4): GPU SMMU 0x59a0000 state dump (read only), then identity bank; zap via PAS 13; SQE;
   ring; CP_ME_INIT; CP_MEM_WRITE test.
+- **TopazGpu v0.4** (2026-10-02): GPU SMMU 0x59a0000 = SMMU-500, sCR0 0x00240406 (CLIENTPD 0,
+  USFCFG 1 → unmatched streams fault), ID0 0x4c017e04 / ID1 0x20000005 / ID2 0x00005511: **4 SMRs, 5
+  context banks**, 4 KB pages × 8 (CB space at +0x8000). All SMRs invalid, S2CRs type 2 (fault), CB
+  registers hold reset garbage → nothing configured; we own it (GPU SIDs: mainline `<&adreno_smmu 0 1>`
+  = SID 0 mask 1). Zap: init_image 0/0, but mem_setup(0x55B15000, 0x830) → 0xffcfffba and
+  auth_and_reset → 0xffcfffbc.
+- **TopazGpu v0.5: ZAP SHADER ACCEPTED BY TZ.** Fix = mem_setup size aligned to 4 KB like Linux
+  mdt_loader (`max_addr = ALIGN(paddr + memsz, SZ_4K)` → 0x1000). Sequence: PAS shutdown(13) →
+  init_image(13, PA of the whole .mdt, 6860 B) → mem_setup(13, 0x55B15000, 0x1000) → copy
+  a610_zap.b02 to 0x55B15000 → auth_and_reset(13): all 0/0.
