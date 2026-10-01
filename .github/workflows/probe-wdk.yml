@@ -1,0 +1,26 @@
+name: Probe WDK (WiFiCx)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-2022
+    steps:
+      - name: List WiFiCx / NetAdapterCx / TLV parser files in the WDK
+        shell: pwsh
+        run: |
+          $kits = "C:\Program Files (x86)\Windows Kits\10"
+          Get-ChildItem "$kits\Include" -Directory | Select-Object Name
+          foreach ($v in (Get-ChildItem "$kits\Include" -Directory)) {
+            Write-Host "== $($v.Name)"
+            Get-ChildItem "$($v.FullName)\km" -Recurse -Include wificx.h,netadaptercx.h,WifiFuncEnum.h,dot11wificxintf.h,dot11wificxtypes.hpp,TLVGeneratorParser.hpp -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+            Get-ChildItem "$($v.FullName)\um" -Recurse -Include dot11wificxintf.h,TLVGeneratorParser.hpp -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+            Get-ChildItem "$($v.FullName)\wlan" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { $_.FullName }
+          }
+          Write-Host "== libs"
+          Get-ChildItem "$kits\Lib" -Recurse -Include WificxTLVGenParse.lib,WifiCxStub.lib,NetAdapterCxStub.lib -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          Get-ChildItem "$kits\Lib" -Recurse -Directory -Filter wificx -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName; Get-ChildItem $_.FullName -Recurse | Select-Object -First 30 | ForEach-Object { "   " + $_.FullName } }
+          Get-ChildItem "$kits\Lib" -Recurse -Directory -Filter netadaptercx -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName; Get-ChildItem $_.FullName -Recurse | Select-Object -First 30 | ForEach-Object { "   " + $_.FullName } }
+          Write-Host "== props"
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\build" -Recurse -Include *wifi*,*NetAdapter* -ErrorAction SilentlyContinue | Select-Object -First 30 | ForEach-Object { $_.FullName }
