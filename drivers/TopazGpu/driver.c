@@ -19,7 +19,7 @@
  */
 #include "driver.h"
 
-#define TOPAZ_GPU_VERSION   "v0.2"
+#define TOPAZ_GPU_VERSION   "v0.3"
 
 #define GCC_BASE            0x01400000ULL
 #define GCC_SIZE            0x80000
@@ -211,11 +211,13 @@ static BOOLEAN PowerUp(VOID)
     BranchOn(g_Gcc, 0x71154, "gcc_bimc_gpu_axi");
     BranchOn(g_Gcc, 0x3600c, "gcc_gpu_memnoc_gfx");       /* BRANCH_VOTED: may read off until used */
     BranchOn(g_Gcc, 0x36018, "gcc_gpu_snoc_dvm_gfx");
-    /* GPU CC always-on side */
+    /* CX power domain first: the GPU CC cxo/ahb branches live in it and stay CLK_OFF before (v0.2) */
+    ok &= GdscOn(0x106c, 0, 0, 0x1540, "gpu_cx_gdsc");
+    if (!ok) {
+        return FALSE;
+    }
     ok &= BranchOn(g_GpuCc, 0x109c, "gpucc_cxo");
     ok &= BranchOn(g_GpuCc, 0x1078, "gpucc_ahb");
-    /* CX power domain, then its clocks */
-    ok &= GdscOn(0x106c, 0, 0, 0x1540, "gpu_cx_gdsc");
     if (!ok) {
         return FALSE;
     }
