@@ -10,10 +10,10 @@
 #include "driver.h"
 
 #define SPMI_CORE_BASE      0x01C40000ULL
-#define SPMI_CNFG_OFF       0x800            /* cnfg = 0x01C40800 */
+#define SPMI_CORE_SIZE      0x1100
+#define SPMI_APID_MAP       0x900
 #define SPMI_OBSRVR_BASE    0x03E00000ULL
 #define SPMI_CH_STRIDE      0x10000ULL
-#define SPMI_MAP_REG(n)     (SPMI_CNFG_OFF + 0x0C + 4 * (n))
 
 #define ARB_CMD             0x00
 #define ARB_STATUS          0x08
@@ -73,21 +73,25 @@ static const UCHAR g_ReportDescriptor[] = {
 
 /* ---- SPMI (read only) ------------------------------------------------------ */
 
+/*
+ * Arbiter v5: APID map in core space, core + 0x900 + 4*apid, PPID in bits [19:8].
+ * (The bit-tree mapping table of v1-v3 reads as zeros here.)
+ */
 static ULONG FindPonChannel(volatile UCHAR *Core)
 {
-    ULONG idx = 0, depth;
+    ULONG ver = READ_REGISTER_ULONG((volatile ULONG *)Core);
+    ULONG n, v, logged = 0;
 
-    for (depth = 0; depth < 20; depth++) {
-        ULONG e = READ_REGISTER_ULONG((volatile ULONG *)(Core + SPMI_MAP_REG(idx)));
-        ULONG bi = (e >> 18) & 0xF;
-        ULONG bv = (PON_PPID >> bi) & 1;
-        ULONG flag = bv ? ((e >> 8) & 1) : ((e >> 17) & 1);
-        ULONG res = bv ? (e & 0xFF) : ((e >> 9) & 0xFF);
-        LogPrint("map[%u]=%08x bi=%u bv=%u flag=%u res=%u\n", idx, e, bi, bv, flag, res);
-        if (flag) {
-            return res;
+    LogPrint("arbiter version %08x\n", ver);
+    for (n = 0; n < (SPMI_CORE_SIZE - SPMI_APID_MAP) / 4; n++) {
+        v = READ_REGISTER_ULONG((volatile ULONG *)(Core + SPMI_APID_MAP + 4 * n));
+        if (v != 0 && logged < 40) {
+            LogPrint("apid[%u]=%08x ppid=%03x\n", n, v, (v >> 8) & 0xFFF);
+            logged++;
         }
-        idx = res;
+        if (((v >> 8) & 0xFFF) == PON_PPID) {
+            return n;
+        }
     }
     return MAXULONG;
 }
@@ -120,12 +124,12 @@ static NTSTATUS HwInit(PDEVICE_CONTEXT Ctx)
     NTSTATUS status;
 
     pa.QuadPart = (LONGLONG)SPMI_CORE_BASE;
-    core = (volatile UCHAR *)MmMapIoSpaceEx(pa, 0x2000, PAGE_READWRITE | PAGE_NOCACHE);
+    core = (volatile UCHAR *)MmMapIoSpaceEx(pa, SPMI_CORE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
     if (core == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     ch = FindPonChannel(core);
-    MmUnmapIoSpace((PVOID)core, 0x2000);
+    MmUnmapIoSpace((PVOID)core, SPMI_CORE_SIZE);
     LogPrint("PON channel %u\n", ch);
     if (ch > 511) {
         return STATUS_NOT_FOUND;
@@ -216,7 +220,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS status;
 
     LogOpen();
-    LogPrint("==== TopazButtons v0.1 ====\n");
+    LogPrint("==== TopazButtons v0.2 ====\n");
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd);
     config.EvtDriverUnload = EvtDriverUnload;
     status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, WDF_NO_HANDLE);
