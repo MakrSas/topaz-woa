@@ -48,3 +48,20 @@ The firmware advertises WMI_TLV_SERVICE_MGMT_TX_WMI (76), so management frames g
   HTT TX (frag desc bank) -> firmware; EAPOL makes WPA2 possible; WDI_SET_ADD_CIPHER_KEYS ->
   VDEV_INSTALL_KEY; PEER_SET_PARAM AUTHORIZE.
 - Then HT/VHT association (HT caps + WMM IEs, PEER_ASSOC HT flags/rates), power save, interrupts.
+
+## Result (2026-10-01)
+- **v0.3**: association works on the phone (AUTH + ASSOC accepted in < 20 ms, aid 9); the AP's EAPOL M1
+  arrived in our HTT rx ring.
+- **v0.4: Wi-Fi fully works in Windows** — connected to the home WPA2-PSK network from Windows Settings,
+  4-way handshake by Windows over our data path, keys installed, DHCP, internet. Data path = native
+  802.11 frames both ways (Windows NWiFi format == ath10k native-wifi decap/encap): HTT RX in-order
+  payload (+360 B after rx_desc_v2) -> NetAdapter Rx (layer 2 = 802.11); NetAdapter Tx -> HTT TX_FRM
+  (frame in a DMA pool, frag desc bank entry, cmd + 52-byte prefetch on CE4), EAPOL in the clear
+  until the pairwise key is installed.
+
+## Next
+- Speed: HT/VHT association (HT caps + WMM in the assoc request, PEER_ASSOC HT/VHT flags, rates,
+  QoS TIDs) — now legacy 54 Mb/s max.
+- CE interrupts instead of 1 ms polling (battery), STA power save, Modern Standby / D0 exit.
+- Real MAC from Android persist (wlan_mac.bin) instead of 02:54:4f:50:41:5a.
+- WDI_GET_STATISTICS, link quality updates, roaming, TKIP/WPA3-SAE, reconnect after AP loss.
