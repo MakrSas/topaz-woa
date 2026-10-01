@@ -841,7 +841,7 @@ struct SampleSourceMode
 // The driver will advertise all modes that fit within the actual required mode (see AddSingleSourceMode below)
 const static SampleSourceMode C_SampleSourceMode[] = {{800,600},{1024,768},{1152,864},{1280,800},{1280,1024},{1400,1050},{1600,1200},{1680,1050},{1920,1200}};
 // topaz v0.1: only the native (POST) mode; scaled portrait modes come in v0.2
-const static UINT C_SampleSourceModeMax = 0;
+static UINT C_SampleSourceModeMax = 0;   /* not const: avoids C4296 on the empty loop */
 
 NTSTATUS BASIC_DISPLAY_DRIVER::AddSingleSourceMode(_In_ CONST DXGK_VIDPNSOURCEMODESET_INTERFACE* pVidPnSourceModeSetInterface,
                                                    D3DKMDT_HVIDPNSOURCEMODESET hVidPnSourceModeSet,
