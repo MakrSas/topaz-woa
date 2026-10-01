@@ -28,5 +28,6 @@ devcon.exe install TopazWifi.inf Root\TopazWifi >> "%L%" 2>&1
 echo devcon exit %errorlevel% >> "%L%"
 type "%L%"
 echo.
-echo Wait ~30 s, open Settings - Network - Wi-Fi, then run copy-log-wifi.cmd.
+echo Wait 30 s before rebooting (boot guard). After a reboot Wi-Fi comes up by itself in ~30 s.
+echo Then: Settings - Network - Wi-Fi, connect; afterwards run copy-log.cmd.
 pause
