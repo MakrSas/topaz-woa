@@ -671,6 +671,7 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
     }
     busy = CePoll ();                           /* WLAN copy engines (no-op until CeStart) */
     ScanPoll ();
+    HttPoll ();
     busy = busy || mRxMsgs != rx0 || mTxMsgs != tx0;
     ModemIdle (busy);
   }
@@ -699,6 +700,7 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
   HtcSummary ();
   WmiSummary ();
   ScanSummary ();
+  HttSummary ();
   CeSummary ();
   Out ("  qrtr: modem node %x, hello rx %u, %u services, %u RESUME_TX\r\n", mModemNode, mHelloRx,
        (UINT32)mSrvCount, (UINT32)mResumes);

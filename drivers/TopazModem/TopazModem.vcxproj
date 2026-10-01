@@ -66,6 +66,7 @@
     <ClCompile Include="driver.c" />
     <ClCompile Include="fileio.c" />
     <ClCompile Include="htc.c" />
+    <ClCompile Include="htt.c" />
     <ClCompile Include="Glink.c" />
     <ClCompile Include="log.c" />
     <ClCompile Include="ModemPas.c" />

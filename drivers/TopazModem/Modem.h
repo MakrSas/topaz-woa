@@ -90,4 +90,9 @@ VOID           PmicProbe(CONST CHAR8 *When);                    /* pmic.c, read-
 VOID           ScanDump(CONST CHAR8 *Tag, CONST UINT8 *P, UINT32 Len, UINT32 MaxWords);
 VOID           ScanRequestStats(CONST CHAR8 *Why);
 VOID           ScanStats(CONST UINT8 *Tlvs, UINT32 Len);
+BOOLEAN        HtcHttSend(CONST VOID *Data, UINT32 Len);
+VOID           HttStart(VOID);                                 /* htt.c */
+VOID           HttRx(CONST UINT8 *P, UINT32 Len);
+VOID           HttPoll(VOID);
+VOID           HttSummary(VOID);
 VOID           WlfwSetStep(CONST CHAR8 *S);

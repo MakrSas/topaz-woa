@@ -41,7 +41,6 @@
 #define ATTR_DIS_INTR  0x08
 #define RX_BUF_SIZE    2048
 #define RX_POST        32                         /* buffers kept posted per dest ring (<= ring) */
-#define TX_SLOT        2048
 
 typedef struct { UINT64 Addr; UINT16 Nbytes, Flags; UINT32 Toeplitz; } CE_DESC;   /* ce_desc_64, 16 B */
 
@@ -93,8 +92,13 @@ STATIC BOOLEAN HostRxPipe(UINT32 C)
 
 STATIC BOOLEAN HostTxPipe(UINT32 C)
 {
-  return C == 0 || C == 3;                      /* HTC control + WMI for now; HTT (CE4) later */
+  return C == 0 || C == 3 || C == 4;            /* HTC control, WMI, HTT */
 }
+
+/* TX buffers: at most TX_SLOTS_MAX in flight per pipe, each src_sz_max bytes (CE4: 256) */
+#define TX_SLOTS_MAX   64
+#define TxSlots(c)     MIN (mCe[c].SrcN, TX_SLOTS_MAX)
+#define TxSz(c)        ((UINT32)mAttr[c].SrcMax)
 
 STATIC UINT32 Pow2(UINT32 N)
 {
@@ -182,7 +186,7 @@ STATIC BOOLEAN CeAlloc(VOID)
     off += ALIGN_VALUE (mCe[c].SrcN * sizeof (CE_DESC), SIZE_4KB);
     off += ALIGN_VALUE (mCe[c].DstN * sizeof (CE_DESC), SIZE_4KB);
     off += HostRxPipe (c) ? RX_POST * RX_BUF_SIZE : 0;
-    off += HostTxPipe (c) ? mCe[c].SrcN * TX_SLOT : 0;
+    off += HostTxPipe (c) ? TxSlots (c) * TxSz (c) : 0;
   }
   size = off;
   va = PhysAlloc (size, &pa);
@@ -213,7 +217,7 @@ STATIC BOOLEAN CeAlloc(VOID)
     if (HostTxPipe (c)) {
       s->TxBuf = va + off;
       s->TxPa = pa + off;
-      off += s->SrcN * TX_SLOT;
+      off += TxSlots (c) * TxSz (c);
     }
   }
   return TRUE;
@@ -317,20 +321,20 @@ BOOLEAN CeSend(UINT32 Ce, CONST VOID *Data, UINT32 Len, UINT32 TransferId)
   UINT32 mask, sw, slot;
   volatile CE_DESC *d;
 
-  if (!mUp || Ce >= CE_COUNT || !HostTxPipe (Ce) || Len > TX_SLOT || Len > mAttr[Ce].SrcMax) {
+  if (!mUp || Ce >= CE_COUNT || !HostTxPipe (Ce) || Len > TxSz (Ce)) {
     return FALSE;
   }
   s = &mCe[Ce];
   mask = s->SrcN - 1;
   sw = mRri[Ce] & 0xFFFF;                       /* src read index from DDR */
-  if (((sw - 1 - s->SrcWr) & mask) == 0) {
-    s->TxFull++;
+  if (((sw - 1 - s->SrcWr) & mask) == 0 || ((s->SrcWr - sw) & mask) >= TxSlots (Ce) - 1) {
+    s->TxFull++;                                /* ring full, or all TX buffers still in flight */
     return FALSE;
   }
   slot = s->SrcWr;
-  CopyMem (s->TxBuf + (UINTN)slot * TX_SLOT, Data, Len);
+  CopyMem (s->TxBuf + (UINTN)(slot % TxSlots (Ce)) * TxSz (Ce), Data, Len);
   d = &s->Src[slot];
-  d->Addr     = s->TxPa + (UINT64)slot * TX_SLOT;   /* addr[1]: hi bits only, no gather */
+  d->Addr     = s->TxPa + (UINT64)(slot % TxSlots (Ce)) * TxSz (Ce);   /* addr[1]: hi bits only, no gather */
   d->Nbytes   = (UINT16)Len;
   d->Flags    = (UINT16)((TransferId << 4) & 0xFFF0);
   d->Toeplitz = 0;

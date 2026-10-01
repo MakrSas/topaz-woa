@@ -342,7 +342,7 @@ VOID WmiRx(CONST UINT8 *D, UINT32 Len)
     Out ("  t=%u.%03u wmi: READY event, %u bytes\r\n", T, Len);
     TlvWalk (D + 4, Len - 4, OnReadyTlv);
     if (mReadyRx) {
-      ScanStart ();                                /* channel list, vdev, passive scan */
+      HttStart ();                                 /* HTT setup (rx ring), then the scan */
     }
     break;
   case WMI_EV_SCAN:

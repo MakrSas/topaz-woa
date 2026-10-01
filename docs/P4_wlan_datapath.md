@@ -150,3 +150,24 @@ Still 0 beacons. Only one CHAN_INFO with the COMPLETE flag arrived and it was al
 flag guess wrong). v0.12: rails at each step (FW_READY, WLAN_MODE, WMI READY, after scans), raw CHAN_INFO
 dumps, raw dumps of the unknown events (0x3a001, 0x401f), and WMI pdev stats (chan_nf, rx_frame,
 rx_clear, cycle, phy_err + raw tx/rx counters) before and after the scans.
+
+## The radio hears, nothing reaches the firmware (TopazModem v0.12, log docs/logs/TopazModem-v0.12.log)
+
+- Rails: before boot L16/L17/L23 off; at FW_READY L23 on, rest off; **at WLAN_MODE all on** — the
+  firmware switches its own RF rails on through RPM when it enters mission mode.
+- WMI pdev stats (base = chan_nf, tx_frame, rx_frame, rx_clear, cycle, phy_err, tx_pwr):
+  baseline rx_frame 0; after scan 1 **rx_frame 17.6 M** / cycle 680 M; after scan 3 **175 M / 2293 M**
+  (~7.6 % of air time receiving), rx_clear grows, chan_nf -109. CHAN_INFO (tag 0x26, 88 B, one per
+  channel with cmd_flags 0; the COMPLETE one at the end is empty): e.g. 2412 MHz nf -120,
+  rx_frame_count 2.8 M of 17.7 M cycles. **The PHY receives frames.**
+- But every firmware RX software counter in the pdev stats (status_rcvd, mpdus, ...) stays **0**:
+  received PPDUs never reach the firmware's rx path. ath10k configures the host rx ring (HTT
+  RX_RING_CFG) right after WMI READY, before any scan — we skipped HTT setup.
+- Unknown events decoded: 0x3a001 = tag 0x261 regulatory info (alpha2 "na", regdomain 0x6c);
+  0x401f = tag 0x318 + 1128-byte array of 0x01; 0x1d00a = WLAN_FREQ_AVOID.
+
+v0.13: HTT setup like ath10k_htt_setup (64-bit): VERSION_REQ -> FRAG_DESC_BANK_CFG (1056 x 72 B) ->
+RX_RING_CFG (256 x 2 KiB host buffers, wcn3990 rx_desc_v2 offsets in words: attention 1, frag_info 2,
+mpdu_start 4, msdu_start 7, msdu_end 12, mpdu_end 26, ppdu_start 27, ppdu_end 37, hdr_status 74,
+payload 90; computed by compiling ath10k rx_desc.h) -> AGGR_CFG v2 (64/3), all on CE4; then the scan.
+RX_IN_ORD_PADDR_IND buffers are recycled and their 802.11 headers logged.

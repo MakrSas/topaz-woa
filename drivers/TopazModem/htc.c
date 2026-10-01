@@ -205,6 +205,12 @@ STATIC VOID OnTrailer(CONST UINT8 *P, UINT32 Len)
   }
 }
 
+/* HTT goes out on the HTT_DATA endpoint (CE4), no credit flow. */
+BOOLEAN HtcHttSend(CONST VOID *Data, UINT32 Len)
+{
+  return mHttEid != 0xFF && HtcSend (mHttEid, Data, Len);
+}
+
 /* WMI messages wait here while the endpoint has no credit (ath10k queues them the same way). */
 #define WMIQ_LEN 6
 #define WMIQ_MAX 2040                           /* = WMI max_msg from the connect response */
@@ -284,9 +290,7 @@ VOID HtcRx(UINT32 Ce, CONST UINT8 *D, UINT32 Len)
     mWmiEvents++;
     WmiRx (p, plen);
   } else if (h->Eid == mHttEid) {
-    if (mEp[h->Eid].Rx <= 8) {
-      Out ("  t=%u.%03u htt: msg type %u, %u bytes\r\n", T, plen ? p[0] : 0xFF, plen);
-    }
+    HttRx (p, plen);
   } else {
     Out ("  t=%u.%03u htc: rx on unknown eid %u (ce%u)\r\n", T, h->Eid, Ce);
   }
