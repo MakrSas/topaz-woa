@@ -383,6 +383,7 @@ STATIC VOID QrtrRx(CONST UINT8 *P, UINT32 Len)
     }
     if (c->A == QMI_SVC_WLFW) {
       Out ("  t=%u.%03u *** WLFW service 0x45 up: inst %x node %u port %x ***\r\n", T, c->B, c->C, c->D);
+      WlfwArrive (c->C, c->D);
     }
     break;
   case QRTR_TYPE_DATA:

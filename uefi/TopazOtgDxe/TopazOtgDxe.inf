@@ -16,6 +16,7 @@
   Smem.c
   Glink.c
   ModemSvc.c
+  Wlfw.c
 
 [Packages]
   MdePkg/MdePkg.dec

@@ -187,7 +187,7 @@ STATIC EFI_STATUS ReadFile(EFI_FILE_PROTOCOL *Root, CONST CHAR16 *Name, VOID **B
 #define VMID_NAV      0x2B
 #define PERM_RW       6
 
-UINTN ScmAssignToModem(UINT64 Addr, UINT64 Size)
+UINTN ScmAssign(UINT64 Addr, UINT64 Size, CONST UINT32 *Vmids, UINT32 Count)
 {
   EFI_PHYSICAL_ADDRESS pa = 0xFFFFFFFF;
   UINT64 *p;
@@ -208,17 +208,16 @@ UINTN ScmAssignToModem(UINT64 Addr, UINT64 Size)
   src[0] = VMID_HLOS;
   /* 0x080: dest perms {u32 vmid, u32 perm, u64 ctx, u32 ctx_size, u32 unused} x3 */
   {
-    UINT32 *d = (UINT32 *)(p + 16);
-    UINT32 v[3] = { VMID_HLOS, VMID_MSS_MSA, VMID_NAV }, i;
-    for (i = 0; i < 3; i++) {
-      d[6 * i]     = v[i];
+    UINT32 *d = (UINT32 *)(p + 16), i;
+    for (i = 0; i < Count && i < 8; i++) {
+      d[6 * i]     = Vmids[i];
       d[6 * i + 1] = PERM_RW;
     }
   }
   /* 0x100: extended args 3..6 */
   p[32] = 4;                     /* src_sz */
   p[33] = pa + 0x80;             /* dest */
-  p[34] = 3 * 24;                /* dest_sz */
+  p[34] = Count * 24;            /* dest_sz */
   p[35] = 0;
   WriteBackInvalidateDataCacheRange (p, SIZE_4KB);
 
@@ -242,8 +241,15 @@ UINTN ScmAssignToModem(UINT64 Addr, UINT64 Size)
     a.Arg6 = a6;
     ArmCallSmc (&a);
   }
-  Out ("  SCM assign %lx+%lx -> HLOS|MSS|NAV: ret=%lx res=%lx\r\n", Addr, Size, (UINT64)a.Arg0, (UINT64)a.Arg1);
+  Out ("  SCM assign %lx+%lx -> %u vmids: ret=%lx res=%lx\r\n", Addr, Size, Count, (UINT64)a.Arg0, (UINT64)a.Arg1);
+  gBS->FreePages (pa, 1);
   return (a.Arg0 != 0) ? a.Arg0 : a.Arg1;
+}
+
+UINTN ScmAssignToModem(UINT64 Addr, UINT64 Size)
+{
+  STATIC CONST UINT32 v[] = { VMID_HLOS, VMID_MSS_MSA, VMID_NAV };
+  return ScmAssign (Addr, Size, v, ARRAY_SIZE (v));
 }
 
 STATIC BOOLEAN PhdrLoadable(CONST Elf32_Phdr *P)

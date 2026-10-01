@@ -1,6 +1,6 @@
 # Wi-Fi on topaz under Windows — research log
 
-Status: **WLFW (WLAN firmware QMI service) is up**, all from UEFI (P1+P2). Started 2026-10-01.
+Status: **WLAN firmware reports FW_READY**, all from UEFI (P1+P2+P3). Started 2026-10-01.
 Source of facts: the phone's DTB (`~/work/topaz/backup/fdt.dts`), Linux upstream/MiCode drivers.
 
 ## 1. What the hardware is
@@ -110,7 +110,12 @@ Linux references: `drivers/remoteproc/qcom_q6v5_pas.c`, `drivers/firmware/qcom_s
       - **Gotcha 2:** console output on the 1080x2400 GOP is slow (scrolling); spamming lines
         made the PD miss its grace timer. Use the timer counter for timestamps.
 - [ ] P2b Same in a Windows kernel driver (SMEM, GLINK-SMEM, QRTR, rmtfs/pd-mapper/tftp equivalents).
-- [ ] P3 WLFW QMI handshake (board data, mode on) — first proof the radio is alive.
+- [x] P3 WLFW QMI handshake (`Wlfw.c`, Linux ath10k/qmi.c order) **2026-10-01: FW_READY received.**
+      IND_REGISTER (fw_ready + msa_ready, client id 0x4b4e454c) -> HOST_CAP (daemon_support 0) ->
+      MSA_INFO (0x51900000, 1 MiB) + SCM assign of the returned regions to MSS_MSA/WLAN(/WLAN_CE) ->
+      MSA_READY -> CAP -> on MSA_READY_IND: BDF download (bdwlan.bNN / .NNN by board id, 6144-byte
+      segments, data_len u16) -> CAL_REPORT (empty) -> FW_READY_IND. Modem stays up (no FATAL).
+      Chip/board/fw version lines scrolled away: print them in the summary next time.
 - [ ] P4 ath10k SNOC data path + WiFiCx miniport.
 
 Meanwhile internet works over the USB hub (RNDIS tethering or USB-Ethernet, inbox drivers).

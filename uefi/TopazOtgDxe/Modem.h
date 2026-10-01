@@ -38,3 +38,10 @@ VOID           SvcAnnounce(VOID);
 BOOLEAN        SvcRx(UINT32 SrcNode, UINT32 SrcPort, UINT32 DstPort, CONST UINT8 *Data, UINT32 Len);
 VOID           SvcSummary(VOID);
 UINTN          ScmAssignToModem(UINT64 Addr, UINT64 Size);
+UINTN          ScmAssign(UINT64 Addr, UINT64 Size, CONST UINT32 *Vmids, UINT32 Count);
+VOID           WlfwArrive(UINT32 Node, UINT32 Port);
+VOID           WlfwRx(CONST UINT8 *Data, UINT32 Len);
+VOID           WlfwSummary(VOID);
+EFI_FILE_PROTOCOL *SvcRoot(VOID);
+
+#define PORT_WLFWC         0x4004             /* our QMI client port towards WLFW */

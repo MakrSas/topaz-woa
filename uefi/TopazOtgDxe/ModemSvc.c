@@ -717,6 +717,11 @@ STATIC VOID FileCrc(CONST CHAR16 *Path)
   mCrc = crc;
 }
 
+EFI_FILE_PROTOCOL *SvcRoot(VOID)
+{
+  return mRoot;
+}
+
 VOID SvcInit(EFI_FILE_PROTOCOL *Root)
 {
   mRoot = Root;
@@ -753,6 +758,10 @@ BOOLEAN SvcRx(UINT32 SrcNode, UINT32 SrcPort, UINT32 DstPort, CONST UINT8 *Data,
     }
     return TRUE;
   }
+  if (DstPort == PORT_WLFWC) {
+    WlfwRx (Data, Len);
+    return TRUE;
+  }
   if (DstPort >= PORT_SESS && DstPort < PORT_SESS + 0x10000) {
     return TftpSession (SrcNode, SrcPort, DstPort, Data, Len);
   }
@@ -783,7 +792,7 @@ VOID SvcSummary(VOID)
     }
   }
 
-  Out ("  wlanmdsp crc32 %08x (PC copy a4fd8c71)\r\n", mCrc);
+  WlfwSummary ();
   Out ("  pd-mapper %u reqs; rmtfs reads %u writes %u (dropped) errors %u; tftp writes %u\r\n",
        (UINT32)mPdReqs, (UINT32)mRmtfsReads, (UINT32)mRmtfsWrites, (UINT32)mRmtfsErr, (UINT32)mTftpWrites);
   for (i = 0; i < mFileCount; i++) {
