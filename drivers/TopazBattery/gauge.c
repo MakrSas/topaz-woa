@@ -65,9 +65,9 @@ static VOID TcpcDump(PDEVICE_CONTEXT Ctx, PCSTR Why)
 }
 
 /*
- * rt1711h Type-C controller: the phone stays a plain Rd/Rd sink (no DRP, no PD). The vendor
- * setup is what Linux rt1711h_init() writes; without "shipping off" the CC comparators may be
- * idle and CC_STATUS never shows a charger (v0.5: cc_status stayed 00 with an adapter plugged).
+ * rt1711h Type-C controller (no PD). The vendor setup is what Linux rt1711h_init() writes;
+ * without "shipping off" the CC comparators may be idle and CC_STATUS never shows a charger
+ * (v0.5: cc_status stayed 00 with an adapter plugged). Roles: TcStep() below.
  */
 static VOID TcpcInit(PDEVICE_CONTEXT Ctx)
 {
@@ -87,7 +87,6 @@ static VOID TcpcInit(PDEVICE_CONTEXT Ctx)
     w |= I2cWriteByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL8, RT1711H_RTCTRL8_INIT);
     w |= I2cWriteByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL11, RT1711H_RTCTRL11_INIT);
     w |= I2cWriteByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL14, RT1711H_RTCTRL14_INIT);
-    w |= I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SINK_RD_RD);
     {
         UCHAR clr[3] = { TCPC_REG_ALERT, 0xFF, 0xFF };   /* clear all alerts (W1C) */
         w |= GeniI2cWrite(&Ctx->Bus, TCPC_ADDR, clr, sizeof(clr), TRUE);
@@ -95,8 +94,159 @@ static VOID TcpcInit(PDEVICE_CONTEXT Ctx)
     KeStallExecutionProcessor(2000);    /* CC debounce (tTCPCfilter ~0.4 ms) */
     TcpcDump(Ctx, "after");
     I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, &role);
-    Ctx->TcpcOk = NT_SUCCESS(w) && role == TCPC_ROLE_SINK_RD_RD;
-    LogPrint("rt1711h: init writes %08x role=%02x -> cc detect %s\n", w, role, Ctx->TcpcOk ? "on" : "OFF");
+    Ctx->TcpcOk = NT_SUCCESS(w);
+    LogPrint("rt1711h: init writes %08x role=%02x -> %s\n", w, role, Ctx->TcpcOk ? "ok" : "FAILED");
+}
+
+/* ---- Type-C role state machine (1 s steps from the poll thread) ----------------------------
+ * TOGGLING: rt1711h alternates Rp/Rd looking for a partner, OTG off.
+ * SRC:      partner shows Rd (hub / OTG adapter): we are Rp, OTG boost on.
+ * SNK:      partner shows Rp (charger): we are Rd, OTG off, charging per JEITA.
+ * FALLBACK: CC unusable: the old VBUS_STAT-only policy (OTG on whenever nothing is plugged).
+ */
+#define TC_FALLBACK 0
+#define TC_TOGGLING 1
+#define TC_SRC      2
+#define TC_SNK      3
+static const PCSTR g_TcNames[] = { "fallback", "toggling", "source(hub)", "sink(charger)" };
+
+static NTSTATUS ChgSetOtg(PDEVICE_CONTEXT Ctx, BOOLEAN On, PCSTR Why)
+{
+    UCHAR r03 = 0, want;
+    NTSTATUS s = I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, &r03);
+
+    if (!NT_SUCCESS(s)) {
+        return s;
+    }
+    want = On ? (UCHAR)(r03 | CHG_OTG_CONFIG) : (UCHAR)(r03 & ~CHG_OTG_CONFIG);
+    if (want != r03) {
+        s = I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, want);
+        LogPrint("otg %s (%s): reg03 %02x -> %02x (%08x)\n", On ? "on" : "off", Why, r03, want, s);
+    }
+    return s;
+}
+
+static BOOLEAN TcReadCc(PDEVICE_CONTEXT Ctx, PUCHAR Cc)
+{
+    /* rt1711h auto-idles after 32 ms; the first transfer after idle may only wake it */
+    return NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, Cc)) ||
+           NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, Cc));
+}
+
+static VOID TcSetState(PDEVICE_CONTEXT Ctx, ULONG State, PCSTR Why)
+{
+    LogPrint("type-c: %s -> %s (%s)\n", g_TcNames[Ctx->TcState], g_TcNames[State], Why);
+    Ctx->TcState = State;
+    Ctx->TcCandidate = 0;
+    Ctx->TcDetachSteps = 0;
+    Ctx->TcVbusNoCcSteps = 0;
+    Ctx->TcChanged = TRUE;
+}
+
+static VOID TcStartToggling(PDEVICE_CONTEXT Ctx, PCSTR Why)
+{
+    NTSTATUS a, b;
+
+    ChgSetOtg(Ctx, FALSE, Why);
+    a = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_DRP_TOGGLE);
+    b = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_COMMAND, TCPC_CMD_LOOK4CONNECTION);
+    if (!NT_SUCCESS(a) || !NT_SUCCESS(b)) {
+        LogPrint("type-c: start toggling failed (%08x %08x)\n", a, b);
+    }
+    TcSetState(Ctx, TC_TOGGLING, Why);
+}
+
+static VOID TcFallback(PDEVICE_CONTEXT Ctx, PCSTR Why)
+{
+    /* plain sink terminations: a charger always sees Rd and keeps VBUS on */
+    I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SINK_RD_RD);
+    TcSetState(Ctx, TC_FALLBACK, Why);
+}
+
+static VOID TcStep(PDEVICE_CONTEXT Ctx)
+{
+    UCHAR cc = 0, r0b = 0, pwr = 0;
+    ULONG c1, c2, vbus;
+
+    if (Ctx->TcState == TC_FALLBACK) {
+        return;
+    }
+    if (!TcReadCc(Ctx, &cc) || !NT_SUCCESS(I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0B, &r0b))) {
+        return;     /* bus trouble: change nothing */
+    }
+    c1 = TCPC_CC1(cc);
+    c2 = TCPC_CC2(cc);
+    vbus = CHG_VBUS_STAT(r0b);
+    if (cc != Ctx->TcLastCc) {
+        LogPrint("type-c: [%s] cc_status %02x -> %02x (looking=%u term=%s cc1=%u cc2=%u) vbus_stat=%u\n",
+                 g_TcNames[Ctx->TcState], Ctx->TcLastCc, cc, (cc & TCPC_CC_LOOKING) ? 1 : 0,
+                 (cc & TCPC_CC_TERM_RD) ? "Rd" : "Rp", c1, c2, vbus);
+        Ctx->TcLastCc = cc;
+    }
+
+    switch (Ctx->TcState) {
+    case TC_TOGGLING: {
+        ULONG cand = 0;
+
+        if (!(cc & TCPC_CC_LOOKING)) {
+            if (cc & TCPC_CC_TERM_RD) {
+                if (c1 != 0 || c2 != 0) {
+                    cand = TC_SNK;                  /* we were Rd and saw Rp */
+                }
+            } else if (c1 == TCPC_CC_SRC_RD || c2 == TCPC_CC_SRC_RD) {
+                cand = TC_SRC;                      /* we were Rp and saw Rd */
+            }
+            if (cand == 0) {
+                /* toggling stopped on Ra / noise: look again (no OTG change, it is already off) */
+                I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_DRP_TOGGLE);
+                I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_COMMAND, TCPC_CMD_LOOK4CONNECTION);
+            }
+        }
+        if (cand != 0 && cand == Ctx->TcCandidate) {
+            if (cand == TC_SRC) {
+                I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SRC_RP_RP);
+                ChgSetOtg(Ctx, TRUE, "hub attached");
+                TcSetState(Ctx, TC_SRC, "partner Rd");
+            } else {
+                I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SINK_RD_RD);
+                ChgSetOtg(Ctx, FALSE, "charger attached");
+                TcSetState(Ctx, TC_SNK, "partner Rp");
+            }
+            return;
+        }
+        Ctx->TcCandidate = cand;
+        /* a charger gives VBUS only after it saw our Rd, so VBUS without any CC result = CC is broken */
+        if (cand == 0 && vbus >= 1 && vbus <= 6) {
+            if (++Ctx->TcVbusNoCcSteps >= 5) {
+                TcFallback(Ctx, "charger VBUS for 5 s but CC never resolved: CC unusable");
+            }
+        } else {
+            Ctx->TcVbusNoCcSteps = 0;
+        }
+        break;
+    }
+    case TC_SRC:
+        /* hub gone: neither CC shows Rd any more */
+        if (c1 != TCPC_CC_SRC_RD && c2 != TCPC_CC_SRC_RD) {
+            if (++Ctx->TcDetachSteps >= 2) {
+                TcStartToggling(Ctx, "hub removed");
+            }
+        } else {
+            Ctx->TcDetachSteps = 0;
+        }
+        break;
+    case TC_SNK:
+        /* charger gone: CC open, or no VBUS seen by both the charger and the TCPC */
+        I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_POWER_STATUS, &pwr);
+        if ((c1 == 0 && c2 == 0) || (vbus == 0 && !(pwr & TCPC_VBUS_PRESENT))) {
+            if (++Ctx->TcDetachSteps >= 2) {
+                TcStartToggling(Ctx, "charger removed");
+            }
+        } else {
+            Ctx->TcDetachSteps = 0;
+        }
+        break;
+    }
 }
 
 NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
@@ -136,7 +286,13 @@ NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
     LogPrint("charger: reg03=%02x reg0b=%02x\n", r03, r0b);
 
     TcpcInit(Ctx);
-    Ctx->LastCcStatus = 0xFF;
+    Ctx->TcLastCc = 0xFF;
+    Ctx->TcState = TC_FALLBACK;
+    if (Ctx->TcpcOk) {
+        Ctx->TcState = TC_TOGGLING;     /* toggling itself starts on D0 entry (BattThreadStart) */
+    } else {
+        TcFallback(Ctx, "rt1711h not usable");
+    }
     Ctx->LastVbusStat = (ULONG)~0;
     Ctx->JeitaZone = (ULONG)~0;
     Ctx->HwReady = TRUE;
@@ -216,15 +372,6 @@ static VOID ChargerAdc(PDEVICE_CONTEXT Ctx, BOOLEAN Log)
         /* never write FORCE_DPDM back: it would restart input detection */
         I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG02, (UCHAR)((r02 | CHG_CONV_START) & ~CHG_FORCE_DPDM));
     }
-}
-
-/*
- * A charger shows Rp on CC (the phone is Rd/Rd); an OTG adapter/hub shows Rd, so CC stays open.
- * Needed because while our boost runs the charger reports VBUS_STAT=7 even with an adapter in.
- */
-static BOOLEAN CcSeesSource(UCHAR Cc)
-{
-    return Cc != 0xFF && (TCPC_CC1(Cc) != 0 || TCPC_CC2(Cc) != 0);
 }
 
 /*
@@ -334,38 +481,25 @@ static VOID ChargerLimits(PDEVICE_CONTEXT Ctx, ULONG Zone, UCHAR R0B, UCHAR Cc)
     }
 }
 
-static VOID ChargerPolicy(PDEVICE_CONTEXT Ctx, UCHAR R03, UCHAR R0B, UCHAR Cc, BOOLEAN Allow)
+/*
+ * CHG_CONFIG per JEITA whenever an adapter is in. OTG belongs to the Type-C state machine; only
+ * in FALLBACK the old VBUS_STAT policy drives it (boost whenever nothing is plugged).
+ */
+static VOID ChargerPolicy(PDEVICE_CONTEXT Ctx, UCHAR R03, UCHAR R0B, BOOLEAN Allow)
 {
     ULONG vbus = CHG_VBUS_STAT(R0B);
     UCHAR want = R03;
     UCHAR chg = Allow ? CHG_CHG_CONFIG : 0;
 
-    if (Ctx->CcOtgOffPending) {
-        /*
-         * Last poll dropped OTG because CC showed Rp. If nothing external holds VBUS now, that Rp
-         * came from the hub (PD pass-through hubs present Rp): stop trusting CC for this boot,
-         * otherwise OTG would toggle every poll.
-         */
-        UCHAR pwr = 0;
-        Ctx->CcOtgOffPending = FALSE;
-        if (vbus == 0 && NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_POWER_STATUS, &pwr)) &&
-            !(pwr & TCPC_VBUS_PRESENT)) {
-            Ctx->TcpcOk = FALSE;
-            LogPrint("type-c: CC showed a source but no VBUS after OTG off (power_status=%02x): hub with Rp? "
-                     "CC detect OFF until reboot\n", pwr);
-        }
-    }
-    if (vbus == 7 && (R03 & CHG_OTG_CONFIG) && Ctx->TcpcOk && CcSeesSource(Cc)) {
-        want = (UCHAR)(((R03 & ~CHG_CHG_CONFIG) | chg) & ~CHG_OTG_CONFIG);  /* adapter plugged into our boost */
-        Ctx->CcOtgOffPending = TRUE;
-    } else if (vbus >= 1 && vbus <= 6) {
+    if (vbus >= 1 && vbus <= 6) {
         want = (UCHAR)(((R03 & ~CHG_CHG_CONFIG) | chg) & ~CHG_OTG_CONFIG);  /* adapter: charge (if JEITA allows) */
-    } else if (vbus == 0) {
-        want = (UCHAR)(R03 | CHG_OTG_CONFIG);                      /* nothing: boost for the hub */
+    } else if (vbus == 0 && Ctx->TcState == TC_FALLBACK) {
+        want = (UCHAR)(R03 | CHG_OTG_CONFIG);                               /* nothing: boost for the hub */
     }
     if (want != R03) {
         NTSTATUS s = I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, want);
-        LogPrint("charger policy: vbus_stat=%u cc=%02x reg03 %02x -> %02x (%08x)\n", vbus, Cc, R03, want, s);
+        LogPrint("charger policy: [%s] vbus_stat=%u reg03 %02x -> %02x (%08x)\n",
+                 g_TcNames[Ctx->TcState], vbus, R03, want, s);
     }
 }
 
@@ -392,14 +526,6 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     e |= I2cReadWord(&Ctx->Bus, FG_ADDR, FG_REG_SOC_CYCLE, &cyc);
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, &s.ChgReg03);
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0B, &s.ChgReg0B);
-    s.CcStatus = 0xFF;
-    if (Ctx->TcpcOk) {
-        /* rt1711h auto-idles after 32 ms; the first transfer after idle may only wake it */
-        if (!NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &s.CcStatus)) &&
-            !NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &s.CcStatus))) {
-            s.CcStatus = 0xFF;
-        }
-    }
 
     s.Valid = NT_SUCCESS(e);
     s.Present = TRUE;   /* non-removable pack; FG_STATUS_BATT_PRESENT is only logged */
@@ -431,23 +557,15 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
         Ctx->LastVbusStat = CHG_VBUS_STAT(s.ChgReg0B);
     }
 
-    if (s.CcStatus != Ctx->LastCcStatus) {
-        static const PCSTR names[4] = { "open", "Rp-default", "Rp-1.5A", "Rp-3.0A" };
-        if (s.CcStatus != 0xFF) {
-            LogPrint("type-c: cc_status %02x -> %02x (cc1 %s, cc2 %s)\n", Ctx->LastCcStatus, s.CcStatus,
-                     names[TCPC_CC1(s.CcStatus)], names[TCPC_CC2(s.CcStatus)]);
-        }
-        Ctx->LastCcStatus = s.CcStatus;
-    }
-
     {
         /* No trusted temperature -> no charging changes beyond the old on/off policy */
         ULONG zone = s.Valid ? JeitaUpdate(Ctx, s.TempTenthsC) : Ctx->JeitaZone;
         BOOLEAN allow = zone >= JEITA_ZONES || g_Jeita[zone].IchgMa != 0;
 
-        ChargerPolicy(Ctx, s.ChgReg03, s.ChgReg0B, s.CcStatus, allow);
+        ChargerPolicy(Ctx, s.ChgReg03, s.ChgReg0B, allow);
         if (zone < JEITA_ZONES && s.OnLine) {
-            ChargerLimits(Ctx, zone, s.ChgReg0B, s.CcStatus);
+            /* the Rp advert is only meaningful while we are an attached sink */
+            ChargerLimits(Ctx, zone, s.ChgReg0B, Ctx->TcState == TC_SNK ? Ctx->TcLastCc : 0xFF);
         }
     }
 
@@ -462,10 +580,10 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     ChargerAdc(Ctx, s.OnLine || (Ctx->Polls % 12) == 0);
     if ((Ctx->Polls++ % 12) == 0 || notify) {    /* every minute, or on change */
         LogPrint("poll: err=%08x st=%04x soc=%04x(%u.%u%%) v=%04x(%umV) i=%04x(%dmA) tex=%04x(%d.%dC) cap=%04x(%umAh) cyc=%u "
-                 "chg r03=%02x r0b=%02x online=%u charging=%u done=%u cc=%02x\n",
+                 "chg r03=%02x r0b=%02x online=%u charging=%u done=%u cc=%02x tc=%s\n",
                  e, st, soc, s.SocTenths / 10, s.SocTenths % 10, volt, s.VoltageMv, curr, s.CurrentMa,
                  tex, s.TempTenthsC / 10, (s.TempTenthsC < 0 ? -s.TempTenthsC : s.TempTenthsC) % 10,
-                 cap, s.FullMah, s.Cycles, s.ChgReg03, s.ChgReg0B, s.OnLine, s.Charging, s.ChargeDone, s.CcStatus);
+                 cap, s.FullMah, s.Cycles, s.ChgReg03, s.ChgReg0B, s.OnLine, s.Charging, s.ChargeDone, Ctx->TcLastCc, g_TcNames[Ctx->TcState]);
     }
     if (notify) {
         Ctx->LastNotifiedState = state;
@@ -495,6 +613,21 @@ VOID BattOtgOff(PDEVICE_CONTEXT Ctx)
     LogPrint("OTG off on D0 exit: reg03=%02x (%08x)\n", r03, s);
 }
 
+/*
+ * Called on every D0 exit (after the thread stopped): back to plain Rd/Rd so that a charger
+ * always sees a sink and gives VBUS while no driver runs (off-mode charging, next boot).
+ */
+VOID BattTcSinkOnly(PDEVICE_CONTEXT Ctx)
+{
+    NTSTATUS s;
+
+    if (!Ctx->HwReady || !Ctx->TcpcOk) {
+        return;
+    }
+    s = I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SINK_RD_RD);
+    LogPrint("type-c: [%s] -> Rd/Rd on D0 exit (%08x)\n", g_TcNames[Ctx->TcState], s);
+}
+
 /* ---- Poll thread ---------------------------------------------------------- */
 
 static KSTART_ROUTINE BattThread;
@@ -503,11 +636,18 @@ static VOID BattThread(PVOID Context)
 {
     PDEVICE_CONTEXT Ctx = (PDEVICE_CONTEXT)Context;
     LARGE_INTEGER period;
+    ULONG tick = 0;
 
-    period.QuadPart = -10000LL * 5000; /* 5 s */
+    period.QuadPart = -10000LL * 1000; /* 1 s: Type-C steps; battery poll every 5 s */
     LogPrint("thread started\n");
     while (KeWaitForSingleObject(&Ctx->StopEvent, Executive, KernelMode, FALSE, &period) == STATUS_TIMEOUT) {
-        BattPoll(Ctx);
+        if (Ctx->HwReady) {
+            TcStep(Ctx);
+        }
+        if (++tick % 5 == 0 || Ctx->TcChanged) {
+            Ctx->TcChanged = FALSE;
+            BattPoll(Ctx);
+        }
     }
     LogPrint("thread exit (polls=%u)\n", Ctx->Polls);
     PsTerminateSystemThread(STATUS_SUCCESS);
@@ -517,6 +657,9 @@ NTSTATUS BattThreadStart(PDEVICE_CONTEXT Ctx)
 {
     NTSTATUS status;
 
+    if (Ctx->HwReady && Ctx->TcState != TC_FALLBACK) {
+        TcStartToggling(Ctx, "D0 entry");   /* D0 exit left plain Rd/Rd (BattTcSinkOnly) */
+    }
     KeInitializeEvent(&Ctx->StopEvent, NotificationEvent, FALSE);
     status = PsCreateSystemThread(&Ctx->ThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, BattThread, Ctx);
     if (!NT_SUCCESS(status)) {

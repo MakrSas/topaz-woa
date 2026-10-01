@@ -14,7 +14,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS status;
 
     LogOpen();
-    LogPrint("==== TopazBattery v0.6 (2 A charge, JEITA, rt1711h init + CC detect) ====\n");
+    LogPrint("==== TopazBattery v0.7 (2 A charge, JEITA, Type-C DRP roles) ====\n");
 
     WDF_DRIVER_CONFIG_INIT(&config, TopazEvtDeviceAdd);
     config.EvtDriverUnload = TopazEvtDriverUnload;
@@ -125,6 +125,7 @@ NTSTATUS TopazEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
 
     LogPrint("D0Exit target=%u action=%u\n", (ULONG)TargetState, (ULONG)action);
     BattThreadStop(ctx);
+    BattTcSinkOnly(ctx);
     /*
      * Only on shutdown/restart/sleep: on a plain driver removal (reinstall, PowerActionNone) the
      * boost also powers the hub with the flash drive the installer runs from.

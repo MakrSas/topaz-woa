@@ -153,6 +153,13 @@
 #define TCPC_REG_POWER_STATUS    0x1E      /* bit2 VBUS_PRESENT */
 #define TCPC_VBUS_PRESENT        0x04      /* POWER_STATUS bit2 */
 #define TCPC_ROLE_SINK_RD_RD     0x0A      /* DRP off, CC1 = CC2 = Rd: CC_STATUS states are sink states */
+#define TCPC_ROLE_SRC_RP_RP      0x05      /* DRP off, Rp default, CC1 = CC2 = Rp: CC_STATUS states are source states */
+#define TCPC_ROLE_DRP_TOGGLE     0x45      /* DRP, Rp default, start with Rp (Linux tcpci_start_toggling) */
+#define TCPC_REG_COMMAND         0x23
+#define TCPC_CMD_LOOK4CONNECTION 0x99
+#define TCPC_CC_LOOKING          0x20      /* CC_STATUS bit5: still toggling */
+#define TCPC_CC_TERM_RD          0x10      /* CC_STATUS bit4 ConnectResult: 1 = we present Rd (sink) */
+#define TCPC_CC_SRC_RD           2         /* source view: partner presents Rd (hub, OTG adapter) */
 #define TCPC_CC1(r)              ((r) & 3)          /* as sink: 0 open, 1 Rp default USB, 2 Rp 1.5 A, 3 Rp 3.0 A */
 #define TCPC_CC2(r)              (((r) >> 2) & 3)
 

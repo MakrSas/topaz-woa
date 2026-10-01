@@ -83,7 +83,6 @@ typedef struct _BATT_SNAPSHOT {
     ULONG   Cycles;
     UCHAR   ChgReg03, ChgReg0B;
     BOOLEAN OnLine, Charging, ChargeDone;
-    UCHAR   CcStatus;           /* rt1711h CC_STATUS, 0xFF if unread */
 } BATT_SNAPSHOT, *PBATT_SNAPSHOT;
 
 typedef struct _DEVICE_CONTEXT {
@@ -104,10 +103,14 @@ typedef struct _DEVICE_CONTEXT {
     KEVENT       StopEvent;
     ULONG        Polls;
     ULONG        LastVbusStat;      /* charger REG0B VBUS_STAT at the last poll (~0 = none yet) */
-    UCHAR        LastCcStatus;      /* rt1711h CC_STATUS at the last poll */
+    UCHAR        TcLastCc;          /* rt1711h CC_STATUS at the last Type-C step, 0xFF = unread */
     ULONG        JeitaZone;         /* index into the JEITA table, ~0 = none yet */
-    BOOLEAN      TcpcOk;            /* rt1711h answered and is in sink Rd/Rd: CC states usable */
-    BOOLEAN      CcOtgOffPending;   /* OTG was dropped because CC showed a source: verify next poll */
+    BOOLEAN      TcpcOk;            /* rt1711h answered and took the init writes */
+    ULONG        TcState;           /* TC_* in gauge.c: who owns OTG and how CC is read */
+    ULONG        TcCandidate;       /* TOGGLING: role seen at the last step (2 equal steps = attach) */
+    ULONG        TcDetachSteps;     /* SRC/SNK: consecutive steps that look detached */
+    ULONG        TcVbusNoCcSteps;   /* TOGGLING: steps with charger VBUS but no CC result */
+    BOOLEAN      TcChanged;         /* run the battery poll on the next tick */
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)
@@ -125,5 +128,6 @@ VOID     BattPoll(_In_ PDEVICE_CONTEXT Ctx);
 NTSTATUS BattThreadStart(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattThreadStop(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattOtgOff(_In_ PDEVICE_CONTEXT Ctx);
+VOID     BattTcSinkOnly(_In_ PDEVICE_CONTEXT Ctx);
 NTSTATUS BattClassInit(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattClassUnload(_In_ PDEVICE_CONTEXT Ctx);
