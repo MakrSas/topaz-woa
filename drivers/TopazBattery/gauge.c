@@ -179,6 +179,25 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     }
 }
 
+/*
+ * Called when the device leaves D0 (system shutdown/restart included). The boost keeps 5 V on
+ * VBUS after the SoC powers off and the PMIC then sees a cable and turns the phone back on.
+ */
+VOID BattOtgOff(PDEVICE_CONTEXT Ctx)
+{
+    UCHAR r03 = 0;
+    NTSTATUS s;
+
+    if (!Ctx->HwReady) {
+        return;
+    }
+    s = I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, &r03);
+    if (NT_SUCCESS(s) && (r03 & CHG_OTG_CONFIG)) {
+        s = I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, (UCHAR)(r03 & ~CHG_OTG_CONFIG));
+    }
+    LogPrint("OTG off on D0 exit: reg03=%02x (%08x)\n", r03, s);
+}
+
 /* ---- Poll thread ---------------------------------------------------------- */
 
 static KSTART_ROUTINE BattThread;

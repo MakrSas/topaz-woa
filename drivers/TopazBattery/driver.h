@@ -118,5 +118,6 @@ VOID     BattHwDeinit(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattPoll(_In_ PDEVICE_CONTEXT Ctx);
 NTSTATUS BattThreadStart(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattThreadStop(_In_ PDEVICE_CONTEXT Ctx);
+VOID     BattOtgOff(_In_ PDEVICE_CONTEXT Ctx);
 NTSTATUS BattClassInit(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattClassUnload(_In_ PDEVICE_CONTEXT Ctx);

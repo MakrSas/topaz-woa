@@ -18,7 +18,6 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/UefiLib.h>
 #include <Library/PrintLib.h>
-#include <Library/DxeServicesTableLib.h>
 #include <Guid/EventGroup.h>
 #include <Protocol/EFIPmicPon.h>
 #include "AbSlot.h"
@@ -418,223 +417,6 @@ STATIC VOID DumpLog(VOID)
   }
 }
 
-/* ---- SPMI PMIC arbiter v5: power-off fix --------------------------------- */
-
-/*
- * SM6225 PSCI SYSTEM_OFF reboots instead of shutting down because TZ doesn't
- * set the PMIC PM6125 PON PS_HOLD reset type to SHUTDOWN.  Linux fixes this in
- * qpnp_pon_system_off(): write PS_HOLD_RST_CTL = 0x04 (shutdown) via SPMI
- * right before PSCI.  We hook gRT->ResetSystem at runtime to do the same.
- *
- * SPMI arbiter v5 (version 0x50010000 on topaz); PON is APID 1, verified by
- * drivers/TopazButtons reading PON TYPE and live key state through the observer.
- */
-
-#define SPMI_CORE_BASE        0x01C40000ULL    /* +0x900: APID map, PPID in [19:8] */
-#define SPMI_APID_MAP         0x900
-#define SPMI_APID_COUNT       0x200
-#define SPMI_CHNLS_BASE       0x01E00000ULL    /* RW channel: + 0x10000*apid */
-#define SPMI_OBSRVR_BASE      0x03E00000ULL    /* observer:   + 0x10000*ee + 0x80*apid */
-#define SPMI_CNFG_BASE        0x01C0A000ULL    /* +0x700: ownership table, owner EE in [2:0] */
-#define SPMI_OWNER_REG(n)     (0x700 + 4u * (n))
-#define SPMI_RW_STRIDE        0x10000ULL
-#define SPMI_OBS_STRIDE       0x80ULL
-
-#define ARB_CMD               0x00
-#define ARB_STATUS            0x08
-#define ARB_WDATA0            0x10
-#define ARB_RDATA0            0x18
-#define ARB_STATUS_DONE       (1u << 0)
-#define ARB_STATUS_ERR        (7u << 1)
-
-/* PM6125 PON (SID 0, peripheral 0x08) */
-#define PON_PPID              0x0008u
-#define PON_RST_CTL1          0x5A       /* [2:0] = reset type */
-#define PON_RST_CTL2          0x5B       /* bit7 = S2 enable */
-#define PON_TYPE_SHUTDOWN     0x04
-#define PON_S2_ENABLE         0x80
-
-STATIC VOID   *mSpmiChnlBase;       /* virtual base of the PON channel in chnls (write) space */
-STATIC VOID   *mSpmiObsBase;        /* virtual base of the PON channel in observer (read) space */
-STATIC BOOLEAN mSpmiReady;
-STATIC EFI_RESET_SYSTEM mOrigResetSystem;
-STATIC CHAR8   mSpmiInfo[128] = "spmi: not initialised";
-STATIC UINT32  mPonOwner = 0xFFFFFFFF;  /* cnfg ownership entry; writes allowed only if owner EE == 0 (apps) */
-
-/* Arbiter v5: find the APID whose map entry carries the PON PPID. */
-STATIC UINT32 FindPonChannel(VOID)
-{
-  UINT32 n, v;
-
-  LOG ("spmi: arbiter version %08x\n", MmioRead32 ((UINTN)SPMI_CORE_BASE));
-  for (n = 0; n < SPMI_APID_COUNT; n++) {
-    v = MmioRead32 ((UINTN)(SPMI_CORE_BASE + SPMI_APID_MAP + 4 * n));
-    if (((v >> 8) & 0xFFF) == PON_PPID) {
-      mPonOwner = MmioRead32 ((UINTN)(SPMI_CNFG_BASE + SPMI_OWNER_REG (n)));
-      LOG ("spmi: apid %u map=%08x owner=%08x\n", n, v, mPonOwner);
-      return n;
-    }
-  }
-  return 0xFFFFFFFF;
-}
-
-STATIC EFI_STATUS SpmiWriteByte(UINT8 Offset, UINT8 Value)
-{
-  UINTN base = (UINTN)mSpmiChnlBase;
-  UINTN i;
-  UINT32 st;
-
-  MmioWrite32 (base + ARB_WDATA0, Value);
-  MmioWrite32 (base + ARB_CMD, ((UINT32)Offset << 4));     /* ext_write_long, 1 byte */
-  for (i = 0; i < 10000; i++) {
-    st = MmioRead32 (base + ARB_STATUS);
-    if (st & ARB_STATUS_DONE) {
-      return (st & ARB_STATUS_ERR) ? EFI_DEVICE_ERROR : EFI_SUCCESS;
-    }
-    MicroSecondDelay (1);
-  }
-  return EFI_TIMEOUT;
-}
-
-STATIC EFI_STATUS SpmiReadByte(UINT8 Offset, UINT8 *Value)
-{
-  UINTN base = (UINTN)mSpmiObsBase;       /* reads go through the observer space */
-  UINTN i;
-  UINT32 st;
-
-  MmioWrite32 (base + ARB_CMD, (1u << 27) | ((UINT32)Offset << 4));  /* ext_read_long, 1 byte */
-  for (i = 0; i < 10000; i++) {
-    st = MmioRead32 (base + ARB_STATUS);
-    if (st & ARB_STATUS_DONE) {
-      if (st & ARB_STATUS_ERR) {
-        return EFI_DEVICE_ERROR;
-      }
-      *Value = (UINT8)MmioRead32 (base + ARB_RDATA0);
-      return EFI_SUCCESS;
-    }
-    MicroSecondDelay (1);
-  }
-  return EFI_TIMEOUT;
-}
-
-STATIC VOID ConfigPmicShutdown(VOID)
-{
-  UINT8 ctl1 = 0, ctl2 = 0;
-
-  /*
-   * Same sequence as Linux qcom_pon_power_off() / qpnp_pon_reset_config():
-   *  1. Disable S2 reset (clear bit 7 of RST_CTL2)
-   *  2. Set reset type to SHUTDOWN in RST_CTL1 bits [3:0]
-   *  3. Re-enable S2 reset (set bit 7 of RST_CTL2)
-   * All as read-modify-write to preserve other bits.
-   */
-  SpmiReadByte (PON_RST_CTL2, &ctl2);
-  SpmiWriteByte (PON_RST_CTL2, ctl2 & ~PON_S2_ENABLE);
-
-  SpmiReadByte (PON_RST_CTL1, &ctl1);
-  SpmiWriteByte (PON_RST_CTL1, (ctl1 & ~0x0F) | PON_TYPE_SHUTDOWN);
-
-  SpmiReadByte (PON_RST_CTL2, &ctl2);
-  SpmiWriteByte (PON_RST_CTL2, ctl2 | PON_S2_ENABLE);
-}
-
-STATIC VOID EFIAPI TopazResetSystem(
-  IN EFI_RESET_TYPE  ResetType,
-  IN EFI_STATUS      ResetStatus,
-  IN UINTN           DataSize,
-  IN VOID            *ResetData  OPTIONAL
-  )
-{
-  if (ResetType == EfiResetShutdown && mSpmiReady) {
-    ConfigPmicShutdown ();
-  }
-  mOrigResetSystem (ResetType, ResetStatus, DataSize, ResetData);
-}
-
-STATIC VOID EFIAPI OnVirtualAddressChange(IN EFI_EVENT Event, IN VOID *Context)
-{
-  gRT->ConvertPointer (0, &mSpmiChnlBase);
-  gRT->ConvertPointer (0, &mSpmiObsBase);
-  gRT->ConvertPointer (0, (VOID **)&mOrigResetSystem);
-}
-
-STATIC UINT32 mMapInfo[2][3];   /* [w/r]: GCD type before, Add status, SetAttr status */
-
-STATIC EFI_STATUS SpmiMapRuntime(EFI_PHYSICAL_ADDRESS Base, UINTN Which)
-{
-  EFI_GCD_MEMORY_SPACE_DESCRIPTOR desc;
-  EFI_PHYSICAL_ADDRESS page = Base & ~0xFFFULL;
-  EFI_STATUS s, add = EFI_SUCCESS;
-
-  s = gDS->GetMemorySpaceDescriptor (page, &desc);
-  mMapInfo[Which][0] = EFI_ERROR (s) ? 0xFF : (UINT32)desc.GcdMemoryType;
-  if (EFI_ERROR (s) || desc.GcdMemoryType == EfiGcdMemoryTypeNonExistent) {
-    add = gDS->AddMemorySpace (EfiGcdMemoryTypeMemoryMappedIo, page, 0x1000,
-                               EFI_MEMORY_UC | EFI_MEMORY_RUNTIME);
-  }
-  mMapInfo[Which][1] = (UINT32)(add & 0xFF);
-  s = gDS->SetMemorySpaceAttributes (page, 0x1000, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME);
-  mMapInfo[Which][2] = (UINT32)(s & 0xFF);
-  LOG ("spmi: map %llx type=%u add=%r set=%r\n", page, mMapInfo[Which][0], add, s);
-  return s;
-}
-
-STATIC VOID SpmiShutdownInit(VOID)
-{
-  UINT32 ch;
-  EFI_PHYSICAL_ADDRESS wBase, rBase;
-  EFI_STATUS s;
-  EFI_EVENT vamEvent;
-  UINT8 ctl1 = 0xFF, ctl2 = 0xFF;
-
-  ch = FindPonChannel ();
-  if (ch == 0xFFFFFFFF) {
-    LOG ("spmi: PON channel not found\n");
-    AsciiSPrint (mSpmiInfo, sizeof (mSpmiInfo), "spmi: PON channel NOT found");
-    return;
-  }
-  wBase = SPMI_CHNLS_BASE  + (EFI_PHYSICAL_ADDRESS)ch * SPMI_RW_STRIDE;
-  rBase = SPMI_OBSRVR_BASE + (EFI_PHYSICAL_ADDRESS)ch * SPMI_OBS_STRIDE;
-  LOG ("spmi: PON channel=%u write=%llx read=%llx\n", ch, wBase, rBase);
-
-  /* Mark the channel pages as runtime-accessible. */
-  s = SpmiMapRuntime (wBase, 0);
-  if (!EFI_ERROR (s)) {
-    s = SpmiMapRuntime (rBase, 1);
-  }
-  if (EFI_ERROR (s)) {
-    AsciiSPrint (mSpmiInfo, sizeof (mSpmiInfo), "spmi: apid %u MAP FAILED w:%u/%x/%x r:%u/%x/%x", ch,
-                 mMapInfo[0][0], mMapInfo[0][1], mMapInfo[0][2], mMapInfo[1][0], mMapInfo[1][1], mMapInfo[1][2]);
-    return;
-  }
-
-  mSpmiChnlBase = (VOID *)(UINTN)wBase;
-  mSpmiObsBase  = (VOID *)(UINTN)rBase;
-
-  /* Verify we can read the PON registers. */
-  SpmiReadByte (PON_RST_CTL1, &ctl1);
-  SpmiReadByte (PON_RST_CTL2, &ctl2);
-  LOG ("spmi: PON RST_CTL1=%02x RST_CTL2=%02x\n", ctl1, ctl2);
-  AsciiSPrint (mSpmiInfo, sizeof (mSpmiInfo), "spmi: apid %u owner=%08x CTL1=%02x CTL2=%02x w:%u/%x/%x r:%u/%x/%x",
-               ch, mPonOwner, ctl1, ctl2, mMapInfo[0][0], mMapInfo[0][1], mMapInfo[0][2],
-               mMapInfo[1][0], mMapInfo[1][1], mMapInfo[1][2]);
-
-  if ((mPonOwner & 7) != 0) {
-    LOG ("spmi: PON channel owned by EE %u, not hooking\n", mPonOwner & 7);
-    return;                                   /* writing a foreign channel can fault the bus */
-  }
-
-  /* Hook ResetSystem. */
-  mOrigResetSystem = gRT->ResetSystem;
-  gRT->ResetSystem = TopazResetSystem;
-
-  /* Register for VirtualAddressMap to convert MMIO and function pointers. */
-  s = gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_NOTIFY, OnVirtualAddressChange, NULL,
-                          &gEfiEventVirtualAddressChangeGuid, &vamEvent);
-  LOG ("spmi: ResetSystem hooked, VAM event: %r\n", s);
-  mSpmiReady = TRUE;
-}
-
 /* ---- Boot menu: Vol+/Vol- move, Power (any other key) selects ---------------- */
 
 /*
@@ -710,8 +492,7 @@ STATIC UINTN BootMenu(UINTN TimeoutSec)
   gST->ConOut->ClearScreen (gST->ConOut);
   ConPrint ("  ==== topaz: choose OS ====\r\n");
   MenuDraw (sel, left);
-  ConPrint ("\r\n  %a\r\n", mSpmiInfo);
-  ConPrint ("  slots: %r  a=%016lx b=%016lx\r\n", mAbStatus, mAb.AttrA, mAb.AttrB);
+  ConPrint ("\r\n  slots: %r  a=%016lx b=%016lx\r\n", mAbStatus, mAb.AttrA, mAb.AttrB);
   ConPrint ("  a: prio=%u act=%u retry=%u ok=%u unboot=%u   b: prio=%u act=%u retry=%u ok=%u unboot=%u\r\n",
             AB_PRIO (mAb.AttrA), AB_ACTIVE (mAb.AttrA), AB_RETRY (mAb.AttrA), AB_SUCCESS (mAb.AttrA), AB_UNBOOT (mAb.AttrA),
             AB_PRIO (mAb.AttrB), AB_ACTIVE (mAb.AttrB), AB_RETRY (mAb.AttrB), AB_SUCCESS (mAb.AttrB), AB_UNBOOT (mAb.AttrB));
@@ -749,8 +530,6 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
    * back before returning to the event dispatcher.
    */
   gBS->RestoreTPL (TPL_APPLICATION);
-
-  SpmiShutdownInit ();
 
   mAbStatus = AbSlotRead (&mAb);
 #ifdef TOPAZ_AB_FIX
@@ -792,14 +571,17 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
       RebootWithReason (ABL_REASON_FASTBOOT);
     } else if (choice == MENU_POWEROFF) {
       {
-        UINT8 c1 = 0xEE, c2 = 0xEE;
-        if (mSpmiReady) {
-          ConfigPmicShutdown ();
-          SpmiReadByte (PON_RST_CTL1, &c1);
-          SpmiReadByte (PON_RST_CTL2, &c2);
-        }
-        ConPrint ("\r\n  Powering off: hook=%u owner=%08x RST_CTL1=%02x RST_CTL2=%02x\r\n", mSpmiReady, mPonOwner, c1, c2);
-        gBS->Stall (3 * 1000 * 1000);
+        /*
+         * PSCI SYSTEM_OFF works, but the charger boost keeps 5 V on VBUS after the SoC is off;
+         * the PMIC sees a cable and powers straight back on. Drop OTG_CONFIG first.
+         */
+        UINT8 r03 = 0, r0b = 0;
+        RegRead (BQ_ADDR, 0x03, &r03);
+        RegWrite (BQ_ADDR, 0x03, r03 & ~0x20);
+        gBS->Stall (300 * 1000);
+        RegRead (BQ_ADDR, 0x0B, &r0b);
+        ConPrint ("\r\n  Powering off (OTG off, vbus_stat=%u; a cable on USB turns it back on)\r\n", r0b >> 5);
+        gBS->Stall (1 * 1000 * 1000);
       }
       gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
     }

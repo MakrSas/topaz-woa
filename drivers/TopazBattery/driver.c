@@ -119,8 +119,11 @@ NTSTATUS TopazEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
 
 NTSTATUS TopazEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
 {
-    UNREFERENCED_PARAMETER(TargetState);
-    BattThreadStop(DeviceGetContext(Device));
+    PDEVICE_CONTEXT ctx = DeviceGetContext(Device);
+
+    LogPrint("D0Exit target=%u\n", (ULONG)TargetState);
+    BattThreadStop(ctx);
+    BattOtgOff(ctx);
     return STATUS_SUCCESS;
 }
 

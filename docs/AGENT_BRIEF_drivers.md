@@ -7,7 +7,7 @@ partitioning, flashing and the phone's boot slots. Read this whole file first.
 - Windows 11 Pro ARM64 **22621**, ru-RU, user `makr` (no password, autologon), boots to
   desktop through Mu-Silicium UEFI flashed in boot_b. Display = UEFI
   framebuffer (1080x2400), UFS works, CPU works. USB host (mouse/keyboard/flash via hub),
-  touch, battery and Power/Vol- keys work; power off still reboots. Drivers are installed by hand from a flash drive.
+  touch, battery and Power/Vol- keys work; power off fixed by turning OTG off (see 2e). Drivers are installed by hand from a flash drive.
   Buttons still don't work.
 - Test signing is ON in BCD (`16000049` on loader `{68d01361-c243-4f1a-b850-5681ad4345e2}`).
 - `drivers/TopazTouch` v0.1 is written, **builds in CI, not yet tested on hardware**.
@@ -54,20 +54,17 @@ Charger after UEFI: reg03=0x2a (OTG on, **CHG_CONFIG=0**: the boost needed it of
 (VBUS_STAT 7). The driver sets CHG_CONFIG=1/OTG off when an adapter appears and OTG on when
 VBUS is free (hub hot-plug). Charging path still to be verified with a real charger.
 
-## 2e. Power off — still reboots (2026-10-01, open)
-An earlier note here said "WORKS": that was wrong. The first UEFI hook used the v1-v3 SPMI
-mapping table, which reads as zeros on this arbiter, so it never hooked anything; the
-shutdowns seen during that test were not caused by it.
-Verified facts (SPMI arbiter v5, version 0x50010000):
-- PON = SID 0 PID 0x08 = **APID 1** (core 0x01C40000 + 0x900 + 4*apid, PPID in [19:8]).
-- Reads work through the observer: 0x03E00000 + 0x10000*ee + **0x80**\*apid (ee 0 = apps).
-  `drivers/TopazButtons` uses this for the Power/Vol- keys (PON INT_RT_STS 0x10), works.
-- PS_HOLD_RST_CTL (0x5A) = 0x07 (hard reset), RST_CTL2 (0x5B) = 0x80.
-- Ownership (cnfg 0x01C0A000 + 0x700 + 4*apid) of PON = **EE 1**, not apps. Writing the
-  RW channel (0x01E00000 + 0x10000*apid) from UEFI hangs the CPU. HLOS cannot set PS_HOLD.
-Likely cause of reboot-on-off: TZ handles PS_HOLD; downstream Linux disables SDI / download
-mode with an SCM call before PSCI SYSTEM_OFF. Not tried. The UEFI hook now refuses to write
-when owner != 0. Workaround: fastboot instead of power off.
+## 2e. Power off — cause found (2026-10-01)
+PSCI SYSTEM_OFF (Mu `ArmPsciResetSystemLib`) does power the phone off. It came straight back
+because the charger **OTG boost keeps 5 V on VBUS** after the SoC is off (the charger runs from
+the battery); the PMIC sees a cable and powers on. Verified: menu "Power off" with no cable and
+no boost -> stays off. With a PC/charger on USB it powers back on (normal behaviour).
+Fix: drop OTG_CONFIG (charger reg03 bit5) before shutting down — TopazOtgDxe menu "Power off",
+and TopazBattery on D0 exit (Windows shutdown/restart). Windows-side fix not yet verified.
+Dead ends, for the record: an earlier "WORKS" note here was wrong (that SPMI hook never
+installed). PMIC PON (SPMI arbiter v5 0x50010000, APID 1; reads via observer
+0x03E00000 + 0x80*apid work) is **owned by EE 1**: writes from apps hang the CPU. Qualcomm SCM
+SDI/download-mode disable returned 0 but changed nothing. PS_HOLD_RST_CTL reads 0x07.
 
 ## 2a. USB host — WORKS (2026-10-01)
 Mouse through a bus-powered hub works in Windows with `Mu-topaz-v4-OTG3-RELEASE.img`
