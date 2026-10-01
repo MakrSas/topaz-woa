@@ -102,6 +102,7 @@ typedef struct _DEVICE_CONTEXT {
     PKTHREAD     Thread;
     KEVENT       StopEvent;
     ULONG        Polls;
+    ULONG        LastVbusStat;      /* charger REG0B VBUS_STAT at the last poll (~0 = none yet) */
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)

@@ -79,6 +79,7 @@ NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0B, &r0b);
     LogPrint("charger: reg03=%02x reg0b=%02x\n", r03, r0b);
 
+    Ctx->LastVbusStat = (ULONG)~0;
     Ctx->HwReady = TRUE;
     return STATUS_SUCCESS;
 }
@@ -89,6 +90,73 @@ VOID BattHwDeinit(PDEVICE_CONTEXT Ctx)
     GeniI2cDeinit(&Ctx->Bus);
     TlmmPinUnmap(&Ctx->PinSda);
     TlmmPinUnmap(&Ctx->PinScl);
+}
+
+/* Charger registers 00..14 in one log line (read only). */
+static VOID ChargerDump(PDEVICE_CONTEXT Ctx, PCSTR Why)
+{
+    UCHAR r[CHG_NREGS];
+    CHAR prefix[64];
+    ULONG i;
+
+    RtlZeroMemory(r, sizeof(r));
+    for (i = 0; i < CHG_NREGS; i++) {
+        if (i == CHG_REG0C) {
+            continue;   /* faults are read-to-clear: leave them to whoever needs them */
+        }
+        I2cReadByte(&Ctx->Bus, CHG_ADDR, (UCHAR)i, &r[i]);
+    }
+    RtlStringCbPrintfA(prefix, sizeof(prefix), "charger regs (%s) 00..14:", Why);
+    LogHex(prefix, r, sizeof(r));
+    LogPrint("charger cfg: iinlim=%umA en_ilim=%u hiz=%u ichg=%umA vreg=%umV vindpm=%umV(force=%u) "
+             "reg02=%02x(ico=%u hvdcp=%u maxc=%u auto_dpdm=%u) wdog=%u timer=%u pn=%u rev=%u ico_done=%u\n",
+             100 + 50 * (r[CHG_REG00] & 0x3F), (r[CHG_REG00] >> 6) & 1, r[CHG_REG00] >> 7,
+             64 * (r[CHG_REG04] & 0x7F), 3840 + 16 * (r[CHG_REG06] >> 2),
+             2600 + 100 * (r[CHG_REG0D] & 0x7F), r[CHG_REG0D] >> 7,
+             r[CHG_REG02], (r[CHG_REG02] >> 4) & 1, (r[CHG_REG02] >> 3) & 1, (r[CHG_REG02] >> 2) & 1, r[CHG_REG02] & 1,
+             (r[CHG_REG07] >> 4) & 3, (r[CHG_REG07] >> 3) & 1,
+             (r[CHG_REG14] >> 3) & 7, r[CHG_REG14] & 3, (r[CHG_REG14] >> 6) & 1);
+}
+
+/*
+ * Charger ADC: reads the result of the conversion started by the previous poll, then starts the
+ * next one-shot conversion (REG02 CONV_START, self-clearing). Only the ADC trigger bit is written.
+ */
+static VOID ChargerAdc(PDEVICE_CONTEXT Ctx, BOOLEAN Log)
+{
+    UCHAR r00 = 0, r02 = 0, r04 = 0, r0e = 0, r0f = 0, r11 = 0, r12 = 0, r13 = 0;
+    ULONG vbat, vsys, vbus, ichgr, idpm;
+    NTSTATUS s;
+
+    s = I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG02, &r02);
+    if (!NT_SUCCESS(s)) {
+        return;
+    }
+    if (Log && !(r02 & CHG_CONV_START)) {
+        I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG00, &r00);
+        I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG04, &r04);
+        I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0E, &r0e);
+        I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0F, &r0f);
+        I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG11, &r11);
+        I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG12, &r12);
+        I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG13, &r13);
+        vbat = 2304 + 20 * (r0e & 0x7F);
+        vsys = 2304 + 20 * (r0f & 0x7F);
+        vbus = (r11 & 0x7F) ? 2600 + 100 * (r11 & 0x7F) : 0;
+        ichgr = 50 * (r12 & 0x7F);
+        idpm = 100 + 50 * (r13 & 0x3F);
+        LogPrint("chg adc: vbus=%umV(gd=%u) vbat=%umV vsys=%umV ichg=%umA pbat=%umW | lim: iinlim=%umA idpm_lim=%umA "
+                 "vdpm=%u idpm=%u ichg_set=%umA therm=%u | r00=%02x r02=%02x r04=%02x r0e=%02x r11=%02x r12=%02x r13=%02x\n",
+                 vbus, r11 >> 7, vbat, vsys, ichgr, vbat * ichgr / 1000, 100 + 50 * (r00 & 0x3F), idpm,
+                 r13 >> 7, (r13 >> 6) & 1, 64 * (r04 & 0x7F), r0e >> 7,
+                 r00, r02, r04, r0e, r11, r12, r13);
+    } else if (Log) {
+        LogPrint("chg adc: conversion still running (r02=%02x)\n", r02);
+    }
+    if (!(r02 & (CHG_CONV_START | CHG_CONV_RATE))) {
+        /* never write FORCE_DPDM back: it would restart input detection */
+        I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG02, (UCHAR)((r02 | CHG_CONV_START) & ~CHG_FORCE_DPDM));
+    }
 }
 
 static VOID ChargerPolicy(PDEVICE_CONTEXT Ctx, UCHAR R03, UCHAR R0B)
@@ -153,6 +221,14 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     s.Charging = s.OnLine && (CHG_CHRG_STAT(s.ChgReg0B) == 1 || CHG_CHRG_STAT(s.ChgReg0B) == 2);
     s.ChargeDone = s.OnLine && CHG_CHRG_STAT(s.ChgReg0B) == 3;
 
+    if (CHG_VBUS_STAT(s.ChgReg0B) != Ctx->LastVbusStat) {
+        CHAR why[32];
+        RtlStringCbPrintfA(why, sizeof(why), "vbus_stat %d->%u",
+                           Ctx->LastVbusStat == (ULONG)~0 ? -1 : (LONG)Ctx->LastVbusStat, CHG_VBUS_STAT(s.ChgReg0B));
+        ChargerDump(Ctx, why);
+        Ctx->LastVbusStat = CHG_VBUS_STAT(s.ChgReg0B);
+    }
+
     ChargerPolicy(Ctx, s.ChgReg03, s.ChgReg0B);
 
     state = (s.OnLine ? 1 : 0) | (s.Charging ? 2 : 0) | (s.ChargeDone ? 4 : 0);
@@ -163,6 +239,7 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     KeReleaseSpinLock(&Ctx->SnapLock, irql);
 
     notify = state != Ctx->LastNotifiedState || notifySoc != Ctx->LastNotifiedSoc;
+    ChargerAdc(Ctx, s.OnLine || (Ctx->Polls % 12) == 0);
     if ((Ctx->Polls++ % 12) == 0 || notify) {    /* every minute, or on change */
         LogPrint("poll: err=%08x st=%04x soc=%04x(%u.%u%%) v=%04x(%umV) i=%04x(%dmA) tex=%04x(%d.%dC) cap=%04x(%umAh) cyc=%u "
                  "chg r03=%02x r0b=%02x online=%u charging=%u done=%u\n",

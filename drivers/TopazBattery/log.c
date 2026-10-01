@@ -52,7 +52,7 @@ static VOID LogWrite(PCSTR Text, SIZE_T Len)
 
 VOID LogPrint(PCSTR Fmt, ...)
 {
-    CHAR buf[256];
+    CHAR buf[512];
     SIZE_T len = 0;
     va_list ap;
 

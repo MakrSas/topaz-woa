@@ -105,10 +105,27 @@
 #define FG_RSNS_FACTOR           2         /* DT sm,rsns = 0 -> rsns 5 -> 10/5 */
 
 /* ---- charger (bq25890-compatible) ---------------------------------------- */
+/* Register map: TI bq25890 datasheet (SLUSBX6); the part answers REG14 PN=001 (clone, same map). */
 #define CHG_ADDR                 0x6A
+#define CHG_REG00                0x00      /* bit7 EN_HIZ, bit6 EN_ILIM, [5:0] IINLIM = 100 + 50*n mA */
+#define CHG_REG02                0x02      /* bit7 CONV_START, bit6 CONV_RATE, bit4 ICO_EN, bit3 HVDCP_EN, bit2 MAXC_EN, bit1 FORCE_DPDM, bit0 AUTO_DPDM_EN */
 #define CHG_REG03                0x03      /* bit5 OTG_CONFIG, bit4 CHG_CONFIG */
+#define CHG_REG04                0x04      /* bit7 EN_PUMPX, [6:0] ICHG = 64*n mA */
+#define CHG_REG06                0x06      /* [7:2] VREG = 3840 + 16*n mV */
+#define CHG_REG07                0x07      /* bit7 EN_TERM, [5:4] WATCHDOG, bit3 EN_TIMER */
 #define CHG_REG0B                0x0B      /* [7:5] VBUS_STAT, [4:3] CHRG_STAT, bit2 PG_STAT */
 #define CHG_REG0C                0x0C      /* faults (read to clear) */
+#define CHG_REG0D                0x0D      /* bit7 FORCE_VINDPM, [6:0] VINDPM = 2600 + 100*n mV */
+#define CHG_REG0E                0x0E      /* bit7 THERM_STAT, [6:0] BATV = 2304 + 20*n mV (ADC) */
+#define CHG_REG0F                0x0F      /* [6:0] SYSV = 2304 + 20*n mV (ADC) */
+#define CHG_REG11                0x11      /* bit7 VBUS_GD, [6:0] VBUSV = 2600 + 100*n mV (ADC) */
+#define CHG_REG12                0x12      /* [6:0] ICHGR = 50*n mA (ADC) */
+#define CHG_REG13                0x13      /* bit7 VDPM_STAT, bit6 IDPM_STAT, [5:0] IDPM_LIM = 100 + 50*n mA (effective input limit) */
+#define CHG_REG14                0x14      /* bit7 REG_RST, bit6 ICO_OPTIMIZED, [5:3] PN, [1:0] DEV_REV */
+#define CHG_NREGS                0x15
+#define CHG_CONV_START           0x80
+#define CHG_CONV_RATE            0x40
+#define CHG_FORCE_DPDM           0x02
 #define CHG_OTG_CONFIG           0x20
 #define CHG_CHG_CONFIG           0x10
 #define CHG_VBUS_STAT(r)         (((r) >> 5) & 7)  /* 0 none, 1 SDP, 2 CDP, 3 DCP, 4 HVDCP, 5 unknown, 6 non-std, 7 OTG */
