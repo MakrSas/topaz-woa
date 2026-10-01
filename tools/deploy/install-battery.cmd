@@ -3,12 +3,20 @@ net session >nul 2>&1 || (powershell -NoProfile -Command "Start-Process -Verb Ru
 chcp 65001 >nul
 rem TopazBattery installer. Removing the old driver can drop the OTG boost that powers the hub
 rem with this flash drive, so everything is copied to C: first and devcon runs from there.
-set SRC=%~dp0
+rem cmd reads a batch file line by line from disk, so the script must also run from the C: copy.
 set STAGE=C:\topaz\stage\TopazBattery
 set L=C:\topaz\stage\install-battery.log
+if /i "%~1"=="staged" (
+  set "SRC=%~2"
+  goto :install
+)
 if not exist C:\topaz\stage mkdir C:\topaz\stage
 if exist "%STAGE%" rmdir /s /q "%STAGE%"
-xcopy /y /q "%SRC%*" "%STAGE%\" >nul
+xcopy /y /q "%~dp0*" "%STAGE%\" >nul
+start "TopazBattery install" cmd /c ""%STAGE%\%~nx0" staged "%~dp0""
+exit /b
+
+:install
 cd /d "%STAGE%"
 echo [%date% %time%] install TopazBattery from %SRC% >> "%L%"
 certutil -addstore -f Root topaz-woa-test.cer >> "%L%" 2>&1
