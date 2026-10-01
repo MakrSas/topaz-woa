@@ -65,3 +65,22 @@ should take too. Steps: pick a free cb (UEFI used 0..3; take e.g. 8), CBAR = sta
 TTBR0 = our L1 table PA, TCR/MAIR for a 32/36-bit AArch64 stage-1 map, SCTLR.M=1, then S2CR[49]
 type 0 cbndx=8. Identity-map the CE ring region + our buffers. Verify by reading S2CR back as type 0.
 Only then allocate host rings/buffers and start HTC.
+
+## SMMU solved (TopazModem v0.7, 2026-10-01, log docs/logs/TopazModem-v0.7.log)
+
+Global bypass is forbidden, but a **context bank with SCTLR.M=0 (translation off) = identity
+pass-through** is allowed — that is exactly how UEFI maps its own streams (cb0..3: CBAR 0x1f000,
+CBA2R 1 (VA64), SCTLR 0xe0, TCR/TTBR0/MAIR 0). We cloned that into a free bank (cb4), pointed
+S2CR[5] type 0 at it for sid 0x1A0/mask1, and it took:
+`SMR5 800101a0  S2CR 00000004 type 0 cb 4  <== WLAN`, SCTLR 0xe0. So host memory is now reachable
+by the WLAN hardware without building page tables. FSR of cb4 stays 0x400 (same as UEFI's, benign).
+
+All three P4 prerequisites are done: SMMU open, WLAN_CFG/WLAN_MODE accepted, CE engines readable.
+Next: HTC/HTT/WMI — host allocates CE rings + RX buffers in (now reachable) host memory, waits for
+HTC READY on CE1/CE2, connects WMI_CONTROL, WMI READY, then WiFiCx miniport.
+
+## Prior art (searched 2026-10-01)
+No open-source Windows driver exists for the integrated WCN3990 (SNOC). The only Windows driver is
+Qualcomm's proprietary binary shipped for Surface Pro X / sc8180x & sc7180 (closed, ACPI/address-
+bound to those platforms — not reusable on SM6225). Linux `ath10k` (snoc) is the only open reference,
+and linux-surface documents the same bring-up chain (qrtr/pd-mapper/tqftpserv/rmtfs) we reimplemented.
