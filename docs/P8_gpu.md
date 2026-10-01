@@ -117,3 +117,35 @@ animations need the GPU.
   mdt_loader (`max_addr = ALIGN(paddr + memsz, SZ_4K)` → 0x1000). Sequence: PAS shutdown(13) →
   init_image(13, PA of the whole .mdt, 6860 B) → mem_setup(13, 0x55B15000, 0x1000) → copy
   a610_zap.b02 to 0x55B15000 → auth_and_reset(13): all 0/0.
+
+## G1 v0.6 plan (CP start) — everything needed, collected from Linux
+Order (Linux a6xx `hw_init` + `a6xx_cp_init`; zap is already loaded by v0.5 code before this):
+1. GPU SMMU 0x59a0000 identity bank (as TopazModem `SmmuWlanMap`): CB0 page at +0x8000 (4 KB pages
+   × 8): FSR(+0x58)=~0, TTBR0/TCR/TCR2/MAIR = 0, GR1 (+0x1000) CBA2R[0](+0x800)=1 (VA64), CBAR[0]=
+   0x0001f000, SCTLR(+0x0)=0xE0 (M=0 → pass-through) last; S2CR0(+0xC00)=0 (type 0, cb 0), SMR0(+0x800)
+   = (1<<31) | (1<<16) | 0 (SID 0 mask 1). GPU addresses = physical; keep buffers below 4 GB
+   (A610 has ADRENO_QUIRK_4GB_VA anyway).
+2. hw_init register subset (dword offsets, write = byte offset ×4): GBIF_HALT 0x3c45=0 and
+   RBBM_GBIF_HALT 0x16=0; RBBM_SECVID_TSB_CNTL 0xF803=0, TSB_TRUSTED_BASE 0xF800/1=0, SIZE 0xF802=0;
+   *_ADDR_MODE_CNTL=1: CP 0x842, VSC 0xC01, GRAS 0x8601, RB 0x8e05, PC 0x9e01, HLSQ 0xbe05, VFD 0xa601,
+   VPC 0x9601, UCHE 0xE00, SP 0xae01, TPL1 0xb601, RBBM_SECVID_TSB 0xF810; GBIF_QSB_SIDE0..3
+   0x3c03..0x3c06 = 0x00071620; RBBM_GBIF_CLIENT_QOS_CNTL 0x11 = 3; UCHE_WRITE_RANGE_MAX 0xE05/6,
+   TRAP_BASE 0xE09/a, WRITE_THRU_BASE 0xE07/8 (Linux: trap base 0x1fffffffff000-ish, range max +0xfc0);
+   UCHE_GMEM_RANGE_MIN 0xE0B = 1 MB, MAX 0xE0D = 1 MB + 132 KB - 1; UCHE_FILTER_CNTL 0xE18 = 0x804,
+   UCHE_CACHE_WAYS 0xE17 = 4; CP_ROQ_THRESHOLDS_2 0x8c2 = 0x00800060, _1 0x8c1 = 0x40201b16;
+   CP_MEM_POOL_SIZE 0x8C3 = 48; PC_DBG_ECO_CNTL 0x9e00 = 0x00080000; CP_AHB_CNTL 0x98d = 1;
+   RBBM_INTERFACE_HANG_INT_CNTL 0x1f = (1<<30)|0x3ffff; UCHE_CLIENT_PF 0xe19 = 0x81. (HWCG, CP protect,
+   UBWC skipped in G1.)
+3. SQE: vendor `a630_sqe.fw` **without its first dword** (adreno_fw_create_bo copies fw+4) into a
+   4 KB-aligned buffer below 4 GB → CP_SQE_INSTR_BASE 0x830/0x831.
+4. Ring 32 KB below 4 GB → CP_RB_BASE 0x800/0x801; CP_RB_CNTL 0x802 = BUFSZ ilog2(32K/8)=12 |
+   BLKSZ ilog2(32/8)=2 <<8 | NO_UPDATE (bit 27) = 0x0800020c. RPTR is read from CP_RB_RPTR 0x806,
+   the host writes CP_RB_WPTR 0x807 (in dwords).
+5. CP_SQE_CNTL 0x808 = 1.
+6. Packets: PKT7(op, n) = 0x70000000 | n | PAR(n)<<15 | (op & 0x7f)<<16 | PAR(op)<<23,
+   PAR(v) = (0x9669 >> (0xF & (v ^ v>>4 ^ v>>8 ^ … ^ v>>28))) & 1. CP_ME_INIT 0x48 ×8:
+   0x2f, 3, 0x20000000, 0, 0, 0, 0, 0 → WPTR → wait RPTR == WPTR. Then CP_SET_SECURE_MODE 0x66 ×1: 0
+   (needs the zap) → wait. Then CP_MEM_WRITE 0x3d ×3: addr lo, addr hi, 0xC0FFEE00 → wait → read
+   the buffer from the CPU. Opcodes: NOP 0x10, WAIT_FOR_IDLE 0x26, EVENT_WRITE 0x46, WHERE_AM_I 0x62.
+7. On a timeout log RBBM_STATUS 0x210, RBBM_INT_0_STATUS 0x201, CP_HW_FAULT 0x821, RPTR/WPTR, SMMU
+   CB0 FSR/FAR (+0x58/+0x60) — a GPU memory access through the SMMU would show up there.

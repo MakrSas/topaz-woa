@@ -38,11 +38,18 @@ the English layout — decode it). Estimates in hours/days (Wi-Fi took one day e
   691 MB) → extract `a610_zap.*` from it (`fsck.erofs --extract` or debugfs, depending on the fs).
 - User gave blanket permission to download what is needed for this work ("качай все что можно").
 - **Firmware extracted** to s8build `~/work/gpu/vfw/` (a610_zap.mdt/.b00-.b02/.elf, vendor a630_sqe.fw).
-- **TopazGpu v0.1** (`drivers/TopazGpu`, commit 690fa9c, CI run 36924106509): read-only dump of the GPU
-  clock tree (GCC GPU branches + GPU CC PLLs/RCGs/CBCRs/GDSCs) to `C:\TopazGpu.log`. Not yet installed —
-  ask the user, then install over SSH (no reboot). Next v0.2: power-up with GX_GFX3D from GPLL0
-  (parent 5 of gx_gfx3d RCG, 600 MHz / 2 = 300 MHz, no GPU CC PLL needed), CX then GX GDSC on, then
-  first reads of the GPU core (chip id), then SMMU, zap, SQE, ring (P8_gpu.md G1 list).
+- **State 2026-10-02 (TopazGpu v0.5 installed on the phone, commit 7ceabdc):**
+  - v0.1: the bootloader leaves the GPU fully off. v0.3: **GPU powered and responding** (CX/GX GDSC
+    PWR_ON, core 300 MHz from GPLL0, CP_ALWAYS_ON_COUNTER ticks 19.2 MHz). v0.4: GPU SMMU = 4 SMRs /
+    5 CBs, all unconfigured. v0.5: **zap shader accepted by TZ** (PAS 13, mem_setup size must be
+    4K-aligned). Details + register values: P8_gpu.md "Results".
+  - Test loop: `gh run download <run> -n TopazGpu-arm64` → scp to `C:\topaz\stage\TopazGpu` →
+    `Set-Content C:\topaz\gpu.on on` (one-shot flag, the driver deletes it) → `devcon update
+    TopazGpu.inf Root\TopazGpu` (or `devcon restart Root\TopazGpu`) → read `C:\TopazGpu.log` (last
+    `==== TopazGpu` block). The user allows installing without asking (2026-10-02).
+  - **Next = v0.6 (CP start), see P8_gpu.md "G1 v0.6 plan"**: identity SMMU bank for SID 0 mask 1,
+    SQE (vendor a630_sqe.fw minus its first dword) into a buffer below 4 GB, 32 KB ring, hw_init
+    subset, SQE_CNTL=1, CP_ME_INIT, CP_SET_SECURE_MODE 0, CP_MEM_WRITE magic → read back.
 
 ## Still open (older)
 - Wi-Fi P6 HT/VHT (`docs/HANDOFF_p6_htvht.md`), then P7 (CE interrupts, real MAC, stats).
