@@ -43,6 +43,62 @@ static LONG NtcToTenthsC(USHORT Raw)
     return 800;
 }
 
+static VOID TcpcDump(PDEVICE_CONTEXT Ctx, PCSTR Why)
+{
+    USHORT alert = 0, amask = 0;
+    UCHAR tc = 0, role = 0, pc = 0, cc = 0, pwr = 0, flt = 0, c8 = 0, c11 = 0, c14 = 0;
+
+    I2cReadWord(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ALERT, &alert);
+    I2cReadWord(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ALERT_MASK, &amask);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_TCPC_CTRL, &tc);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, &role);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_POWER_CTRL, &pc);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &cc);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_POWER_STATUS, &pwr);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_FAULT_STATUS, &flt);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL8, &c8);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL11, &c11);
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL14, &c14);
+    LogPrint("rt1711h %s: alert=%04x mask=%04x tcpc_ctrl=%02x role=%02x power_ctrl=%02x cc_status=%02x "
+             "power_status=%02x fault=%02x rtctrl8=%02x rtctrl11=%02x rtctrl14=%02x\n",
+             Why, alert, amask, tc, role, pc, cc, pwr, flt, c8, c11, c14);
+}
+
+/*
+ * rt1711h Type-C controller: the phone stays a plain Rd/Rd sink (no DRP, no PD). The vendor
+ * setup is what Linux rt1711h_init() writes; without "shipping off" the CC comparators may be
+ * idle and CC_STATUS never shows a charger (v0.5: cc_status stayed 00 with an adapter plugged).
+ */
+static VOID TcpcInit(PDEVICE_CONTEXT Ctx)
+{
+    USHORT vid = 0, pid = 0;
+    UCHAR role = 0;
+    NTSTATUS t, w = STATUS_SUCCESS;
+
+    Ctx->TcpcOk = FALSE;
+    t = I2cReadWord(&Ctx->Bus, TCPC_ADDR, TCPC_REG_VID, &vid);
+    I2cReadWord(&Ctx->Bus, TCPC_ADDR, TCPC_REG_PID, &pid);
+    LogPrint("rt1711h: vid=%04x pid=%04x (%08x)\n", vid, pid, t);
+    if (!NT_SUCCESS(t) || vid != 0x29CF) {
+        LogPrint("rt1711h: not found -> cc detect OFF\n");
+        return;
+    }
+    TcpcDump(Ctx, "before");
+    w |= I2cWriteByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL8, RT1711H_RTCTRL8_INIT);
+    w |= I2cWriteByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL11, RT1711H_RTCTRL11_INIT);
+    w |= I2cWriteByte(&Ctx->Bus, TCPC_ADDR, RT1711H_RTCTRL14, RT1711H_RTCTRL14_INIT);
+    w |= I2cWriteByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, TCPC_ROLE_SINK_RD_RD);
+    {
+        UCHAR clr[3] = { TCPC_REG_ALERT, 0xFF, 0xFF };   /* clear all alerts (W1C) */
+        w |= GeniI2cWrite(&Ctx->Bus, TCPC_ADDR, clr, sizeof(clr), TRUE);
+    }
+    KeStallExecutionProcessor(2000);    /* CC debounce (tTCPCfilter ~0.4 ms) */
+    TcpcDump(Ctx, "after");
+    I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, &role);
+    Ctx->TcpcOk = NT_SUCCESS(w) && role == TCPC_ROLE_SINK_RD_RD;
+    LogPrint("rt1711h: init writes %08x role=%02x -> cc detect %s\n", w, role, Ctx->TcpcOk ? "on" : "OFF");
+}
+
 NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
 {
     NTSTATUS status;
@@ -79,20 +135,8 @@ NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0B, &r0b);
     LogPrint("charger: reg03=%02x reg0b=%02x\n", r03, r0b);
 
-    {
-        USHORT vid = 0, pid = 0;
-        UCHAR role = 0, cc = 0, pwr = 0;
-        NTSTATUS t = I2cReadWord(&Ctx->Bus, TCPC_ADDR, TCPC_REG_VID, &vid);
-        I2cReadWord(&Ctx->Bus, TCPC_ADDR, TCPC_REG_PID, &pid);
-        I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, &role);
-        I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &cc);
-        I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_POWER_STATUS, &pwr);
-        /* only trust CC states when the port is a plain Rd/Rd sink (what UEFI leaves) */
-        Ctx->TcpcOk = NT_SUCCESS(t) && vid == 0x29CF && role == TCPC_ROLE_SINK_RD_RD;
-        LogPrint("rt1711h: vid=%04x pid=%04x (%08x) role=%02x cc_status=%02x power_status=%02x -> cc detect %s\n",
-                 vid, pid, t, role, cc, pwr, Ctx->TcpcOk ? "on" : "OFF");
-        Ctx->LastCcStatus = 0xFF;
-    }
+    TcpcInit(Ctx);
+    Ctx->LastCcStatus = 0xFF;
     Ctx->LastVbusStat = (ULONG)~0;
     Ctx->JeitaZone = (ULONG)~0;
     Ctx->HwReady = TRUE;
@@ -349,8 +393,12 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, &s.ChgReg03);
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0B, &s.ChgReg0B);
     s.CcStatus = 0xFF;
-    if (Ctx->TcpcOk && !NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &s.CcStatus))) {
-        s.CcStatus = 0xFF;
+    if (Ctx->TcpcOk) {
+        /* rt1711h auto-idles after 32 ms; the first transfer after idle may only wake it */
+        if (!NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &s.CcStatus)) &&
+            !NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &s.CcStatus))) {
+            s.CcStatus = 0xFF;
+        }
     }
 
     s.Valid = NT_SUCCESS(e);
@@ -414,10 +462,10 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     ChargerAdc(Ctx, s.OnLine || (Ctx->Polls % 12) == 0);
     if ((Ctx->Polls++ % 12) == 0 || notify) {    /* every minute, or on change */
         LogPrint("poll: err=%08x st=%04x soc=%04x(%u.%u%%) v=%04x(%umV) i=%04x(%dmA) tex=%04x(%d.%dC) cap=%04x(%umAh) cyc=%u "
-                 "chg r03=%02x r0b=%02x online=%u charging=%u done=%u\n",
+                 "chg r03=%02x r0b=%02x online=%u charging=%u done=%u cc=%02x\n",
                  e, st, soc, s.SocTenths / 10, s.SocTenths % 10, volt, s.VoltageMv, curr, s.CurrentMa,
                  tex, s.TempTenthsC / 10, (s.TempTenthsC < 0 ? -s.TempTenthsC : s.TempTenthsC) % 10,
-                 cap, s.FullMah, s.Cycles, s.ChgReg03, s.ChgReg0B, s.OnLine, s.Charging, s.ChargeDone);
+                 cap, s.FullMah, s.Cycles, s.ChgReg03, s.ChgReg0B, s.OnLine, s.Charging, s.ChargeDone, s.CcStatus);
     }
     if (notify) {
         Ctx->LastNotifiedState = state;

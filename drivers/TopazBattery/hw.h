@@ -136,6 +136,18 @@
 #define TCPC_ADDR                0x4E
 #define TCPC_REG_VID             0x00      /* 16-bit LE, 0x29CF */
 #define TCPC_REG_PID             0x02      /* 16-bit LE, 0x1711 */
+#define TCPC_REG_ALERT           0x10      /* 16-bit, write 1 to clear */
+#define TCPC_REG_ALERT_MASK      0x12      /* 16-bit */
+#define TCPC_REG_TCPC_CTRL       0x19
+#define TCPC_REG_POWER_CTRL      0x1C
+#define TCPC_REG_FAULT_STATUS    0x1F
+/* rt1711h vendor registers, values as Linux tcpci_rt1711h.c rt1711h_init() writes them */
+#define RT1711H_RTCTRL8          0x9B      /* bit5 shipping off, bit3 auto-idle, [2:0] idle timeout */
+#define RT1711H_RTCTRL8_INIT     0x2A      /* ck300=0, ship_off=1, auto_idle=1, tout=2 (32 ms) */
+#define RT1711H_RTCTRL11         0x9E      /* bit7 I2C timeout reset enable, [3:0] timeout */
+#define RT1711H_RTCTRL11_INIT    0x8F
+#define RT1711H_RTCTRL14         0xA1      /* tTCPCfilter = 26.7 us * n */
+#define RT1711H_RTCTRL14_INIT    0x0F
 #define TCPC_REG_ROLE_CTRL       0x1A      /* bit6 DRP, [5:4] Rp value, [3:2] CC2, [1:0] CC1 (00 Ra, 01 Rp, 10 Rd, 11 open) */
 #define TCPC_REG_CC_STATUS       0x1D      /* [3:2] CC2_STATE, [1:0] CC1_STATE, bit4 CONNECT_RESULT, bit5 LOOKING4CONNECTION */
 #define TCPC_REG_POWER_STATUS    0x1E      /* bit2 VBUS_PRESENT */
