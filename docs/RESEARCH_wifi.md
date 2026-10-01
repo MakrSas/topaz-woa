@@ -109,7 +109,7 @@ Linux references: `drivers/remoteproc/qcom_q6v5_pas.c`, `drivers/firmware/qcom_s
         100 blocks, then "User-PD grace timer expired for wlan_process").
       - **Gotcha 2:** console output on the 1080x2400 GOP is slow (scrolling); spamming lines
         made the PD miss its grace timer. Use the timer counter for timestamps.
-- [ ] P2b Same in a Windows kernel driver (SMEM, GLINK-SMEM, QRTR, rmtfs/pd-mapper/tftp equivalents).
+- [ ] P2b Same in a Windows kernel driver `drivers/TopazModem` — plan and porting notes in `docs/HANDOFF_wifi_windows.md`.
 - [x] P3 WLFW QMI handshake (`Wlfw.c`, Linux ath10k/qmi.c order) **2026-10-01: FW_READY received.**
       IND_REGISTER (fw_ready + msa_ready, client id 0x4b4e454c) -> HOST_CAP (daemon_support 0) ->
       MSA_INFO (0x51900000, 1 MiB) + SCM assign of the returned regions to MSS_MSA/WLAN(/WLAN_CE) ->
