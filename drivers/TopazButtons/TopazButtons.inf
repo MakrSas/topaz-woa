@@ -1,0 +1,63 @@
+;
+; TopazButtons.inf - Power and Vol- keys of Redmi Note 12 4G (topaz/tapas, SM6225)
+; Root-enumerated KMDF source driver, exposes HID power button and volume keys through VHF.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = TopazButtons.cat
+DriverVer   = ; set by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TopazButtons.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = TopazButtons_Device, Root\TopazButtons
+
+[TopazButtons_Device.NT]
+CopyFiles = TopazButtons_CopyFiles
+
+[TopazButtons_CopyFiles]
+TopazButtons.sys
+
+[TopazButtons_Device.NT.HW]
+AddReg = TopazButtons_HwAddReg
+
+[TopazButtons_HwAddReg]
+HKR,,"LowerFilters",0x00010000,"vhf"
+
+[TopazButtons_Device.NT.Services]
+AddService = TopazButtons, 0x00000002, TopazButtons_Service
+
+[TopazButtons_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\TopazButtons.sys
+
+[TopazButtons_Device.NT.Wdf]
+KmdfService = TopazButtons, TopazButtons_WdfSection
+
+[TopazButtons_WdfSection]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName     = "topaz-woa"
+ManufacturerName = "topaz-woa"
+DiskName         = "TopazButtons Installation Disk"
+DeviceDesc       = "Power and Volume Buttons (Redmi Note 12 4G)"
+ServiceName      = "TopazButtons"
