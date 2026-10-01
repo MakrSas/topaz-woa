@@ -30,11 +30,22 @@ All on QUP0 SE1 I2C (0x4A84000, GPIO 4/5):
 - Every D0 exit sets rt1711h back to Rd/Rd so a charger always gives VBUS with no driver running;
   shutdown/restart also drops OTG.
 
-### Next steps for more power
-1. IINLIM above 2 A: the adapter offers 3 A, but the DTB `input-current` is 2000 mA; keep.
-2. **9 V via USB-PD sink** (PD message layer on rt1711h, request a 9 V fixed PDO) -> ~18 W through
-   bq2589x (VINDPM / input limit must be re-set for 9 V).
-3. Charge pump sc8551/ln8000 + PPS (33 W path).
+### USB-PD 9 V (verified 2026-10-02, TopazBattery v0.8, log `docs/logs/TopazBattery-v0.8.log`)
+- `drivers/TopazBattery/pd.c`: polled PD 2.0 sink on rt1711h, started when the Type-C state
+  machine becomes a sink. Contract 9 V / 2 A in 249 ms after attach.
+- 65 W adapter Source_Capabilities (PD 3.0): 5/9/12/15 V 3 A, 20 V 3.25 A, **PPS 3.3-11 V 5 A**.
+- Measured at 9 V: VBUS 8.6-8.7 V (charger ADC), ICHG 1.95-2.0 A, ~8.2 W into the battery,
+  no longer input-limited (IDPM_STAT 0). Now limited by ICHG = 2 A (bq2589x DTB `charge-current`).
+- Charge pump fitted: **ln8000 @0x51** (reg00 = 0x42); sc8551 @0x66 does not answer.
+
+### 33 W path (not done): ln8000 2:1 charge pump + PPS
+DTB `ln8000_charger@51` (lionsemi,ln8000-master, IRQ GPIO 84): bat-ovp 4550 mV (alarm 4525),
+bus-ovp 13000 mV (alarm 11000), bus-ocp 3750 mA (alarm 3500), tdie/tbus/tbat monitors disabled.
+Vendor driver source: Xiaomi kernels, `drivers/power/supply/lionsemi/ln8000_charger.c`.
+Steps: (1) read-only ln8000 register dump against the vendor register map; (2) PD 3.0 + PPS
+APDO request with the pump off (verify VBUS tracking, keep-alive Request < 10 s); (3) enable the
+pump at a low IBUS target with VBUS = 2*VBAT + margin, closed loop on IBUS/IBAT, all protections
+set from the DTB; (4) ramp toward IBAT 5.9 A (JEITA 15-48 C) with thermal limits.
 
 ## 2. Sleep (Modern Standby)
 
