@@ -84,3 +84,24 @@ No open-source Windows driver exists for the integrated WCN3990 (SNOC). The only
 Qualcomm's proprietary binary shipped for Surface Pro X / sc8180x & sc7180 (closed, ACPI/address-
 bound to those platforms — not reusable on SM6225). Linux `ath10k` (snoc) is the only open reference,
 and linux-surface documents the same bring-up chain (qrtr/pd-mapper/tqftpserv/rmtfs) we reimplemented.
+
+## HTC up, WMI SERVICE_READY (TopazModem v0.8, 2026-10-01, log docs/logs/TopazModem-v0.8.log)
+
+First end-to-end data path: host rings in Windows memory (PhysAlloc 0xEFC5F000 + 0xA1000), both
+directions work through the identity SMMU context bank.
+- After `CeStart` (RRI at the wrapper, CTRL1 bit19, host-owned rings, 32 RX buffers per pipe) the
+  firmware's already-queued message on CE2 arrives at t=4.753 s, 120 ms after WLAN_MODE:
+  **HTC READY: credit_count 2, credit_size 2184, max_endpoints 22**, extended, HTC version 1 (2.1).
+- CONNECT HTT_DATA (0x300, no credit flow) -> status 0, **eid 1**, max_msg 2000;
+  CONNECT WMI_CONTROL (0x100, 1 credit) -> status 0, **eid 2**, max_msg 2040; SETUP_COMPLETE_EX sent.
+- The firmware then sends four WMI events on eid 2 (CE2): `3` SERVICE_AVAILABLE (48 B),
+  `1` **SERVICE_READY** (316 B), `0x4009` (440 B) and `0x4022` (60 B). By the qcacld PDEV event
+  numbering those two are most likely SERVICE_READY_EXT and SERVICE_READY_EXT2 (ath10k ignores both).
+- TX completion works through the RRI memory: CE0 `rri 00030003` after 3 sends (2 connects +
+  setup complete). CE2 rx 7. Nothing on CE1/CE5/CE9-11 yet (HTT is idle until WMI INIT).
+- Modem stays READY 120+ s, no FATAL, no bus hang. Interrupts are not needed: pure polling at ~1 kHz.
+
+Next (milestone 3): parse SERVICE_READY (TLVs: hal reg caps, mem_reqs) and send WMI_TLV INIT
+(cmd 0x1: init_cmd + resource_config + host_mem_chunks from PhysAlloc), then wait for WMI READY
+(event 2: MAC address, abi version). WMI sends go on CE3 with eid 2 and HTC credit flow (1 credit,
+credits come back in HTC trailers).
