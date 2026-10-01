@@ -1,0 +1,59 @@
+;
+; TopazBattery.inf - battery for Redmi Note 12 4G (topaz/tapas, SM6225): sm5602 fuel gauge + bq2589x charger
+; Root-enumerated KMDF battery miniclass (battc.sys).
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Battery
+ClassGuid   = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
+Provider    = %ProviderName%
+CatalogFile = TopazBattery.cat
+DriverVer   = ; set by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TopazBattery.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = TopazBattery_Device, Root\TopazBattery
+
+[TopazBattery_Device.NT]
+CopyFiles = TopazBattery_CopyFiles
+Include   = battery.inf
+Needs     = Battery_Inst
+
+[TopazBattery_CopyFiles]
+TopazBattery.sys
+
+[TopazBattery_Device.NT.Services]
+AddService = TopazBattery, 0x00000002, TopazBattery_Service
+
+[TopazBattery_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\TopazBattery.sys
+
+[TopazBattery_Device.NT.Wdf]
+KmdfService = TopazBattery, TopazBattery_WdfSection
+
+[TopazBattery_WdfSection]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName     = "topaz-woa"
+ManufacturerName = "topaz-woa"
+DiskName         = "TopazBattery Installation Disk"
+DeviceDesc       = "Redmi Note 12 Battery (sm5602 + bq2589x)"
+ServiceName      = "TopazBattery"

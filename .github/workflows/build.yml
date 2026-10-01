@@ -15,8 +15,12 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
-      - name: Build TopazTouch.sys (ARM64 Release)
-        run: msbuild drivers\TopazTouch\TopazTouch.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
+      - name: Build drivers (ARM64 Release)
+        run: |
+          msbuild drivers\TopazTouch\TopazTouch.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
+          if ($LASTEXITCODE) { throw "TopazTouch build failed" }
+          msbuild drivers\TopazBattery\TopazBattery.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
+          if ($LASTEXITCODE) { throw "TopazBattery build failed" }
 
       - name: Package, catalog and test-sign
         shell: pwsh
@@ -25,28 +29,36 @@ jobs:
           $kits = "C:\Program Files (x86)\Windows Kits\10"
           $ver  = "10.0.26100.0"
           $bin  = "$kits\bin\$ver"
-          $out  = "out\TopazTouch"
-          New-Item -ItemType Directory -Force $out | Out-Null
-          Copy-Item drivers\TopazTouch\ARM64\Release\TopazTouch.sys $out
-          Copy-Item drivers\TopazTouch\TopazTouch.inf $out
-
-          & "$bin\x64\stampinf.exe" -f "$out\TopazTouch.inf" -d "*" -a "arm64" -v "0.1.${{ github.run_number }}.0" -k "1.15"
-          if ($LASTEXITCODE) { throw "stampinf failed" }
-
           $inf2cat = Get-ChildItem "$kits\bin" -Recurse -Filter Inf2Cat.exe | Select-Object -First 1
-          & $inf2cat.FullName /driver:"$((Resolve-Path $out).Path)" /os:10_NI_ARM64 /uselocaltime
-          if ($LASTEXITCODE) { throw "inf2cat failed" }
-
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=topaz-woa test signing" -CertStoreLocation Cert:\CurrentUser\My -NotBefore (Get-Date "2015-01-01") -NotAfter (Get-Date "2045-01-01")
-          Export-Certificate -Cert $cert -FilePath "$out\topaz-woa-test.cer" | Out-Null
-          & "$bin\x64\signtool.exe" sign /fd sha256 /sha1 $cert.Thumbprint /s My "$out\TopazTouch.sys" "$out\TopazTouch.cat"
-          if ($LASTEXITCODE) { throw "signtool failed" }
-
           $devcon = Get-ChildItem "$kits\Tools" -Recurse -Filter devcon.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "arm64" } | Select-Object -First 1
-          if ($devcon) { Copy-Item $devcon.FullName $out } else { Write-Warning "devcon arm64 not found" }
-          Get-ChildItem $out | Select-Object Name, Length | Format-Table -AutoSize
+          # Windows on the phone boots with its clock at 2022: keep the cert valid from 2015
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=topaz-woa test signing" -CertStoreLocation Cert:\CurrentUser\My -NotBefore (Get-Date "2015-01-01") -NotAfter (Get-Date "2045-01-01")
+
+          foreach ($name in @("TopazTouch", "TopazBattery")) {
+            $out = "out\$name"
+            New-Item -ItemType Directory -Force $out | Out-Null
+            Copy-Item "drivers\$name\ARM64\Release\$name.sys" $out
+            Copy-Item "drivers\$name\$name.inf" $out
+
+            & "$bin\x64\stampinf.exe" -f "$out\$name.inf" -d "*" -a "arm64" -v "0.1.${{ github.run_number }}.0" -k "1.15"
+            if ($LASTEXITCODE) { throw "stampinf $name failed" }
+            & $inf2cat.FullName /driver:"$((Resolve-Path $out).Path)" /os:10_NI_ARM64 /uselocaltime
+            if ($LASTEXITCODE) { throw "inf2cat $name failed" }
+
+            Export-Certificate -Cert $cert -FilePath "$out\topaz-woa-test.cer" | Out-Null
+            & "$bin\x64\signtool.exe" sign /fd sha256 /sha1 $cert.Thumbprint /s My "$out\$name.sys" "$out\$name.cat"
+            if ($LASTEXITCODE) { throw "signtool $name failed" }
+
+            if ($devcon) { Copy-Item $devcon.FullName $out } else { Write-Warning "devcon arm64 not found" }
+            Get-ChildItem $out | Select-Object Name, Length | Format-Table -AutoSize
+          }
 
       - uses: actions/upload-artifact@v4
         with:
           name: TopazTouch-arm64
           path: out/TopazTouch
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TopazBattery-arm64
+          path: out/TopazBattery
