@@ -11,7 +11,7 @@
 #include <wdf.h>
 #include "Modem.h"
 
-#define TOPAZ_MODEM_VERSION "v0.8"
+#define TOPAZ_MODEM_VERSION "v0.9"
 
 DRIVER_INITIALIZE DriverEntry;
 static EVT_WDF_DRIVER_DEVICE_ADD TopazEvtDeviceAdd;

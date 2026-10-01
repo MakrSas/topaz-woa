@@ -696,6 +696,7 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
   }
   SvcSummary ();
   HtcSummary ();
+  WmiSummary ();
   CeSummary ();
   Out ("  qrtr: modem node %x, hello rx %u, %u services, %u RESUME_TX\r\n", mModemNode, mHelloRx,
        (UINT32)mSrvCount, (UINT32)mResumes);

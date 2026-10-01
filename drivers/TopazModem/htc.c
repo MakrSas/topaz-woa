@@ -74,7 +74,7 @@ STATIC CONST SVC_PIPE *SvcPipe(UINT16 Svc)
 /* ath10k_htc_send: 8-byte header + payload on the endpoint's UL pipe, transfer id = eid. */
 STATIC BOOLEAN HtcSend(UINT8 Eid, CONST VOID *Payload, UINT32 Len)
 {
-  UINT8 buf[256];
+  STATIC UINT8 buf[2048];                       /* one polling thread: no stack copy of 2 KiB */
   HTC_HDR *h = (HTC_HDR *)buf;
   HTC_EP *ep;
 
@@ -82,6 +82,13 @@ STATIC BOOLEAN HtcSend(UINT8 Eid, CONST VOID *Payload, UINT32 Len)
     return FALSE;
   }
   ep = &mEp[Eid];
+  if (ep->CreditFlow) {                         /* ath10k_htc_consume_credit: 1 credit per message */
+    if (ep->Credits == 0) {
+      Out ("  t=%u.%03u htc: ep %u has no tx credits, message dropped\r\n", T, Eid);
+      return FALSE;
+    }
+    ep->Credits--;
+  }
   ZeroMem (h, sizeof (*h));
   h->Eid   = Eid;
   h->Len   = (UINT16)Len;
@@ -195,19 +202,13 @@ STATIC VOID OnTrailer(CONST UINT8 *P, UINT32 Len)
   }
 }
 
-STATIC VOID OnWmi(CONST UINT8 *P, UINT32 Len)
+/* WMI goes out on the WMI_CONTROL endpoint (CE3), credit-flow controlled. */
+BOOLEAN HtcWmiSend(CONST VOID *Data, UINT32 Len)
 {
-  UINT32 id = Len >= 4 ? (*(CONST UINT32 *)P & 0xFFFFFF) : 0;
-
-  mWmiEvents++;
-  if (mWmiEvents <= 24) {
-    Out ("  t=%u.%03u wmi: event %x (%a), %u bytes\r\n", T, id,
-         id == 1 ? "SERVICE_READY" : id == 2 ? "READY" : "?", Len);
-    Hex ("wmi", P, Len);
+  if (mWmiEid == 0xFF) {
+    return FALSE;
   }
-  if (id == 1) {
-    Step ("WMI SERVICE_READY");
-  }
+  return HtcSend (mWmiEid, Data, Len);
 }
 
 /* Called by CePoll for every completed receive buffer. */
@@ -222,7 +223,7 @@ VOID HtcRx(UINT32 Ce, CONST UINT8 *D, UINT32 Len)
     return;
   }
   plen = MIN (h->Len, Len - (UINT32)sizeof (HTC_HDR));
-  if (mDumps++ < 16) {
+  if (mDumps++ < 8) {
     Out ("  t=%u.%03u htc rx ce%u: eid %u flags %x len %u trailer %u (buf %u)\r\n", T, Ce, h->Eid,
          h->Flags, h->Len, h->Trailer, Len);
     Hex ("rx", D, Len);
@@ -244,7 +245,8 @@ VOID HtcRx(UINT32 Ce, CONST UINT8 *D, UINT32 Len)
       Out ("  t=%u.%03u htc: control msg %u, %u bytes\r\n", T, msg, plen);
     }
   } else if (h->Eid == mWmiEid) {
-    OnWmi (p, plen);
+    mWmiEvents++;
+    WmiRx (p, plen);
   } else if (h->Eid == mHttEid) {
     if (mEp[h->Eid].Rx <= 8) {
       Out ("  t=%u.%03u htt: msg type %u, %u bytes\r\n", T, plen ? p[0] : 0xFF, plen);

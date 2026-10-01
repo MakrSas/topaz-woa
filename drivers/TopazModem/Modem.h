@@ -75,4 +75,7 @@ BOOLEAN        CeSend(UINT32 Ce, CONST VOID *Data, UINT32 Len, UINT32 TransferId
 VOID           CeSummary(VOID);
 VOID           HtcRx(UINT32 Ce, CONST UINT8 *Data, UINT32 Len);
 VOID           HtcSummary(VOID);
+BOOLEAN        HtcWmiSend(CONST VOID *Data, UINT32 Len);  /* wmi_cmd_hdr + TLVs */
+VOID           WmiRx(CONST UINT8 *Data, UINT32 Len);       /* wmi.c */
+VOID           WmiSummary(VOID);
 VOID           WlfwSetStep(CONST CHAR8 *S);
