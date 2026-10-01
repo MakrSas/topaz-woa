@@ -80,6 +80,10 @@
 #define PD_WANT_MV             9000
 #define PD_MAX_MA              2000
 #define PD_WARM_TENTHS         450       /* battery >= 45.0 degC at negotiation: stay at 5 V */
+#define PPS_TEST_MAX_TENTHS    420       /* PPS test only below 42.0 degC */
+#define PPS_TEST_MA            2500      /* PPS operating current (bq2589x input stays 2 A) */
+#define PPS_KEEPALIVE_MS       5000      /* tPPSRequest is 10 s */
+#define PPS_MAX_ERR_MV         500
 
 static const PCSTR g_PdNames[] = { "off", "wait-caps", "wait-accept", "wait-ps-rdy", "ready", "no-pd" };
 
@@ -225,6 +229,16 @@ static VOID PdOnSourceCaps(PDEVICE_CONTEXT Ctx, const ULONG *Pdo, ULONG Cnt, ULO
     KeReleaseSpinLock(&Ctx->SnapLock, irql);
 
     pd->Rev = min(max(Rev, (ULONG)PD_REV20), (ULONG)PD_REV30);
+    pd->PpsPos = 0;
+    for (i = 0; i < Cnt; i++) {
+        if (PDO_TYPE(Pdo[i]) == 3 && APDO_PPS(Pdo[i]) && pd->Rev >= PD_REV30) {
+            pd->PpsPos = i + 1;
+            pd->PpsMinMv = APDO_MIN_MV(Pdo[i]);
+            pd->PpsMaxMv = APDO_MAX_MV(Pdo[i]);
+            pd->PpsMaxMa = APDO_MA(Pdo[i]);
+            break;
+        }
+    }
     ma = PDO_FIXED_MA(Pdo[0]);
     if (!warm) {
         for (i = 0; i < Cnt; i++) {
@@ -241,6 +255,11 @@ static VOID PdOnSourceCaps(PDEVICE_CONTEXT Ctx, const ULONG *Pdo, ULONG Cnt, ULO
     rdo = (pos << 28) | (1u << 24) | ((ma / 10) << 10) | (ma / 10);
     pd->ReqMv = mv;
     pd->ReqMa = ma;
+    pd->FixPos = pos;
+    pd->FixMv = mv;
+    pd->FixMa = ma;
+    pd->ReqPps = FALSE;
+    pd->LastReq = KeQueryInterruptTime();
     if (NT_SUCCESS(PdTx(Ctx, PD_DATA_REQUEST, 1, &rdo))) {
         PdSetState(Ctx, PD_ST_WAIT_ACCEPT);
     } else {
@@ -327,8 +346,11 @@ static VOID PdOnMessage(PDEVICE_CONTEXT Ctx, USHORT Hdr, const ULONG *Obj)
         if (pd->State == PD_ST_WAIT_PS_RDY) {
             pd->ContractMv = pd->ReqMv;
             pd->ContractMa = pd->ReqMa;
+            pd->PpsMv = pd->ReqPps ? pd->ReqMv : 0;
             PdSetState(Ctx, PD_ST_READY);
-            PdLog("PS_RDY: contract %umV %umA", pd->ContractMv, pd->ContractMa);
+            if (!pd->ReqPps || pd->KeepAlives == 0) {
+                PdLog("PS_RDY: contract %s %umV %umA", pd->ReqPps ? "PPS" : "fixed", pd->ContractMv, pd->ContractMa);
+            }
         } else {
             PdLog("PS_RDY in state %s ignored", g_PdNames[pd->State]);
         }
@@ -382,6 +404,7 @@ static BOOLEAN PdPoll(PDEVICE_CONTEXT Ctx)
         PdResetProtocol(Ctx);
         Ctx->Pd.ContractMv = 0;
         Ctx->Pd.ContractMa = 0;
+        Ctx->Pd.PpsMv = 0;
         Ctx->Pd.HardResets++;
         PdLog("Hard_Reset received: back to 5 V, waiting for capabilities");
         PdSetState(Ctx, PD_ST_WAIT_CAPS);
@@ -415,7 +438,7 @@ static BOOLEAN PdPoll(PDEVICE_CONTEXT Ctx)
  * Busy loop for up to MaxMs: answers within the PD deadlines. Ends early 1.5 s after a contract
  * (time for the source's Get_Sink_Cap / Discover Identity), or when no capabilities came in 3 s.
  */
-static VOID PdRun(PDEVICE_CONTEXT Ctx, ULONG MaxMs)
+static VOID PdRun(PDEVICE_CONTEXT Ctx, ULONG MaxMs, ULONG LingerMs)
 {
     PPD_PORT pd = &Ctx->Pd;
     ULONGLONG start = KeQueryInterruptTime(), now;
@@ -432,7 +455,7 @@ static VOID PdRun(PDEVICE_CONTEXT Ctx, ULONG MaxMs)
             PdLog("no PS_RDY in 700 ms");
             PdSetState(Ctx, PD_ST_WAIT_CAPS);
         }
-        if (pd->State == PD_ST_READY && now - pd->StateSince > 1500 * 10000) {
+        if (pd->State == PD_ST_READY && now - pd->StateSince >= (ULONGLONG)LingerMs * 10000) {
             break;
         }
         if (pd->State == PD_ST_WAIT_CAPS && pd->Rx == 0 && now - start > 3000 * 10000) {
@@ -444,6 +467,104 @@ static VOID PdRun(PDEVICE_CONTEXT Ctx, ULONG MaxMs)
             break;
         }
     }
+}
+
+/* ---- requests after the first contract ------------------------------------------------------ */
+
+/* Keeps answering the source while waiting (PdPoll), for Ms milliseconds. */
+static VOID PdIdle(PDEVICE_CONTEXT Ctx, ULONG Ms)
+{
+    ULONGLONG end = KeQueryInterruptTime() + (ULONGLONG)Ms * 10000;
+
+    while (KeQueryInterruptTime() < end) {
+        if (!PdPoll(Ctx)) {
+            KeStallExecutionProcessor(200);
+        }
+    }
+}
+
+/* Sends a Request and waits for Accept + PS_RDY. TRUE when the new contract is in place. */
+static BOOLEAN PdRequest(PDEVICE_CONTEXT Ctx, BOOLEAN Pps, ULONG Mv, ULONG Ma)
+{
+    PPD_PORT pd = &Ctx->Pd;
+    ULONG rdo;
+
+    if (pd->State != PD_ST_READY) {
+        return FALSE;
+    }
+    if (Pps) {
+        if (pd->PpsPos == 0 || Mv < pd->PpsMinMv || Mv > pd->PpsMaxMv || Ma > pd->PpsMaxMa) {
+            PdLog("PPS %umV %umA outside the APDO", Mv, Ma);
+            return FALSE;
+        }
+        /* programmable RDO: position, no USB suspend, voltage 20 mV, current 50 mA */
+        rdo = (pd->PpsPos << 28) | (1u << 24) | ((Mv / 20) << 9) | (Ma / 50);
+    } else {
+        rdo = (pd->FixPos << 28) | (1u << 24) | ((Ma / 10) << 10) | (Ma / 10);
+    }
+    pd->ReqPps = Pps;
+    pd->ReqMv = Mv;
+    pd->ReqMa = Ma;
+    pd->LastReq = KeQueryInterruptTime();
+    if (!NT_SUCCESS(PdTx(Ctx, PD_DATA_REQUEST, 1, &rdo))) {
+        return FALSE;       /* source keeps the old contract */
+    }
+    PdSetState(Ctx, PD_ST_WAIT_ACCEPT);
+    PdRun(Ctx, 1500, 0);
+    return pd->State == PD_ST_READY && pd->ContractMv == Mv && (pd->PpsMv != 0) == Pps;
+}
+
+static VOID PdBackToFixed(PDEVICE_CONTEXT Ctx, PCSTR Why)
+{
+    BOOLEAN ok = PdRequest(Ctx, FALSE, Ctx->Pd.FixMv, Ctx->Pd.FixMa);
+    PdLog("back to fixed %umV (%s): %s", Ctx->Pd.FixMv, Why, ok ? "ok" : "FAILED");
+}
+
+/*
+ * Step 2 of the 33 W plan: PPS with the charge pump OFF (standby). The bq2589x keeps charging
+ * from VBUS as before; we only check that the adapter follows the requested voltage.
+ */
+VOID PdPpsTest(PDEVICE_CONTEXT Ctx)
+{
+    static const ULONG steps[] = { 8000, 8400, 8800, 9200, 9000 };
+    PPD_PORT pd = &Ctx->Pd;
+    ULONG i, vin, iin, vbat, tdie;
+    LONG temp;
+    KIRQL irql;
+
+    if (pd->PpsTested || pd->State != PD_ST_READY || pd->PpsPos == 0) {
+        return;
+    }
+    pd->PpsTested = TRUE;
+    KeAcquireSpinLock(&Ctx->SnapLock, &irql);
+    temp = Ctx->Snap.Valid ? Ctx->Snap.TempTenthsC : 1000;
+    KeReleaseSpinLock(&Ctx->SnapLock, irql);
+    g_PdT0 = KeQueryInterruptTime();
+    if (temp >= PPS_TEST_MAX_TENTHS) {
+        PdLog("PPS test skipped: battery %d.%dC", temp / 10, temp % 10);
+        PdLogFlush();
+        return;
+    }
+    PdLog("PPS test (charge pump off): APDO%u %u-%umV %umA, battery %d.%dC", pd->PpsPos, pd->PpsMinMv,
+          pd->PpsMaxMv, pd->PpsMaxMa, temp / 10, temp % 10);
+    for (i = 0; i < ARRAYSIZE(steps); i++) {
+        if (!PdRequest(Ctx, TRUE, steps[i], PPS_TEST_MA)) {
+            PdLog("PPS %umV: no contract (state %s)", steps[i], g_PdNames[pd->State]);
+            if (pd->State == PD_ST_READY) {
+                PdBackToFixed(Ctx, "PPS request failed");
+            }
+            break;
+        }
+        PdIdle(Ctx, 400);   /* settle + ADC update */
+        LnReadAdc(Ctx, &vin, &iin, &vbat, &tdie);
+        PdLog("PPS %umV: ln8000 vin=%umV iin=%umA vbat=%umV tdie_raw=%u", steps[i], vin, iin, vbat, tdie);
+        if (vin + PPS_MAX_ERR_MV < steps[i] || vin > steps[i] + PPS_MAX_ERR_MV) {
+            PdBackToFixed(Ctx, "VBUS does not follow the request");
+            break;
+        }
+    }
+    PdLog("PPS test done: contract %s %umV", pd->PpsMv ? "PPS" : "fixed", pd->ContractMv);
+    PdLogFlush();
 }
 
 /* ---- entry points from the Type-C state machine (gauge.c) -------------------------------- */
@@ -476,7 +597,7 @@ VOID PdAttach(PDEVICE_CONTEXT Ctx, UCHAR Cc)
         return;
     }
     PdSetState(Ctx, PD_ST_WAIT_CAPS);
-    PdRun(Ctx, 4000);
+    PdRun(Ctx, 4000, 1500);
     PdLogFlush();
 }
 
@@ -491,7 +612,19 @@ VOID PdService(PDEVICE_CONTEXT Ctx)
     if (NT_SUCCESS(TcpcReadAlert(Ctx, &alert)) && (alert & (TCPC_ALERT_RX_STATUS | TCPC_ALERT_RX_HARD_RST))) {
         g_PdT0 = KeQueryInterruptTime();
         PdLog("service: alert %04x in state %s", alert, g_PdNames[Ctx->Pd.State]);
-        PdRun(Ctx, 3000);
+        PdRun(Ctx, 3000, 1500);
+        PdLogFlush();
+    }
+    /* PPS: the sink must re-request at least every 10 s or the source hard-resets */
+    if (Ctx->Pd.State == PD_ST_READY && Ctx->Pd.PpsMv != 0 &&
+        KeQueryInterruptTime() - Ctx->Pd.LastReq >= (ULONGLONG)PPS_KEEPALIVE_MS * 10000) {
+        BOOLEAN ok;
+        g_PdT0 = KeQueryInterruptTime();
+        Ctx->Pd.KeepAlives++;
+        ok = PdRequest(Ctx, TRUE, Ctx->Pd.PpsMv, Ctx->Pd.ReqMa);
+        if (!ok || Ctx->Pd.KeepAlives % 60 == 1) {
+            PdLog("PPS keep-alive #%u %umV: %s", Ctx->Pd.KeepAlives, Ctx->Pd.ReqMv, ok ? "ok" : "FAILED");
+        }
         PdLogFlush();
     }
 }

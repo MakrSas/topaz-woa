@@ -104,6 +104,13 @@ typedef struct _PD_PORT {
     ULONG     Rx;               /* Source_Capabilities received */
     ULONG     HardResets;
     ULONG     Rev;              /* spec revision field we send: 1 = 2.0, 2 = 3.0 */
+    ULONG     FixPos, FixMv, FixMa;     /* the fixed PDO we fall back to */
+    ULONG     PpsPos, PpsMinMv, PpsMaxMv, PpsMaxMa; /* first PPS APDO, PpsPos 0 = none */
+    BOOLEAN   ReqPps;           /* last Request was a PPS one */
+    ULONG     PpsMv;            /* active PPS voltage, 0 = fixed contract */
+    ULONGLONG LastReq;          /* time of the last Request (PPS keep-alive) */
+    BOOLEAN   PpsTested;
+    ULONG     KeepAlives;
 } PD_PORT, *PPD_PORT;
 
 typedef struct _DEVICE_CONTEXT {
@@ -156,5 +163,7 @@ VOID     PdService(_In_ PDEVICE_CONTEXT Ctx);
 VOID     PdDetach(_In_ PDEVICE_CONTEXT Ctx);
 PCSTR    PdStateName(_In_ PDEVICE_CONTEXT Ctx);
 VOID     LnDump(_In_ PDEVICE_CONTEXT Ctx, _In_z_ PCSTR Why);
+BOOLEAN  LnReadAdc(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG VinMv, _Out_ PULONG IinMa, _Out_ PULONG VbatMv, _Out_ PULONG TdieRaw);
+VOID     PdPpsTest(_In_ PDEVICE_CONTEXT Ctx);
 NTSTATUS BattClassInit(_In_ PDEVICE_CONTEXT Ctx);
 VOID     BattClassUnload(_In_ PDEVICE_CONTEXT Ctx);

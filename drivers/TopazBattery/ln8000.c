@@ -63,3 +63,22 @@ VOID LnDump(PDEVICE_CONTEXT Ctx, PCSTR Why)
              r[LN_REG_REGULATION_CTRL], r[LN_REG_ADC_CTRL] >> 5, r[LN_REG_TIMER_CTRL] >> 7,
              r[LN_REG_CHARGE_CTRL] >> 7);
 }
+
+/*
+ * ADC results (read only; the ADC already runs in the mode Android left). One burst over
+ * 0x09..0x11 so the channels belong together. Formulas: ln8000_convert_adc_code().
+ */
+BOOLEAN LnReadAdc(PDEVICE_CONTEXT Ctx, PULONG VinMv, PULONG IinMa, PULONG VbatMv, PULONG TdieRaw)
+{
+    UCHAR a[9];     /* 0x09 .. 0x11 */
+
+    *VinMv = *IinMa = *VbatMv = *TdieRaw = 0;
+    if (!NT_SUCCESS(GeniI2cReadReg(&Ctx->Bus, LN8000_ADDR, 0x09, a, sizeof(a)))) {
+        return FALSE;
+    }
+    *IinMa  = ((((ULONG)a[1] & 0x03) << 8) | a[0]) * 4890 / 1000;                  /* 0x09/0x0A */
+    *VinMv  = ((((ULONG)a[3] & 0x3F) << 4) | ((a[2] & 0xF0) >> 4)) * 16;           /* 0x0B/0x0C */
+    *VbatMv = ((((ULONG)a[6] & 0x03) << 8) | a[5]) * 5;                            /* 0x0E/0x0F */
+    *TdieRaw = (((ULONG)a[8] & 0x0F) << 6) | ((a[7] & 0xFC) >> 2);                 /* 0x10/0x11 */
+    return TRUE;
+}

@@ -214,6 +214,7 @@ static VOID TcStep(PDEVICE_CONTEXT Ctx)
                 TcSetState(Ctx, TC_SNK, "partner Rp");
                 PdAttach(Ctx, cc);          /* sets polarity, negotiates (busy, up to 4 s) */
                 LnDump(Ctx, "after PD");
+                PdPpsTest(Ctx);             /* 33 W step 2: PPS with the pump off */
             }
             return;
         }
