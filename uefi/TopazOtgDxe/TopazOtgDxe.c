@@ -426,24 +426,26 @@ STATIC VOID DumpLog(VOID)
  * qpnp_pon_system_off(): write PS_HOLD_RST_CTL = 0x04 (shutdown) via SPMI
  * right before PSCI.  We hook gRT->ResetSystem at runtime to do the same.
  *
- * SM6115/SM6225 SPMI arbiter v5 register map (from DTS):
- *   channels (write):  0x01E00000, stride 0x10000 per channel
- *   observer (read):   0x03E00000, stride 0x10000 per channel
- *   cnfg (mapping):    0x01C40800, table at +0x0C
+ * SPMI arbiter v5 (version 0x50010000 on topaz); PON is APID 1, verified by
+ * drivers/TopazButtons reading PON TYPE and live key state through the observer.
  */
 
-#define SPMI_CHNLS_BASE       0x01E00000ULL    /* write commands */
-#define SPMI_OBSRVR_BASE      0x03E00000ULL    /* read commands */
-#define SPMI_CNFG_BASE        0x01C40800ULL
-#define SPMI_CH_STRIDE        0x10000ULL
+#define SPMI_CORE_BASE        0x01C40000ULL    /* +0x900: APID map, PPID in [19:8] */
+#define SPMI_APID_MAP         0x900
+#define SPMI_APID_COUNT       0x200
+#define SPMI_CHNLS_BASE       0x01E00000ULL    /* RW channel: + 0x10000*apid */
+#define SPMI_OBSRVR_BASE      0x03E00000ULL    /* observer:   + 0x10000*ee + 0x80*apid */
+#define SPMI_CNFG_BASE        0x01C0A000ULL    /* +0x700: ownership table, owner EE in [2:0] */
+#define SPMI_OWNER_REG(n)     (0x700 + 4u * (n))
+#define SPMI_RW_STRIDE        0x10000ULL
+#define SPMI_OBS_STRIDE       0x80ULL
 
 #define ARB_CMD               0x00
 #define ARB_STATUS            0x08
 #define ARB_WDATA0            0x10
+#define ARB_RDATA0            0x18
 #define ARB_STATUS_DONE       (1u << 0)
 #define ARB_STATUS_ERR        (7u << 1)
-
-#define SPMI_MAP_REG(n)       (0x0C + 4u * (n))
 
 /* PM6125 PON (SID 0, peripheral 0x08) */
 #define PON_PPID              0x0008u
@@ -456,23 +458,22 @@ STATIC VOID   *mSpmiChnlBase;       /* virtual base of the PON channel in chnls 
 STATIC VOID   *mSpmiObsBase;        /* virtual base of the PON channel in observer (read) space */
 STATIC BOOLEAN mSpmiReady;
 STATIC EFI_RESET_SYSTEM mOrigResetSystem;
+STATIC CHAR8   mSpmiInfo[128] = "spmi: not initialised";
+STATIC UINT32  mPonOwner = 0xFFFFFFFF;  /* cnfg ownership entry; writes allowed only if owner EE == 0 (apps) */
 
-/* Walk the PMIC arbiter PPID→channel binary tree in the cnfg mapping table. */
+/* Arbiter v5: find the APID whose map entry carries the PON PPID. */
 STATIC UINT32 FindPonChannel(VOID)
 {
-  UINT32 idx = 0, depth;
+  UINT32 n, v;
 
-  for (depth = 0; depth < 20; depth++) {
-    UINT32 e    = MmioRead32 ((UINTN)(SPMI_CNFG_BASE + SPMI_MAP_REG (idx)));
-    UINT32 bi   = (e >> 18) & 0xF;
-    UINT32 bv   = (PON_PPID >> bi) & 1;
-    UINT32 flag = bv ? ((e >> 8) & 1) : ((e >> 17) & 1);
-    UINT32 res  = bv ? (e & 0xFF) : ((e >> 9) & 0xFF);
-    LOG ("spmi map[%u]=%08x bi=%u bv=%u flag=%u res=%u\n", idx, e, bi, bv, flag, res);
-    if (flag) {
-      return res;
+  LOG ("spmi: arbiter version %08x\n", MmioRead32 ((UINTN)SPMI_CORE_BASE));
+  for (n = 0; n < SPMI_APID_COUNT; n++) {
+    v = MmioRead32 ((UINTN)(SPMI_CORE_BASE + SPMI_APID_MAP + 4 * n));
+    if (((v >> 8) & 0xFFF) == PON_PPID) {
+      mPonOwner = MmioRead32 ((UINTN)(SPMI_CNFG_BASE + SPMI_OWNER_REG (n)));
+      LOG ("spmi: apid %u map=%08x owner=%08x\n", n, v, mPonOwner);
+      return n;
     }
-    idx = res;
   }
   return 0xFFFFFFFF;
 }
@@ -508,7 +509,7 @@ STATIC EFI_STATUS SpmiReadByte(UINT8 Offset, UINT8 *Value)
       if (st & ARB_STATUS_ERR) {
         return EFI_DEVICE_ERROR;
       }
-      *Value = (UINT8)MmioRead32 (base + 0x18);   /* RDATA0 */
+      *Value = (UINT8)MmioRead32 (base + ARB_RDATA0);
       return EFI_SUCCESS;
     }
     MicroSecondDelay (1);
@@ -557,22 +558,24 @@ STATIC VOID EFIAPI OnVirtualAddressChange(IN EFI_EVENT Event, IN VOID *Context)
   gRT->ConvertPointer (0, (VOID **)&mOrigResetSystem);
 }
 
-STATIC EFI_STATUS SpmiMapRuntime(EFI_PHYSICAL_ADDRESS Base)
+STATIC UINT32 mMapInfo[2][3];   /* [w/r]: GCD type before, Add status, SetAttr status */
+
+STATIC EFI_STATUS SpmiMapRuntime(EFI_PHYSICAL_ADDRESS Base, UINTN Which)
 {
   EFI_GCD_MEMORY_SPACE_DESCRIPTOR desc;
-  EFI_STATUS s;
+  EFI_PHYSICAL_ADDRESS page = Base & ~0xFFFULL;
+  EFI_STATUS s, add = EFI_SUCCESS;
 
-  s = gDS->GetMemorySpaceDescriptor (Base & ~0xFFFULL, &desc);
-  if (EFI_ERROR (s)) {
-    s = gDS->AddMemorySpace (EfiGcdMemoryTypeMemoryMappedIo, Base & ~0xFFFULL, 0x1000,
-                             EFI_MEMORY_UC | EFI_MEMORY_RUNTIME);
-    LOG ("spmi: AddMemorySpace %llx: %r\n", Base & ~0xFFFULL, s);
-    if (EFI_ERROR (s)) {
-      return s;
-    }
+  s = gDS->GetMemorySpaceDescriptor (page, &desc);
+  mMapInfo[Which][0] = EFI_ERROR (s) ? 0xFF : (UINT32)desc.GcdMemoryType;
+  if (EFI_ERROR (s) || desc.GcdMemoryType == EfiGcdMemoryTypeNonExistent) {
+    add = gDS->AddMemorySpace (EfiGcdMemoryTypeMemoryMappedIo, page, 0x1000,
+                               EFI_MEMORY_UC | EFI_MEMORY_RUNTIME);
   }
-  s = gDS->SetMemorySpaceAttributes (Base & ~0xFFFULL, 0x1000, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME);
-  LOG ("spmi: SetMemorySpaceAttributes %llx: %r\n", Base & ~0xFFFULL, s);
+  mMapInfo[Which][1] = (UINT32)(add & 0xFF);
+  s = gDS->SetMemorySpaceAttributes (page, 0x1000, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME);
+  mMapInfo[Which][2] = (UINT32)(s & 0xFF);
+  LOG ("spmi: map %llx type=%u add=%r set=%r\n", page, mMapInfo[Which][0], add, s);
   return s;
 }
 
@@ -585,21 +588,23 @@ STATIC VOID SpmiShutdownInit(VOID)
   UINT8 ctl1 = 0xFF, ctl2 = 0xFF;
 
   ch = FindPonChannel ();
-  if (ch == 0xFFFFFFFF || ch > 512) {
+  if (ch == 0xFFFFFFFF) {
     LOG ("spmi: PON channel not found\n");
+    AsciiSPrint (mSpmiInfo, sizeof (mSpmiInfo), "spmi: PON channel NOT found");
     return;
   }
-  wBase = SPMI_CHNLS_BASE  + (EFI_PHYSICAL_ADDRESS)ch * SPMI_CH_STRIDE;
-  rBase = SPMI_OBSRVR_BASE + (EFI_PHYSICAL_ADDRESS)ch * SPMI_CH_STRIDE;
+  wBase = SPMI_CHNLS_BASE  + (EFI_PHYSICAL_ADDRESS)ch * SPMI_RW_STRIDE;
+  rBase = SPMI_OBSRVR_BASE + (EFI_PHYSICAL_ADDRESS)ch * SPMI_OBS_STRIDE;
   LOG ("spmi: PON channel=%u write=%llx read=%llx\n", ch, wBase, rBase);
 
   /* Mark the channel pages as runtime-accessible. */
-  s = SpmiMapRuntime (wBase);
-  if (EFI_ERROR (s)) {
-    return;
+  s = SpmiMapRuntime (wBase, 0);
+  if (!EFI_ERROR (s)) {
+    s = SpmiMapRuntime (rBase, 1);
   }
-  s = SpmiMapRuntime (rBase);
   if (EFI_ERROR (s)) {
+    AsciiSPrint (mSpmiInfo, sizeof (mSpmiInfo), "spmi: apid %u MAP FAILED w:%u/%x/%x r:%u/%x/%x", ch,
+                 mMapInfo[0][0], mMapInfo[0][1], mMapInfo[0][2], mMapInfo[1][0], mMapInfo[1][1], mMapInfo[1][2]);
     return;
   }
 
@@ -610,6 +615,14 @@ STATIC VOID SpmiShutdownInit(VOID)
   SpmiReadByte (PON_RST_CTL1, &ctl1);
   SpmiReadByte (PON_RST_CTL2, &ctl2);
   LOG ("spmi: PON RST_CTL1=%02x RST_CTL2=%02x\n", ctl1, ctl2);
+  AsciiSPrint (mSpmiInfo, sizeof (mSpmiInfo), "spmi: apid %u owner=%08x CTL1=%02x CTL2=%02x w:%u/%x/%x r:%u/%x/%x",
+               ch, mPonOwner, ctl1, ctl2, mMapInfo[0][0], mMapInfo[0][1], mMapInfo[0][2],
+               mMapInfo[1][0], mMapInfo[1][1], mMapInfo[1][2]);
+
+  if ((mPonOwner & 7) != 0) {
+    LOG ("spmi: PON channel owned by EE %u, not hooking\n", mPonOwner & 7);
+    return;                                   /* writing a foreign channel can fault the bus */
+  }
 
   /* Hook ResetSystem. */
   mOrigResetSystem = gRT->ResetSystem;
@@ -697,7 +710,8 @@ STATIC UINTN BootMenu(UINTN TimeoutSec)
   gST->ConOut->ClearScreen (gST->ConOut);
   ConPrint ("  ==== topaz: choose OS ====\r\n");
   MenuDraw (sel, left);
-  ConPrint ("\r\n  slots: %r  a=%016lx b=%016lx\r\n", mAbStatus, mAb.AttrA, mAb.AttrB);
+  ConPrint ("\r\n  %a\r\n", mSpmiInfo);
+  ConPrint ("  slots: %r  a=%016lx b=%016lx\r\n", mAbStatus, mAb.AttrA, mAb.AttrB);
   ConPrint ("  a: prio=%u act=%u retry=%u ok=%u unboot=%u   b: prio=%u act=%u retry=%u ok=%u unboot=%u\r\n",
             AB_PRIO (mAb.AttrA), AB_ACTIVE (mAb.AttrA), AB_RETRY (mAb.AttrA), AB_SUCCESS (mAb.AttrA), AB_UNBOOT (mAb.AttrA),
             AB_PRIO (mAb.AttrB), AB_ACTIVE (mAb.AttrB), AB_RETRY (mAb.AttrB), AB_SUCCESS (mAb.AttrB), AB_UNBOOT (mAb.AttrB));
@@ -777,7 +791,16 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
       ConPrint ("\r\n  Rebooting to fastboot...\r\n");
       RebootWithReason (ABL_REASON_FASTBOOT);
     } else if (choice == MENU_POWEROFF) {
-      ConPrint ("\r\n  Powering off...\r\n");
+      {
+        UINT8 c1 = 0xEE, c2 = 0xEE;
+        if (mSpmiReady) {
+          ConfigPmicShutdown ();
+          SpmiReadByte (PON_RST_CTL1, &c1);
+          SpmiReadByte (PON_RST_CTL2, &c2);
+        }
+        ConPrint ("\r\n  Powering off: hook=%u owner=%08x RST_CTL1=%02x RST_CTL2=%02x\r\n", mSpmiReady, mPonOwner, c1, c2);
+        gBS->Stall (3 * 1000 * 1000);
+      }
       gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
     }
     break;                                              /* Windows */
