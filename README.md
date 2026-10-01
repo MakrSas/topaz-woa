@@ -10,7 +10,10 @@ Status (2026-10-01): Windows 11 ARM64 (22621) boots to the desktop via [Mu-Silic
 | Display (UEFI framebuffer), UFS, CPU | works |
 | **USB host** (bus-powered hub, mouse, keyboard, flash drive) | **works** — `TopazOtgDxe` + XHCI DSDT |
 | **Touchscreen** (FocalTech FT5452, 10 fingers) | **works** — `TopazTouch` v0.4 (polled) |
-| Buttons, battery, Wi-Fi/BT, sound, GPU | not yet |
+| Buttons (Power, Vol-, Vol+) | works — `TopazButtons` |
+| Battery, charging, Type-C roles | works — `TopazBattery` |
+| **Wi-Fi** (scan, WPA2, internet) | **works** — `TopazWifi` (legacy 54 Mb/s for now) |
+| Rotation, SIM data, sound, mic, GPU, camera, BT | not yet — see [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 How to boot and install drivers: [docs/WINDOWS_USB_AND_INSTALL.md](docs/WINDOWS_USB_AND_INSTALL.md).
 
