@@ -296,8 +296,24 @@ static VOID ChargerPolicy(PDEVICE_CONTEXT Ctx, UCHAR R03, UCHAR R0B, UCHAR Cc, B
     UCHAR want = R03;
     UCHAR chg = Allow ? CHG_CHG_CONFIG : 0;
 
-    if (vbus == 7 && (R03 & CHG_OTG_CONFIG) && CcSeesSource(Cc)) {
+    if (Ctx->CcOtgOffPending) {
+        /*
+         * Last poll dropped OTG because CC showed Rp. If nothing external holds VBUS now, that Rp
+         * came from the hub (PD pass-through hubs present Rp): stop trusting CC for this boot,
+         * otherwise OTG would toggle every poll.
+         */
+        UCHAR pwr = 0;
+        Ctx->CcOtgOffPending = FALSE;
+        if (vbus == 0 && NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_POWER_STATUS, &pwr)) &&
+            !(pwr & TCPC_VBUS_PRESENT)) {
+            Ctx->TcpcOk = FALSE;
+            LogPrint("type-c: CC showed a source but no VBUS after OTG off (power_status=%02x): hub with Rp? "
+                     "CC detect OFF until reboot\n", pwr);
+        }
+    }
+    if (vbus == 7 && (R03 & CHG_OTG_CONFIG) && Ctx->TcpcOk && CcSeesSource(Cc)) {
         want = (UCHAR)(((R03 & ~CHG_CHG_CONFIG) | chg) & ~CHG_OTG_CONFIG);  /* adapter plugged into our boost */
+        Ctx->CcOtgOffPending = TRUE;
     } else if (vbus >= 1 && vbus <= 6) {
         want = (UCHAR)(((R03 & ~CHG_CHG_CONFIG) | chg) & ~CHG_OTG_CONFIG);  /* adapter: charge (if JEITA allows) */
     } else if (vbus == 0) {

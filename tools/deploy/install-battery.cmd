@@ -1,34 +1,22 @@
 @echo off
 net session >nul 2>&1 || (powershell -NoProfile -Command "Start-Process -Verb RunAs -FilePath '%~f0'" & exit /b)
 chcp 65001 >nul
-rem TopazBattery installer. Removing the old driver can drop the OTG boost that powers the hub
-rem with this flash drive, so everything is copied to C: first and devcon runs from there.
-rem cmd reads a batch file line by line from disk, so the script must also run from the C: copy.
+rem TopazBattery, step 1 (runs from the flash drive): ONLY copies the package to C: and puts
+rem TopazBattery-install.cmd on the desktop. Nothing is installed or removed here, so losing the
+rem flash drive (the old driver drops the OTG boost that powers the hub) cannot break anything.
 set STAGE=C:\topaz\stage\TopazBattery
-set L=C:\topaz\stage\install-battery.log
-if /i "%~1"=="staged" (
-  set "SRC=%~2"
-  goto :install
-)
-if not exist C:\topaz\stage mkdir C:\topaz\stage
-if exist "%STAGE%" rmdir /s /q "%STAGE%"
+if not exist "%STAGE%" mkdir "%STAGE%"
 xcopy /y /q "%~dp0*" "%STAGE%\" >nul
-start "TopazBattery install" cmd /c ""%STAGE%\%~nx0" staged "%~dp0""
-exit /b
-
-:install
-cd /d "%STAGE%"
-echo [%date% %time%] install TopazBattery from %SRC% >> "%L%"
-certutil -addstore -f Root topaz-woa-test.cer >> "%L%" 2>&1
-certutil -addstore -f TrustedPublisher topaz-woa-test.cer >> "%L%" 2>&1
-devcon.exe remove Root\TopazBattery >> "%L%" 2>&1
-devcon.exe install TopazBattery.inf Root\TopazBattery >> "%L%" 2>&1
-echo devcon exit %errorlevel% >> "%L%"
-type "%L%"
+if errorlevel 1 (
+  echo COPY TO %STAGE% FAILED - nothing was changed.
+  pause
+  exit /b 1
+)
+copy /y "%STAGE%\install-local.cmd" "C:\Users\Public\Desktop\TopazBattery-install.cmd" >nul
+echo Copied to %STAGE%:
+dir /b "%STAGE%"
 echo.
-echo Waiting 30 s for the hub/flash drive, then copying logs next to this script...
-timeout /t 30 /nobreak >nul
-rem the driver keeps the log open for writing: plain copy/Notepad get a sharing violation
-powershell -NoProfile -Command "$s=[IO.File]::Open('C:\TopazBattery.log','Open','Read','ReadWrite'); $d=[IO.File]::Create('%SRC%TopazBattery.log'); $s.CopyTo($d); $d.Close(); $s.Close()" && echo copied TopazBattery.log || echo flash drive not back: logs stay in C:\TopazBattery.log and %L%
-copy /y "%L%" "%SRC%install-battery.log" >nul 2>&1
-pause
+echo Desktop: TopazBattery-install.cmd (installs from C:, works without the flash drive).
+echo Starting it now...
+start "TopazBattery install" cmd /c ""%STAGE%\install-local.cmd" "%~dp0.""
+exit /b 0
