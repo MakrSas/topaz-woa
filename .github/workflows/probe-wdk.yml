@@ -1,5 +1,7 @@
 name: Probe WDK (WiFiCx)
 
+# One-off helper: copies the WiFiCx / NetAdapterCx / WDI TLV headers of the runner's WDK into an
+# artifact so the driver can be written against the exact definitions. Not part of the build.
 on:
   push:
     paths:
@@ -9,20 +11,22 @@ jobs:
   probe:
     runs-on: windows-2022
     steps:
-      - name: List WiFiCx / NetAdapterCx / TLV parser files in the WDK
+      - name: Collect headers
         shell: pwsh
         run: |
-          $kits = "C:\Program Files (x86)\Windows Kits\10"
-          Get-ChildItem "$kits\Include" -Directory | Select-Object Name
-          foreach ($v in (Get-ChildItem "$kits\Include" -Directory)) {
-            Write-Host "== $($v.Name)"
-            Get-ChildItem "$($v.FullName)\km" -Recurse -Include wificx.h,netadaptercx.h,WifiFuncEnum.h,dot11wificxintf.h,dot11wificxtypes.hpp,TLVGeneratorParser.hpp -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-            Get-ChildItem "$($v.FullName)\um" -Recurse -Include dot11wificxintf.h,TLVGeneratorParser.hpp -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-            Get-ChildItem "$($v.FullName)\wlan" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { $_.FullName }
+          $inc = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0"
+          $out = "wdkhdr"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $dirs = @("km\wificx\1.0", "km\wificx\1.2", "km\wlan\2.0", "km\netcx\kmdf\adapter\2.2", "km\netcx\shared\1.0", "km\netcx\kmdf\adapter\2.5")
+          foreach ($d in $dirs) {
+            if (Test-Path "$inc\$d") { New-Item -ItemType Directory -Force "$out\$d" | Out-Null; Copy-Item "$inc\$d\*" "$out\$d\" -Recurse }
           }
-          Write-Host "== libs"
-          Get-ChildItem "$kits\Lib" -Recurse -Include WificxTLVGenParse.lib,WifiCxStub.lib,NetAdapterCxStub.lib -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          Get-ChildItem "$kits\Lib" -Recurse -Directory -Filter wificx -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName; Get-ChildItem $_.FullName -Recurse | Select-Object -First 30 | ForEach-Object { "   " + $_.FullName } }
-          Get-ChildItem "$kits\Lib" -Recurse -Directory -Filter netadaptercx -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName; Get-ChildItem $_.FullName -Recurse | Select-Object -First 30 | ForEach-Object { "   " + $_.FullName } }
-          Write-Host "== props"
-          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\build" -Recurse -Include *wifi*,*NetAdapter* -ErrorAction SilentlyContinue | Select-Object -First 30 | ForEach-Object { $_.FullName }
+          Get-ChildItem "$inc\km\netcx" -Recurse -Directory | ForEach-Object { $_.FullName.Substring($inc.Length) }
+          foreach ($f in @("km\dot11wificxintf.h", "km\dot11wificxtypes.hpp", "km\windot11.h", "shared\wlantypes.h", "km\ndis\types.h", "shared\ntddndis.h")) {
+            if (Test-Path "$inc\$f") { New-Item -ItemType Directory -Force (Split-Path "$out\$f") | Out-Null; Copy-Item "$inc\$f" "$out\$f" }
+          }
+          Get-ChildItem $out -Recurse -File | Measure-Object -Property Length -Sum
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wdk-wificx-headers
+          path: wdkhdr
