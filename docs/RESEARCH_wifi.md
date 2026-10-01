@@ -1,6 +1,6 @@
 # Wi-Fi on topaz under Windows — research log
 
-Status: modem DSP boots to READY from UEFI (P1). Started 2026-10-01.
+Status: **WLFW (WLAN firmware QMI service) is up**, all from UEFI (P1+P2). Started 2026-10-01.
 Source of facts: the phone's DTB (`~/work/topaz/backup/fdt.dts`), Linux upstream/MiCode drivers.
 
 ## 1. What the hardware is
@@ -84,7 +84,32 @@ Linux references: `drivers/remoteproc/qcom_q6v5_pas.c`, `drivers/firmware/qcom_s
       2 handover, 3 stop-ack, 7 shutdown-ack. SMEM 421 reads "SFR Init: wdog or kernel error
       suspected." — that is the modem's placeholder written at init, not a crash.
       Still no RPM proxy votes and no rmtfs/pd-mapper — the modem does not need them to get READY.
-- [ ] P2 Same in a Windows kernel driver (SMEM, GLINK-SMEM, QRTR, rmtfs/pd-mapper equivalents).
+- [x] P2 (UEFI spike, `Glink.c` + `ModemSvc.c`) **2026-10-01: WLFW service 0x45 up** (inst 1, node 0, port 0x48)
+      ~1.7 s after the services are announced. What it took:
+      - GLINK over SMEM: items 478 (4 ring indices: tx tail, tx head, rx tail, rx head),
+        479 = our TX FIFO 16 KiB, 480 = modem TX FIFO (allocated by the modem); doorbell APCS
+        0x0F111008 bit 12. VERSION 1 features 1 (intent reuse). The modem opens "IPCRTR" itself;
+        answer OPEN_ACK + our OPEN, advertise intents. Modem intents 128..8320 B; packets that don't
+        fit need RX_INTENT_REQ (it grants them).
+      - QRTR v1, modem = node 0, we are node 1. HELLO both ways; the modem then announces only
+        servreg-notif 0x42 (inst 0xB4 = 180) and ssctl 0x2B until the apps services exist.
+      - We announce (NEW_SERVER, instance field = version | inst << 8):
+        pd-mapper 0x40 v0x101, tftp 4096 v1, rmtfs 14 v1.
+      - pd-mapper: modem asks GET_DOMAIN_LIST for "kernel/elf_loader", "wlan/fw", ... -> answer
+        msm/modem/{root_pd,wlan_pd}, instance 180 (modemr.jsn / modemuw.jsn).
+      - rmtfs: opens /boot/modem_fs1/fs2/fsc/fsg, ALLOC_BUFF -> 3 MiB buffer, handed to the modem with
+        SCM MP_ASSIGN (HLOS -> HLOS+MSS_MSA+NAV RW). After the EFS reads the modem brings up ~40 services.
+      - tftp: `/readonly/vendor/firmware_mnt/image/wlanmdsp.mbn` (served from modem_a \image\):
+        stat (rsize 0 + tsize, then ERROR 9 "End of Transfer"), then the whole file in one session
+        (rsize = size, blksize 7680, wsize 10). Later mcfg.tmp (absent), mbn_hw.dig, mbn_sw.dig,
+        /readwrite/lctoem.tmp (absent, plus a dropped write).
+      - **Gotcha 1:** QRTR flow control. The modem sets confirm_rx on ~every 5th packet and blocks
+        after 10 unconfirmed packets to one port; our RESUME_TX must be the full 20-byte
+        qrtr_ctrl_pkt (12 bytes was silently ignored -> every transfer stalled after 10 ACKs =
+        100 blocks, then "User-PD grace timer expired for wlan_process").
+      - **Gotcha 2:** console output on the 1080x2400 GOP is slow (scrolling); spamming lines
+        made the PD miss its grace timer. Use the timer counter for timestamps.
+- [ ] P2b Same in a Windows kernel driver (SMEM, GLINK-SMEM, QRTR, rmtfs/pd-mapper/tftp equivalents).
 - [ ] P3 WLFW QMI handshake (board data, mode on) — first proof the radio is alive.
 - [ ] P4 ath10k SNOC data path + WiFiCx miniport.
 

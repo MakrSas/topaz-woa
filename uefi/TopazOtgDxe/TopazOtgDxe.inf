@@ -12,6 +12,10 @@
   AbSlot.h
   ModemPas.c
   ModemPas.h
+  Modem.h
+  Smem.c
+  Glink.c
+  ModemSvc.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -31,11 +35,13 @@
   MemoryAllocationLib
   ArmSmcLib
   DxeServicesTableLib
+  CacheMaintenanceLib
 
 [Protocols]
   gQcomPmicPonProtocolGuid
   gEfiBlockIoProtocolGuid
   gEfiSimpleFileSystemProtocolGuid
+  gEfiPartitionInfoProtocolGuid
 
 [Guids]
   gEfiFileInfoGuid
