@@ -42,7 +42,7 @@ static void LockInit(void)
 }
 
 /* Indication = WDI header (+ TLVs) in a WDFMEMORY, handed to WiFiCx (sample WifiIhvSendIndicationToOs). */
-static void SendIndication(const WDI_MESSAGE_HEADER *Orig, UINT16 MessageId, UINT32 TransactionId, NTSTATUS Status,
+void SendIndication(const WDI_MESSAGE_HEADER *Orig, UINT16 MessageId, UINT32 TransactionId, NTSTATUS Status,
                            const UCHAR *Tlv, ULONG TlvLen)
 {
     WDF_OBJECT_ATTRIBUTES attrs;
@@ -76,12 +76,12 @@ static void SendIndication(const WDI_MESSAGE_HEADER *Orig, UINT16 MessageId, UIN
     WdfObjectDelete(mem);
 }
 
-static void SendM4(const WDI_MESSAGE_HEADER *M1, UINT16 CompleteId, NTSTATUS Status)
+void SendM4(const WDI_MESSAGE_HEADER *M1, UINT16 CompleteId, NTSTATUS Status)
 {
     SendIndication(M1, CompleteId, M1->TransactionId, Status, nullptr, 0);
 }
 
-static void CompleteM3(WIFIREQUEST Request, NTSTATUS Status)
+void CompleteM3(WIFIREQUEST Request, NTSTATUS Status)
 {
     WifiRequestComplete(Request, Status, sizeof(WDI_MESSAGE_HEADER));
 }
@@ -349,8 +349,21 @@ void EvtWifiSendCommand(WDFDEVICE Device, WIFIREQUEST Request)
         CompleteM3(Request, STATUS_SUCCESS);
         FinishScan(STATUS_REQUEST_ABORTED, "aborted");
         break;
+    case WDI_TASK_CONNECT:
+        OnConnect(Request, hdr, tlv, tlvLen);
+        break;
+    case WDI_TASK_DISCONNECT:
+        OnDisconnect(Request, hdr, tlv, tlvLen);
+        break;
+    case WDI_SET_ADD_CIPHER_KEYS:
+        OnAddKeys(Request, tlv, tlvLen);
+        break;
     case WDI_SET_ADAPTER_CONFIGURATION:           /* properties we can accept without doing anything */
     case WDI_SET_LOCATION_PRIVACY:
+    case WDI_SET_DELETE_CIPHER_KEYS:
+    case WDI_SET_DEFAULT_KEY_ID:
+    case WDI_SET_PRIVACY_EXEMPTION_LIST:
+    case WDI_SET_CONNECTION_QUALITY:
         WLOG("WDI property %u: accepted\r\n", id);
         CompleteM3(Request, STATUS_SUCCESS);
         break;

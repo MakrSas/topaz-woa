@@ -358,6 +358,14 @@ VOID WmiRx(CONST UINT8 *D, UINT32 Len)
   case WMI_EV_UPDATE_STATS:
     ScanStats (D + 4, Len - 4);
     break;
+#ifdef TOPAZ_WIFICX
+  case 0x5001:                                     /* VDEV_START_RESP */
+  case 0x5002:                                     /* VDEV_STOPPED */
+  case 0x6001:                                     /* PEER_STA_KICKOUT */
+  case 0x7006:                                     /* MGMT_TX_COMPLETION */
+    AssocEvent (id, D + 4, Len - 4);
+    break;
+#endif
   default:
     if (mUnknown++ < 32) {
       Out ("  t=%u.%03u wmi: event %x, %u bytes\r\n", T, id, Len);

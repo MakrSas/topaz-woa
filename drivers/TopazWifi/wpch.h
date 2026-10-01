@@ -15,7 +15,7 @@
 #include "TlvGeneratorParser.hpp"
 #include "wlanif.h"
 
-#define TOPAZ_WIFI_VERSION  "v0.2"
+#define TOPAZ_WIFI_VERSION  "v0.3"
 #define TOPAZ_WIFI_TAG      'iWzT'
 
 #define WLOG(...)           LogPrint (__VA_ARGS__)
@@ -43,6 +43,15 @@ NTSTATUS WifiSetCapabilities(_In_ WDFDEVICE Device);
 
 /* wcmd.cpp */
 EVT_WIFI_DEVICE_SEND_COMMAND EvtWifiSendCommand;
+void SendIndication(const WDI_MESSAGE_HEADER *Orig, UINT16 MessageId, UINT32 TransactionId, NTSTATUS Status,
+                    const UCHAR *Tlv, ULONG TlvLen);
+void SendM4(const WDI_MESSAGE_HEADER *M1, UINT16 CompleteId, NTSTATUS Status);
+void CompleteM3(WIFIREQUEST Request, NTSTATUS Status);
+
+/* wconn.cpp */
+void OnConnect(WIFIREQUEST Request, const WDI_MESSAGE_HEADER *Hdr, const UCHAR *Tlv, ULONG TlvLen);
+void OnDisconnect(WIFIREQUEST Request, const WDI_MESSAGE_HEADER *Hdr, const UCHAR *Tlv, ULONG TlvLen);
+void OnAddKeys(WIFIREQUEST Request, const UCHAR *Tlv, ULONG TlvLen);
 
 /* wnet.cpp */
 EVT_WIFI_DEVICE_CREATE_ADAPTER EvtWifiCreateAdapter;

@@ -82,9 +82,11 @@
     <ClCompile Include="wdrv.cpp" />
     <ClCompile Include="wcaps.cpp" />
     <ClCompile Include="wcmd.cpp" />
+    <ClCompile Include="wconn.cpp" />
     <ClCompile Include="wnet.cpp" />
     <ClCompile Include="wmem.cpp" />
     <!-- WLAN core, shared with TopazModem -->
+    <ClCompile Include="..\TopazModem\assoc.c" />
     <ClCompile Include="..\TopazModem\ce.c" />
     <ClCompile Include="..\TopazModem\fileio.c" />
     <ClCompile Include="..\TopazModem\htc.c" />

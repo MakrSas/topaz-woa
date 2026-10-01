@@ -247,6 +247,13 @@ STATIC VOID OnFrame(CONST UINT8 *F, UINT32 Len, UINT32 Chan, INT32 Rssi)
   CHAR8 ssid[33];
   BSS *b = NULL;
 
+#ifdef TOPAZ_WIFICX
+  if (Len >= 24 && (F[0] & 0x0C) == 0 && (F[0] >> 4) != 8 && (F[0] >> 4) != 5) {
+    AssocMgmtRx (F, Len);                          /* auth / assoc response / deauth / disassoc */
+    mOtherFrames++;
+    return;
+  }
+#endif
   if (Len < 36 || (F[0] & 0x0C) != 0 || ((F[0] >> 4) != 8 && (F[0] >> 4) != 5)) {
     mOtherFrames++;
     return;
@@ -335,10 +342,20 @@ VOID WlanScanRequest(VOID)
 }
 #endif
 
+CONST UINT8 *ScanOurMac(VOID)
+{
+  return mOurMac;
+}
+
+BOOLEAN ScanBusy(VOID)
+{
+  return mScanning;
+}
+
 VOID ScanPoll(VOID)
 {
 #ifdef TOPAZ_WIFICX
-  if (mStarted && !mScanning && mScanReq) {
+  if (mStarted && !mScanning && mScanReq && !WlanIsConnecting ()) {   /* no off-channel scan mid-assoc */
     mScanReq = FALSE;
     mScanning = SendStartScan ();
     Out ("  t=%u.%03u scan: Windows scan request -> passive scan %u %a\r\n", T, mScans + 1,

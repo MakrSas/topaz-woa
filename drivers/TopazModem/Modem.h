@@ -95,4 +95,11 @@ VOID           HttStart(VOID);                                 /* htt.c */
 VOID           HttRx(CONST UINT8 *P, UINT32 Len);
 VOID           HttPoll(VOID);
 VOID           HttSummary(VOID);
+CONST UINT8   *ScanOurMac(VOID);                              /* our station MAC (scan.c) */
+BOOLEAN        ScanBusy(VOID);                                /* a firmware scan is running */
+VOID           AssocMgmtRx(CONST UINT8 *F, UINT32 Len);       /* assoc.c (TOPAZ_WIFICX) */
+VOID           AssocEvent(UINT32 Id, CONST UINT8 *Tlvs, UINT32 Len);
+VOID           AssocPoll(VOID);
+BOOLEAN        AssocIsUp(VOID);
+CONST UINT8   *AssocBssid(VOID);
 VOID           WlfwSetStep(CONST CHAR8 *S);

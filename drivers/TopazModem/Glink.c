@@ -672,6 +672,9 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
     busy = CePoll ();                           /* WLAN copy engines (no-op until CeStart) */
     ScanPoll ();
     HttPoll ();
+#ifdef TOPAZ_WIFICX
+    AssocPoll ();                               /* TopazWifi: station association */
+#endif
     busy = busy || mRxMsgs != rx0 || mTxMsgs != tx0;
     ModemIdle (busy);
   }

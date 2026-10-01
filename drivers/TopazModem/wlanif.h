@@ -24,7 +24,41 @@ VOID WlanOnBss(_In_reads_(6) const UCHAR *Bssid, _In_reads_bytes_(BodyLen) const
 /* Scan finished (Status 0 = completed, else the firmware's reason / failure). */
 VOID WlanOnScanDone(LONG Status);
 
+/* Association finished. Status 0 = associated (Aid valid), > 0 = 802.11 status code from the AP,
+   < 0 = no answer / firmware failure. Bodies = 802.11 frame bodies (no header). */
+VOID WlanOnAssocResult(LONG Status, ULONG Aid, _In_reads_bytes_(ReqLen) const UCHAR *ReqBody, ULONG ReqLen,
+                       _In_reads_bytes_(RespLen) const UCHAR *RespBody, ULONG RespLen);
+
+/* Link gone: after WlanDisconnectRequest, or the AP deauthenticated/kicked us (Reason = 802.11 code). */
+VOID WlanOnDisconnected(ULONG Reason, BOOLEAN ByPeer);
+
 /* ---- front end -> core (any thread) ---- */
+
+typedef struct _WLAN_CONNECT {
+    UCHAR   Bssid[6];
+    ULONG   Freq;                                /* MHz */
+    UCHAR   Ssid[32];
+    ULONG   SsidLen;
+    BOOLEAN Rsn;                                 /* WPA2: put our RSN IE (CCMP) in the assoc request */
+    UCHAR   Akm;                                 /* RSN AKM suite type: 2 = PSK, 1 = 802.1X */
+    ULONG   BodyLen;                             /* the AP's beacon / probe response body */
+    UCHAR   Body[1024];
+    ULONG   ExtraIeLen;                          /* IEs from Windows for the assoc request */
+    UCHAR   ExtraIe[256];
+} WLAN_CONNECT;
+
+/* Start an association (the modem thread runs it); the answer is WlanOnAssocResult. */
+VOID WlanConnectRequest(_In_ const WLAN_CONNECT *Req);
+
+/* Leave the BSS (deauth, vdev down, peer delete); the answer is WlanOnDisconnected. */
+VOID WlanDisconnectRequest(USHORT Reason);
+
+/* TRUE while an association is being set up (scans must wait). */
+BOOLEAN WlanIsConnecting(VOID);
+
+/* Key from Windows (WDI_SET_ADD_CIPHER_KEYS), installed on the modem thread (VDEV_INSTALL_KEY);
+   Cipher in WMI-TLV values: 2 TKIP, 4 CCMP. A pairwise key also opens the port (AUTHORIZE). */
+VOID WlanInstallKey(BOOLEAN Group, ULONG KeyIdx, ULONG Cipher, _In_reads_bytes_(KeyLen) const UCHAR *Key, ULONG KeyLen);
 
 /* Ask for one passive scan over all channels; runs on the modem thread when the firmware is
    ready and no scan is in progress. Results come back through WlanOnBss / WlanOnScanDone. */
