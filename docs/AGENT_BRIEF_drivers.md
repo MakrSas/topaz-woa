@@ -54,6 +54,14 @@ Charger after UEFI: reg03=0x2a (OTG on, **CHG_CONFIG=0**: the boost needed it of
 (VBUS_STAT 7). The driver sets CHG_CONFIG=1/OTG off when an adapter appears and OTG on when
 VBUS is free (hub hot-plug). Charging path still to be verified with a real charger.
 
+## 2e. Power off does not work (2026-10-01, open)
+Windows "Shut down" and the UEFI menu "Power off" both reboot (no charger connected), with Mu's
+PSCI `ResetSystemRuntimeDxe` and also with Qualcomm's `ResetRuntimeDxe` (tried in APRIORI after
+PmicDxe, reverted). With a charger the PMIC powers on and ABL boots the active slot (b = UEFI),
+there is no off-mode charging screen. Workaround used by the user: go to fastboot (Vol- + Power
+or menu "Fastboot") instead of powering off. Ideas: PMIC PON PS_HOLD_RESET_CTL = shutdown before
+SYSTEM_OFF; detect PON reason USB_CHG in UEFI and show a charging screen.
+
 ## 2a. USB host — WORKS (2026-10-01)
 Mouse through a bus-powered hub works in Windows with `Mu-topaz-v4-OTG3-RELEASE.img`
 (`~/work/win/uefi/`). Three pieces, all in UEFI (RAM boot, nothing flashed):
