@@ -2,7 +2,14 @@
 
 What works, what is being done now, and the plan for the remaining hardware. Hardware facts marked
 **DT** come from the stock device tree (s8build `~/work/topaz/backup/fdt.dts`). Items marked
-**hypothesis** still need checking on the phone. Costs are rough: days / weeks / months.
+**hypothesis** still need checking on the phone.
+
+Costs are in working hours, calibrated on Wi-Fi: from the first research note to internet in
+Windows took **one day** (2026-10-01, 03:28 → 22:08: modem boot, GLINK/QRTR, WLFW, CE/HTC/WMI/HTT,
+scan, association, WPA2, data path), the WiFiCx driver itself **3.5 hours** (v0.1 18:33 → working
+22:08). Most of that time was test loops through the flash drive; SSH makes them shorter. What can
+blow an estimate up is not the amount of code but a hardware lock (TZ/XPU, SMMU) or firmware that
+wants something undocumented — each item lists its main unknown.
 
 ## Works today
 | Block | Driver | Notes |
@@ -22,14 +29,14 @@ What works, what is being done now, and the plan for the remaining hardware. Har
   instead of 1 ms polling, real MAC, statistics, roaming, WPA3.
 
 ## Planned
-| # | Item | Shared base | Cost | Chance |
+| # | Item | Shared base | Cost | Main unknown |
 |---|---|---|---|---|
-| 1 | Screen rotation (accelerometer / gyro) | display rotation; ADSP if the IMU sits behind it | days (display) + weeks (sensor) | good |
-| 2 | SIM: mobile internet (**no calls**) | running modem + QRTR (already have) | weeks-months | medium |
-| 3 | Sound (speaker, headphones) | ADSP boot + AudioReach | months | medium |
-| 4 | Microphone | same stack as sound | weeks after sound | medium |
-| 5 | GPU (Adreno 610) | — | experiment: days; own driver: not realistic | low |
-| 6 | Camera (maybe) | — | months | low |
+| 1 | Screen rotation (accelerometer / gyro) | display rotation; ADSP if the IMU sits behind it | display ~1 h; sensor: a few hours direct, ~1 day via ADSP | is the IMU bus open to apps |
+| 2 | SIM: mobile internet (**no calls**) | running modem + QRTR (already have) | QMI (SIM, network, data call) a few hours; IPA data path ~1 day; "Cellular" page ~1 day | IPA/GSI bring-up |
+| 3 | Sound (speaker, headphones) | ADSP boot + AudioReach | ADSP boot a few hours (PAS + GLINK code exists); graph + ACX 1-2 days | AudioReach graph / calibration |
+| 4 | Microphone | same stack as sound | a few hours after sound | — |
+| 5 | GPU (Adreno 610) | — | Qualcomm-driver experiment a few hours; brightness / panel off a few hours; own driver: the biggest item, weeks | Qualcomm drivers expect a GMU |
+| 6 | Camera (maybe) | — | raw frames from one sensor 1-2 days; a decent picture: more | sensor init tables, no ISP tuning |
 
 Suggested order: rotation (cheap, visible) → SIM data (the modem base is done) → ADSP → sound → mic.
 The GPU experiment and display improvements fit in between; camera last.
@@ -37,7 +44,7 @@ The GPU experiment and display improvements fit in between; camera last.
 ## 1. Screen rotation
 - Windows auto-rotation needs only an **accelerometer** (gyro is optional). Two parts:
   1. **Display**: `TopazDisplay` (from the Microsoft KMDOD sample) advertises Identity + Rotate90 only
-     (`bdd_dmm.cxx`). Add 180/270 in the rotation support and the blit path. Cost: days.
+     (`bdd_dmm.cxx`). Add 180/270 in the rotation support and the blit path. Cost: ~1 hour.
   2. **Sensor**: no accel/gyro node on the apps I2C buses in the DT; the DT has
      `qcom,fastrpc-adsp-sensors-pdr` → **hypothesis:** the IMU is owned by the ADSP sensor framework
      (SEE). First step: read `/vendor/etc/sensors/config/*.json` (TWRP, read-only) for the chip
@@ -87,9 +94,11 @@ The GPU experiment and display improvements fit in between; camera last.
   software; the basic display driver is also a Modern Standby blocker (`powercfg /a`).
 - Qualcomm ships Windows Adreno drivers only for 7c / 8cx / X Elite (Adreno 618 / 680 / 690 / X1).
   Adreno 610 has **no GMU** (Linux drives it with a "GMU wrapper"), those drivers expect one →
-  reuse is unlikely, but an experiment with a 7c (Adreno 618) package costs days. A from-scratch WDDM
-  driver (kernel + D3D user mode) for A6xx is not a realistic goal here.
-- Realistic display work in `TopazDisplay` instead: rotation (see 1), **brightness** via MIPI DCS
+  reuse is unlikely, but an experiment with a 7c (Adreno 618) package costs a few hours (ACPI
+  entries + driver package). Own driver = the biggest item on this list (weeks): WDDM kernel part
+  (memory manager, ring buffer, A6xx init without GMU — Linux msm/Freedreno as the hardware
+  reference) + a D3D user-mode driver; a display-only + compute path could come first.
+- Cheap display work in `TopazDisplay` meanwhile: rotation (see 1), **brightness** via MIPI DCS
   0x51 through the MDSS DSI host (AMOLED, video mode) → Windows brightness slider, panel off/on
   (DCS 0x28/0x10) for sleep, vsync from MDP interrupts.
 
@@ -99,7 +108,8 @@ The GPU experiment and display improvements fit in between; camera last.
 - Path: power (LDO, MCLK, reset GPIOs) → sensor init over CCI (register tables from the Android
   vendor camera modules) → CSIPHY/CSID/TFE raw Bayer into memory → Windows camera (AVStream) driver
   with software debayer and our own crude auto-exposure. Front camera first (one sensor, no AF).
-- Months, and the picture quality will be far from Android (no ISP tuning).
+- Raw frames from one sensor: 1-2 days; the picture quality will be far from Android (no ISP
+  tuning) unless we also write auto-exposure / white balance / denoise.
 
 ## Not in the list (candidates)
 Bluetooth (same WCN3950 chip as Wi-Fi), real sleep / Modern Standby (`docs/NOTES_power.md`),
