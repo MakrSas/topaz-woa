@@ -33,6 +33,70 @@ static BOOLEAN ArmConsume(VOID)
     return TRUE;
 }
 
+/*
+ * Boot guard: a Net driver loads on every boot, so a crash in its setup would repeat forever.
+ * DeviceAdd creates C:\topaz\wifi.boot and refuses to start if it already exists (the previous
+ * start never got 60 s in); a passive timer deletes it after 60 s of normal running.
+ * install-wifi.cmd deletes it before every install.
+ */
+static BOOLEAN GuardEnter(VOID)
+{
+    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\wifi.boot");
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+    NTSTATUS s;
+
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    s = ZwCreateFile(&h, GENERIC_WRITE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_CREATE,
+                     FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0);
+    if (s == STATUS_OBJECT_NAME_COLLISION) {
+        return FALSE;
+    }
+    if (NT_SUCCESS(s)) {
+        ZwClose(h);
+    }
+    return TRUE;                                       /* no C:\topaz yet etc.: do not block */
+}
+
+static VOID GuardLeave(VOID)
+{
+    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\wifi.boot");
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (NT_SUCCESS(ZwCreateFile(&h, DELETE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN,
+                                FILE_DELETE_ON_CLOSE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+                                NULL, 0))) {
+        ZwClose(h);
+    }
+}
+
+static VOID EvtGuardTimer(WDFTIMER Timer)
+{
+    UNREFERENCED_PARAMETER(Timer);
+    GuardLeave();
+    WLOG("boot guard: 60 s up, C:\\topaz\\wifi.boot removed\r\n");
+}
+
+static VOID GuardTimerStart(WDFDEVICE Device)
+{
+    WDF_TIMER_CONFIG config;
+    WDF_OBJECT_ATTRIBUTES attrs;
+    WDFTIMER timer;
+
+    WDF_TIMER_CONFIG_INIT(&config, EvtGuardTimer);
+    config.AutomaticSerialization = FALSE;
+    WDF_OBJECT_ATTRIBUTES_INIT(&attrs);
+    attrs.ParentObject = Device;
+    attrs.ExecutionLevel = WdfExecutionLevelPassive;
+    if (NT_SUCCESS(WdfTimerCreate(&config, &attrs, &timer))) {
+        WdfTimerStart(timer, WDF_REL_TIMEOUT_IN_MS(60000));
+    }
+}
+
 static VOID ModemThread(PVOID Context)
 {
     LONG_PTR s;
@@ -87,6 +151,10 @@ static NTSTATUS EvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     NTSTATUS status;
 
     UNREFERENCED_PARAMETER(Driver);
+    if (!GuardEnter()) {
+        WLOG("boot guard: C:\\topaz\\wifi.boot exists, the last start did not survive 60 s -> not starting\r\n");
+        return STATUS_UNSUCCESSFUL;
+    }
     status = NetDeviceInitConfig(DeviceInit);          /* data path: NetAdapterCx */
     WLOG("NetDeviceInitConfig: %08x\r\n", status);
     if (!NT_SUCCESS(status)) {
@@ -143,6 +211,7 @@ static NTSTATUS EvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESL
     if (!NT_SUCCESS(status)) {
         return status;
     }
+    GuardTimerStart(Device);
     if (dev->ModemThread == NULL) {
         gModemStop = FALSE;
         status = PsCreateSystemThread(&h, THREAD_ALL_ACCESS, NULL, NULL, NULL, ModemThread, NULL);
