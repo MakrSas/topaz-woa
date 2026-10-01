@@ -15,6 +15,8 @@
  *                   (GDSCR bit31 = PWR_ON, bit0 = SW_COLLAPSE), GX clamp 0x1508, CX hw ctrl 0x1540,
  *                   GPU SMMU vote 0x5000.
  * v0.3: GPU powered, registers respond, always-on counter ticks at 19.2 MHz.
+ * v0.5: mem_setup size aligned to 4 KB like Linux (v0.4: init_image ok, mem_setup with 0x830 ->
+ * 0xffcfffba, auth_and_reset -> 0xffcfffbc); PAS shutdown before init_image.
  * v0.4: + GPU SMMU (0x59a0000) dump, read only; + zap shader through TZ PAS id 13 the way Linux
  * qcom_mdt_load() does it: metadata = the whole a610_zap.mdt (ELF header + hash), the one PT_LOAD
  * segment (relocatable, paddr 0x5000, a610_zap.b02) goes to the reserved region 0x55B15000.
@@ -25,7 +27,7 @@
  */
 #include "driver.h"
 
-#define TOPAZ_GPU_VERSION   "v0.4"
+#define TOPAZ_GPU_VERSION   "v0.5"
 
 #define GCC_BASE            0x01400000ULL
 #define GCC_SIZE            0x80000
@@ -60,6 +62,7 @@
 #define PIL_INIT_IMAGE      0x01
 #define PIL_MEM_SETUP       0x02
 #define PIL_AUTH_RESET      0x05
+#define PIL_SHUTDOWN        0x06
 #define SCM_ARG_RW          2
 
 typedef struct _ARM_SMC_ARGS {
@@ -413,7 +416,7 @@ static VOID ZapLoad(VOID)
                  filesz, memsz, flags);
         if (ptype == 1 && memsz != 0 && ((flags >> 24) & 7) != 2) {
             minAddr = min(minAddr, paddr);
-            maxAddr = max(maxAddr, paddr + memsz);
+            maxAddr = max(maxAddr, (paddr + memsz + 0xFFF) & ~0xFFFu);   /* Linux: ALIGN(.., SZ_4K) */
             loadIdx = i;
         }
     }
@@ -437,6 +440,10 @@ static VOID ZapLoad(VOID)
     }
     RtlCopyMemory(meta, mdt, mdtSize);
     pa = MmGetPhysicalAddress(meta);
+    /* v0.4 left PAS 13 half-initialised (init_image ok, mem_setup with an unaligned size refused):
+       start from a clean state */
+    st = Scm(SCM_FN(SCM_SVC_PIL, PIL_SHUTDOWN), 1, GPU_PAS_ID, 0, 0, &res);
+    LogPrint("  shutdown: ret %llx res %llx\n", (ULONGLONG)st, (ULONGLONG)res);
     st = Scm(SCM_FN(SCM_SVC_PIL, PIL_INIT_IMAGE), 2 | (SCM_ARG_RW << 6), GPU_PAS_ID, (ULONG_PTR)pa.QuadPart, 0, &res);
     LogPrint("  init_image: ret %llx res %llx (meta %u bytes @%llx)\n", (ULONGLONG)st, (ULONGLONG)res, mdtSize,
              pa.QuadPart);
