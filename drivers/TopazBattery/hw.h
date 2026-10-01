@@ -132,6 +132,17 @@
 #define CHG_CHRG_STAT(r)         (((r) >> 3) & 3)  /* 0 not charging, 1 pre, 2 fast, 3 done */
 #define CHG_PG_STAT(r)           (((r) >> 2) & 1)
 
+/* ---- rt1711h Type-C port controller (TCPCI register map) ----------------- */
+#define TCPC_ADDR                0x4E
+#define TCPC_REG_VID             0x00      /* 16-bit LE, 0x29CF */
+#define TCPC_REG_PID             0x02      /* 16-bit LE, 0x1711 */
+#define TCPC_REG_ROLE_CTRL       0x1A      /* bit6 DRP, [5:4] Rp value, [3:2] CC2, [1:0] CC1 (00 Ra, 01 Rp, 10 Rd, 11 open) */
+#define TCPC_REG_CC_STATUS       0x1D      /* [3:2] CC2_STATE, [1:0] CC1_STATE, bit4 CONNECT_RESULT, bit5 LOOKING4CONNECTION */
+#define TCPC_REG_POWER_STATUS    0x1E      /* bit2 VBUS_PRESENT */
+#define TCPC_ROLE_SINK_RD_RD     0x0A      /* DRP off, CC1 = CC2 = Rd: CC_STATUS states are sink states */
+#define TCPC_CC1(r)              ((r) & 3)          /* as sink: 0 open, 1 Rp default USB, 2 Rp 1.5 A, 3 Rp 3.0 A */
+#define TCPC_CC2(r)              (((r) >> 2) & 3)
+
 /* ---- battery pack (topaz: 5000 mAh nominal, 4.45 V max) ------------------ */
 #define BATT_DESIGN_MAH          5000
 #define BATT_NOMINAL_MV          3870

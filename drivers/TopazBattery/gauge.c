@@ -79,6 +79,20 @@ NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0B, &r0b);
     LogPrint("charger: reg03=%02x reg0b=%02x\n", r03, r0b);
 
+    {
+        USHORT vid = 0, pid = 0;
+        UCHAR role = 0, cc = 0, pwr = 0;
+        NTSTATUS t = I2cReadWord(&Ctx->Bus, TCPC_ADDR, TCPC_REG_VID, &vid);
+        I2cReadWord(&Ctx->Bus, TCPC_ADDR, TCPC_REG_PID, &pid);
+        I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_ROLE_CTRL, &role);
+        I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &cc);
+        I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_POWER_STATUS, &pwr);
+        /* only trust CC states when the port is a plain Rd/Rd sink (what UEFI leaves) */
+        Ctx->TcpcOk = NT_SUCCESS(t) && vid == 0x29CF && role == TCPC_ROLE_SINK_RD_RD;
+        LogPrint("rt1711h: vid=%04x pid=%04x (%08x) role=%02x cc_status=%02x power_status=%02x -> cc detect %s\n",
+                 vid, pid, t, role, cc, pwr, Ctx->TcpcOk ? "on" : "OFF");
+        Ctx->LastCcStatus = 0xFF;
+    }
     Ctx->LastVbusStat = (ULONG)~0;
     Ctx->HwReady = TRUE;
     return STATUS_SUCCESS;
@@ -159,19 +173,30 @@ static VOID ChargerAdc(PDEVICE_CONTEXT Ctx, BOOLEAN Log)
     }
 }
 
-static VOID ChargerPolicy(PDEVICE_CONTEXT Ctx, UCHAR R03, UCHAR R0B)
+/*
+ * A charger shows Rp on CC (the phone is Rd/Rd); an OTG adapter/hub shows Rd, so CC stays open.
+ * Needed because while our boost runs the charger reports VBUS_STAT=7 even with an adapter in.
+ */
+static BOOLEAN CcSeesSource(UCHAR Cc)
+{
+    return Cc != 0xFF && (TCPC_CC1(Cc) != 0 || TCPC_CC2(Cc) != 0);
+}
+
+static VOID ChargerPolicy(PDEVICE_CONTEXT Ctx, UCHAR R03, UCHAR R0B, UCHAR Cc)
 {
     ULONG vbus = CHG_VBUS_STAT(R0B);
     UCHAR want = R03;
 
-    if (vbus >= 1 && vbus <= 6) {
+    if (vbus == 7 && (R03 & CHG_OTG_CONFIG) && CcSeesSource(Cc)) {
+        want = (UCHAR)((R03 | CHG_CHG_CONFIG) & ~CHG_OTG_CONFIG);   /* adapter plugged into our boost */
+    } else if (vbus >= 1 && vbus <= 6) {
         want = (UCHAR)((R03 | CHG_CHG_CONFIG) & ~CHG_OTG_CONFIG);   /* adapter: charge */
     } else if (vbus == 0) {
         want = (UCHAR)(R03 | CHG_OTG_CONFIG);                      /* nothing: boost for the hub */
     }
     if (want != R03) {
         NTSTATUS s = I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, want);
-        LogPrint("charger policy: vbus_stat=%u reg03 %02x -> %02x (%08x)\n", vbus, R03, want, s);
+        LogPrint("charger policy: vbus_stat=%u cc=%02x reg03 %02x -> %02x (%08x)\n", vbus, Cc, R03, want, s);
     }
 }
 
@@ -198,6 +223,10 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
     e |= I2cReadWord(&Ctx->Bus, FG_ADDR, FG_REG_SOC_CYCLE, &cyc);
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG03, &s.ChgReg03);
     I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG0B, &s.ChgReg0B);
+    s.CcStatus = 0xFF;
+    if (Ctx->TcpcOk && !NT_SUCCESS(I2cReadByte(&Ctx->Bus, TCPC_ADDR, TCPC_REG_CC_STATUS, &s.CcStatus))) {
+        s.CcStatus = 0xFF;
+    }
 
     s.Valid = NT_SUCCESS(e);
     s.Present = TRUE;   /* non-removable pack; FG_STATUS_BATT_PRESENT is only logged */
@@ -229,7 +258,16 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
         Ctx->LastVbusStat = CHG_VBUS_STAT(s.ChgReg0B);
     }
 
-    ChargerPolicy(Ctx, s.ChgReg03, s.ChgReg0B);
+    if (s.CcStatus != Ctx->LastCcStatus) {
+        static const PCSTR names[4] = { "open", "Rp-default", "Rp-1.5A", "Rp-3.0A" };
+        if (s.CcStatus != 0xFF) {
+            LogPrint("type-c: cc_status %02x -> %02x (cc1 %s, cc2 %s)\n", Ctx->LastCcStatus, s.CcStatus,
+                     names[TCPC_CC1(s.CcStatus)], names[TCPC_CC2(s.CcStatus)]);
+        }
+        Ctx->LastCcStatus = s.CcStatus;
+    }
+
+    ChargerPolicy(Ctx, s.ChgReg03, s.ChgReg0B, s.CcStatus);
 
     state = (s.OnLine ? 1 : 0) | (s.Charging ? 2 : 0) | (s.ChargeDone ? 4 : 0);
     notifySoc = s.SocTenths / 10;

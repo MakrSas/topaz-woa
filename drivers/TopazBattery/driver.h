@@ -83,6 +83,7 @@ typedef struct _BATT_SNAPSHOT {
     ULONG   Cycles;
     UCHAR   ChgReg03, ChgReg0B;
     BOOLEAN OnLine, Charging, ChargeDone;
+    UCHAR   CcStatus;           /* rt1711h CC_STATUS, 0xFF if unread */
 } BATT_SNAPSHOT, *PBATT_SNAPSHOT;
 
 typedef struct _DEVICE_CONTEXT {
@@ -103,6 +104,8 @@ typedef struct _DEVICE_CONTEXT {
     KEVENT       StopEvent;
     ULONG        Polls;
     ULONG        LastVbusStat;      /* charger REG0B VBUS_STAT at the last poll (~0 = none yet) */
+    UCHAR        LastCcStatus;      /* rt1711h CC_STATUS at the last poll */
+    BOOLEAN      TcpcOk;            /* rt1711h answered and is in sink Rd/Rd: CC states usable */
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)
