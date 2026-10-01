@@ -84,6 +84,22 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
              m_CurrentModes[0].DispInfo.Width, m_CurrentModes[0].DispInfo.Height, m_CurrentModes[0].DispInfo.Pitch,
              (UINT)m_CurrentModes[0].DispInfo.ColorFormat, m_CurrentModes[0].DispInfo.PhysicAddress.QuadPart,
              m_CurrentModes[0].DispInfo.TargetId, m_CurrentModes[0].DispInfo.AcpiId);
+    if (NT_SUCCESS(Status) && m_CurrentModes[0].DispInfo.Width == 0)
+    {
+        // topaz: a root-enumerated adapter is not the POST device, so dxgkrnl hands out an empty
+        // DispInfo. Use the UEFI GOP framebuffer we know (Mu-Silicium tapas: continuous-splash
+        // buffer at 0x5C000000, 1080x2400 XRGB8888). BasicDisplay has to be disabled by the
+        // installer, otherwise both adapters scan out of the same memory.
+        m_CurrentModes[0].DispInfo.Width = TOPAZ_FB_WIDTH;
+        m_CurrentModes[0].DispInfo.Height = TOPAZ_FB_HEIGHT;
+        m_CurrentModes[0].DispInfo.Pitch = TOPAZ_FB_WIDTH * 4;
+        m_CurrentModes[0].DispInfo.ColorFormat = D3DDDIFMT_X8R8G8B8;
+        m_CurrentModes[0].DispInfo.PhysicAddress.QuadPart = TOPAZ_FB_BASE;
+        m_CurrentModes[0].DispInfo.TargetId = 0;
+        m_CurrentModes[0].DispInfo.AcpiId = 0;
+        LogPrint("no POST info: using fixed framebuffer %llx %ux%u pitch %u\n", TOPAZ_FB_BASE,
+                 TOPAZ_FB_WIDTH, TOPAZ_FB_HEIGHT, TOPAZ_FB_WIDTH * 4);
+    }
     if (!NT_SUCCESS(Status) || m_CurrentModes[0].DispInfo.Width == 0)
     {
         // The most likely cause of failure is that the driver is simply not running on a POST device, or we are running

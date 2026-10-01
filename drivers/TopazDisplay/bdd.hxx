@@ -55,6 +55,11 @@ extern "C"
 #include "BDD_ErrorLog.hxx"
 #include "toplog.h"
 
+// topaz-woa: UEFI framebuffer (used when dxgkrnl gives no POST info to the root adapter)
+#define TOPAZ_FB_BASE   0x5C000000ULL
+#define TOPAZ_FB_WIDTH  1080
+#define TOPAZ_FB_HEIGHT 2400
+
 // topaz-woa: synthesized EDID for the DSI panel (topaz_edid.cxx)
 VOID BuildTopazEdid(_Out_writes_bytes_(EDID_V1_BLOCK_SIZE) BYTE* pEdid);
 

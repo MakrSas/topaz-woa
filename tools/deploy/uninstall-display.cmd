@@ -1,6 +1,8 @@
 @echo off
 net session >nul 2>&1 || (powershell -NoProfile -Command "Start-Process -Verb RunAs -FilePath '%~f0'" & exit /b)
-rem Removes the TopazDisplay adapter; Windows falls back to Microsoft Basic Display.
+rem Back to Microsoft Basic Display: enable it first, then remove TopazDisplay, then reboot.
 cd /d "%~dp0"
+devcon.exe enable ROOT\BasicDisplay >> "%~dp0uninstall.log" 2>&1
 devcon.exe remove Root\TopazDisplay >> "%~dp0uninstall.log" 2>&1
+copy /y C:\TopazDisplay.log "%~dp0TopazDisplay.log" >nul 2>&1
 shutdown /r /t 5
