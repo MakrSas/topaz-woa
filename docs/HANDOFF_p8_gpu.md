@@ -47,9 +47,8 @@ the English layout — decode it). Estimates in hours/days (Wi-Fi took one day e
     `Set-Content C:\topaz\gpu.on on` (one-shot flag, the driver deletes it) → `devcon update
     TopazGpu.inf Root\TopazGpu` (or `devcon restart Root\TopazGpu`) → read `C:\TopazGpu.log` (last
     `==== TopazGpu` block). The user allows installing without asking (2026-10-02).
-  - **Next = v0.6 (CP start), see P8_gpu.md "G1 v0.6 plan"**: identity SMMU bank for SID 0 mask 1,
-    SQE (vendor a630_sqe.fw minus its first dword) into a buffer below 4 GB, 32 KB ring, hw_init
-    subset, SQE_CNTL=1, CP_ME_INIT, CP_SET_SECURE_MODE 0, CP_MEM_WRITE magic → read back.
+  - **v0.6 (ce2b611): G1 DONE — the GPU executes commands** (CP_ME_INIT, SET_SECURE_MODE 0 via the
+    zap, CP_MEM_WRITE 0xC0FFEE00 read back by the CPU, no SMMU fault). Next: P8_gpu.md "Next (G1.5 → G2)".
 
 ## Still open (older)
 - Wi-Fi P6 HT/VHT (`docs/HANDOFF_p6_htvht.md`), then P7 (CE interrupts, real MAC, stats).

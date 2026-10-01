@@ -149,3 +149,28 @@ Order (Linux a6xx `hw_init` + `a6xx_cp_init`; zap is already loaded by v0.5 code
    the buffer from the CPU. Opcodes: NOP 0x10, WAIT_FOR_IDLE 0x26, EVENT_WRITE 0x46, WHERE_AM_I 0x62.
 7. On a timeout log RBBM_STATUS 0x210, RBBM_INT_0_STATUS 0x201, CP_HW_FAULT 0x821, RPTR/WPTR, SMMU
    CB0 FSR/FAR (+0x58/+0x60) — a GPU memory access through the SMMU would show up there.
+
+## G1 DONE — TopazGpu v0.6 (2026-10-02, commit ce2b611): the GPU executes commands
+```
+SMMU: SMR0 80010000 S2CR0 00000000 CBAR0 0001f000 CBA2R0 00000001 CB0 SCTLR 000000e0
+SQE started: RBBM_STATUS 00c00015 CP_HW_FAULT 00000000 rptr 0
+CP_ME_INIT: done (rptr 9) after ~10 us, RBBM_STATUS 00000001
+CP_SET_SECURE_MODE 0: done (rptr 11) after ~10 us, RBBM_STATUS 00e41007
+CP_MEM_WRITE: done (rptr 15) after ~10 us, RBBM_STATUS 00000001
+test buffer: c0ffee00 (0xC0FFEE00 = the GPU wrote to memory)
+[after test] SMMU gfsr 00000000 CB0 FSR 00000400 (FORMAT bits only, no fault)
+```
+- Power-up (v0.3) + zap via PAS 13 (v0.5) + identity SMMU CB0 for SID 0 mask 1 + hw_init subset +
+  vendor SQE (32500 B after dropping the first dword) + 32 KB ring with NO_UPDATE + CP_ME_INIT +
+  CP_SET_SECURE_MODE 0 + CP_MEM_WRITE: all work. GPU addresses = physical (buffers < 4 GB,
+  MmNonCached contiguous).
+- Everything is still one-shot via `C:\topaz\gpu.on`; the device stop path stops the SQE, powers
+  the GPU down and frees the buffers.
+
+## Next (G1.5 → G2)
+- G1.5: IRQ (SPI 177 → GSIV 209; RBBM_INT_0_MASK 0x38, CP_EVENT_WRITE / CACHE_FLUSH_TS with IRQ),
+  a real draw/blit from a freedreno-generated command stream (e.g. CP_BLIT / 2D clear into a buffer,
+  then copy to the framebuffer at 0x5C000000) to prove rendering, HWCG + CP protect + UBWC from Linux.
+- G2: WDDM render-only KMD (DXGKDDI for allocation, submit, fences on the ring above, IRQ, reset),
+  TopazDisplay stays the display-only adapter.
+- G3: Mesa d3d10umd + freedreno + WDDM winsys built for Windows ARM64 in CI.
