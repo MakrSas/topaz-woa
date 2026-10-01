@@ -5,23 +5,24 @@ $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Start-Transcript -Path (Join-Path $here 'enable-ssh.log') -Append | Out-Null
 
-# 1. sshd: the Windows optional component (Windows Update downloads it), else a bundled zip
-$cap = Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*'
-Write-Host "OpenSSH.Server capability: $($cap.Name) $($cap.State)"
-if ($cap -and $cap.State -ne 'Installed') {
-    try {
-        Add-WindowsCapability -Online -Name $cap.Name -ErrorAction Stop | Out-Null
-        Write-Host 'Add-WindowsCapability: ok'
-    } catch {
-        Write-Host "Add-WindowsCapability failed: $_"
-    }
+# 1. sshd: the bundled OpenSSH-ARM64.zip (Win32-OpenSSH release) if present, else the Windows
+#    optional component (Windows Update downloads it; failed here with 0x80240023 after ~5 min)
+$zip = Join-Path $here 'OpenSSH-ARM64.zip'
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue) -and (Test-Path $zip)) {
+    Write-Host 'installing the bundled OpenSSH-ARM64.zip'
+    Expand-Archive $zip -DestinationPath 'C:\Program Files' -Force
+    & powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Program Files\OpenSSH-ARM64\install-sshd.ps1'
 }
 if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
-    $zip = Join-Path $here 'OpenSSH-ARM64.zip'
-    if (Test-Path $zip) {
-        Write-Host 'installing the bundled OpenSSH-ARM64.zip'
-        Expand-Archive $zip -DestinationPath 'C:\Program Files' -Force
-        & powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Program Files\OpenSSH-ARM64\install-sshd.ps1'
+    $cap = Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*'
+    Write-Host "OpenSSH.Server capability: $($cap.Name) $($cap.State)"
+    if ($cap -and $cap.State -ne 'Installed') {
+        try {
+            Add-WindowsCapability -Online -Name $cap.Name -ErrorAction Stop | Out-Null
+            Write-Host 'Add-WindowsCapability: ok'
+        } catch {
+            Write-Host "Add-WindowsCapability failed: $_"
+        }
     }
 }
 if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
