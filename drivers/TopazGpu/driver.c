@@ -14,12 +14,18 @@
  *                   (CBCR bit31 = CLK_OFF, bit0 = enable), GX GDSC 0x100c, CX GDSC 0x106c
  *                   (GDSCR bit31 = PWR_ON, bit0 = SW_COLLAPSE), GX clamp 0x1508, CX hw ctrl 0x1540,
  *                   GPU SMMU vote 0x5000.
+ * v0.3: GPU powered, registers respond, always-on counter ticks at 19.2 MHz.
+ * v0.4: + GPU SMMU (0x59a0000) dump, read only; + zap shader through TZ PAS id 13 the way Linux
+ * qcom_mdt_load() does it: metadata = the whole a610_zap.mdt (ELF header + hash), the one PT_LOAD
+ * segment (relocatable, paddr 0x5000, a610_zap.b02) goes to the reserved region 0x55B15000.
+ * Files: C:\topaz\fw\gpu\a610_zap.{mdt,b02}. If init_image fails because the zap is already
+ * loaded (driver restart), SET_REMOTE_STATE(resume, 13) is tried like Linux does on GPU resume.
  * The GPU core (0x5900000) is read only after both GDSCs report PWR_ON and the core/AHB clocks run
  * (a read with them off hangs the bus). The SMMU (0x59a0000) is not touched yet. Log: C:\TopazGpu.log.
  */
 #include "driver.h"
 
-#define TOPAZ_GPU_VERSION   "v0.3"
+#define TOPAZ_GPU_VERSION   "v0.4"
 
 #define GCC_BASE            0x01400000ULL
 #define GCC_SIZE            0x80000
@@ -40,6 +46,27 @@
 #define A6XX_RBBM_PERFCTR_CNTL      0x0500
 #define A6XX_CP_HW_FAULT            0x0821
 #define A6XX_CP_ALWAYS_ON_COUNTER   0x0980
+
+#define SMMU_BASE           0x059A0000ULL
+#define SMMU_SIZE           0x10000
+#define ZAP_REGION          0x55B15000ULL
+#define ZAP_REGION_SIZE     0x2000
+#define GPU_PAS_ID          13
+
+#define SCM_FN(svc, cmd)    (0x42000000u | ((ULONG)(svc) << 8) | (ULONG)(cmd))
+#define SCM_SVC_BOOT        0x01
+#define SCM_BOOT_SET_REMOTE_STATE 0x0a
+#define SCM_SVC_PIL         0x02
+#define PIL_INIT_IMAGE      0x01
+#define PIL_MEM_SETUP       0x02
+#define PIL_AUTH_RESET      0x05
+#define SCM_ARG_RW          2
+
+typedef struct _ARM_SMC_ARGS {
+    ULONG_PTR Arg0, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7;
+} ARM_SMC_ARGS;
+
+VOID TopazArmCallSmc(ARM_SMC_ARGS *Args);
 
 typedef struct _REG_DESC {
     UCHAR  Block;                           /* 0 = GCC, 1 = GPU CC */
@@ -296,6 +323,196 @@ static BOOLEAN FileProbe(PCWSTR Path, BOOLEAN Delete)
     return TRUE;
 }
 
+/* ---- TZ calls (same as TopazModem ModemPas.c, incl. the INTERRUPTED resume loop) ---- */
+
+static ULONG_PTR Scm(ULONG Fn, ULONG_PTR ArgInfo, ULONG_PTR A, ULONG_PTR B, ULONG_PTR C, ULONG_PTR *Res1)
+{
+    ARM_SMC_ARGS args;
+    ULONG n;
+    ULONG_PTR a6;
+
+    RtlZeroMemory(&args, sizeof(args));
+    args.Arg0 = Fn;
+    args.Arg1 = ArgInfo;
+    args.Arg2 = A;
+    args.Arg3 = B;
+    args.Arg4 = C;
+    TopazArmCallSmc(&args);
+    for (n = 0; args.Arg0 == 1 && n < 100000; n++) {
+        a6 = args.Arg6;
+        RtlZeroMemory(&args, sizeof(args));
+        args.Arg0 = 1;
+        args.Arg1 = ArgInfo;
+        args.Arg2 = A;
+        args.Arg3 = B;
+        args.Arg4 = C;
+        args.Arg6 = a6;
+        TopazArmCallSmc(&args);
+    }
+    if (Res1 != NULL) {
+        *Res1 = args.Arg1;
+    }
+    return args.Arg0;
+}
+
+/* Whole file into a nonpaged buffer (caller frees with ExFreePoolWithTag 'upGT'). */
+static PUCHAR ReadWholeFile(PCWSTR Path, PULONG Size)
+{
+    UNICODE_STRING name;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    FILE_STANDARD_INFORMATION info;
+    HANDLE h;
+    PUCHAR buf = NULL;
+
+    RtlInitUnicodeString(&name, Path);
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateFile(&h, GENERIC_READ | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                 FILE_SHARE_READ, FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+                                 NULL, 0))) {
+        return NULL;
+    }
+    if (NT_SUCCESS(ZwQueryInformationFile(h, &iosb, &info, sizeof(info), FileStandardInformation)) &&
+        info.EndOfFile.QuadPart > 0 && info.EndOfFile.QuadPart < 0x100000) {
+        *Size = info.EndOfFile.LowPart;
+        buf = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, *Size, 'upGT');
+        if (buf != NULL && !NT_SUCCESS(ZwReadFile(h, NULL, NULL, NULL, &iosb, buf, *Size, NULL, NULL))) {
+            ExFreePoolWithTag(buf, 'upGT');
+            buf = NULL;
+        }
+    }
+    ZwClose(h);
+    return buf;
+}
+
+static VOID ZapLoad(VOID)
+{
+    PUCHAR mdt, seg = NULL, meta = NULL;
+    ULONG mdtSize = 0, segSize = 0, phoff, phnum, i, ptype, off, paddr, filesz, memsz, flags;
+    ULONG minAddr = MAXULONG, maxAddr = 0, loadIdx = MAXULONG;
+    ULONG_PTR st, res = 0;
+    PHYSICAL_ADDRESS lo, hi, bound, pa;
+    volatile UCHAR *dst;
+
+    LogPrint("--- zap shader (PAS %u)\n", GPU_PAS_ID);
+    mdt = ReadWholeFile(L"\\??\\C:\\topaz\\fw\\gpu\\a610_zap.mdt", &mdtSize);
+    if (mdt == NULL || mdtSize < 52) {
+        LogPrint("  a610_zap.mdt missing\n");
+        goto out;
+    }
+    phoff = *(ULONG *)(mdt + 28);
+    phnum = *(USHORT *)(mdt + 44);
+    for (i = 0; i < phnum && phoff + 32 * (i + 1) <= mdtSize; i++) {
+        ptype  = *(ULONG *)(mdt + phoff + 32 * i);
+        off    = *(ULONG *)(mdt + phoff + 32 * i + 4);
+        paddr  = *(ULONG *)(mdt + phoff + 32 * i + 12);
+        filesz = *(ULONG *)(mdt + phoff + 32 * i + 16);
+        memsz  = *(ULONG *)(mdt + phoff + 32 * i + 20);
+        flags  = *(ULONG *)(mdt + phoff + 32 * i + 24);
+        LogPrint("  phdr %u type %u off %x paddr %x filesz %u memsz %u flags %08x\n", i, ptype, off, paddr,
+                 filesz, memsz, flags);
+        if (ptype == 1 && memsz != 0 && ((flags >> 24) & 7) != 2) {
+            minAddr = min(minAddr, paddr);
+            maxAddr = max(maxAddr, paddr + memsz);
+            loadIdx = i;
+        }
+    }
+    if (loadIdx == MAXULONG || maxAddr - minAddr > ZAP_REGION_SIZE) {
+        LogPrint("  unexpected layout (load %u, %x..%x)\n", loadIdx, minAddr, maxAddr);
+        goto out;
+    }
+    seg = ReadWholeFile(L"\\??\\C:\\topaz\\fw\\gpu\\a610_zap.b02", &segSize);
+    if (seg == NULL) {
+        LogPrint("  a610_zap.b02 missing\n");
+        goto out;
+    }
+    /* metadata: physically contiguous, below 4 GB, TZ reads it by PA */
+    lo.QuadPart = 0;
+    hi.QuadPart = 0xEFFFFFFF;
+    bound.QuadPart = 0;
+    meta = (PUCHAR)MmAllocateContiguousMemorySpecifyCache(ROUND_TO_PAGES(mdtSize), lo, hi, bound, MmWriteCombined);
+    if (meta == NULL) {
+        LogPrint("  metadata alloc failed\n");
+        goto out;
+    }
+    RtlCopyMemory(meta, mdt, mdtSize);
+    pa = MmGetPhysicalAddress(meta);
+    st = Scm(SCM_FN(SCM_SVC_PIL, PIL_INIT_IMAGE), 2 | (SCM_ARG_RW << 6), GPU_PAS_ID, (ULONG_PTR)pa.QuadPart, 0, &res);
+    LogPrint("  init_image: ret %llx res %llx (meta %u bytes @%llx)\n", (ULONGLONG)st, (ULONGLONG)res, mdtSize,
+             pa.QuadPart);
+    if (st != 0 || res != 0) {
+        st = Scm(SCM_FN(SCM_SVC_BOOT, SCM_BOOT_SET_REMOTE_STATE), 2, 0, GPU_PAS_ID, 0, &res);
+        LogPrint("  set_remote_state(resume): ret %llx res %llx (0/0 = zap already loaded, resumed)\n",
+                 (ULONGLONG)st, (ULONGLONG)res);
+        goto out;
+    }
+    st = Scm(SCM_FN(SCM_SVC_PIL, PIL_MEM_SETUP), 3, GPU_PAS_ID, (ULONG_PTR)ZAP_REGION, maxAddr - minAddr, &res);
+    LogPrint("  mem_setup %llx+%x: ret %llx res %llx\n", ZAP_REGION, maxAddr - minAddr, (ULONGLONG)st, (ULONGLONG)res);
+    pa.QuadPart = (LONGLONG)ZAP_REGION;
+    dst = (volatile UCHAR *)MmMapIoSpaceEx(pa, ZAP_REGION_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if (dst == NULL) {
+        LogPrint("  map of the zap region failed\n");
+        goto out;
+    }
+    RtlZeroMemory((PVOID)dst, ZAP_REGION_SIZE);
+    paddr = *(ULONG *)(mdt + phoff + 32 * loadIdx + 12);
+    RtlCopyMemory((PVOID)(dst + (paddr - minAddr)), seg, min(segSize, ZAP_REGION_SIZE - (paddr - minAddr)));
+    KeMemoryBarrier();
+    MmUnmapIoSpace((PVOID)dst, ZAP_REGION_SIZE);
+    st = Scm(SCM_FN(SCM_SVC_PIL, PIL_AUTH_RESET), 1, GPU_PAS_ID, 0, 0, &res);
+    LogPrint("  auth_and_reset: ret %llx res %llx (0/0 = TZ accepted the zap shader)\n", (ULONGLONG)st, (ULONGLONG)res);
+out:
+    if (meta != NULL) {
+        MmFreeContiguousMemorySpecifyCache(meta, ROUND_TO_PAGES(mdtSize), MmWriteCombined);
+    }
+    if (seg != NULL) {
+        ExFreePoolWithTag(seg, 'upGT');
+    }
+    if (mdt != NULL) {
+        ExFreePoolWithTag(mdt, 'upGT');
+    }
+}
+
+/* ---- GPU SMMU (read only) ---- */
+
+static VOID SmmuDump(VOID)
+{
+    PHYSICAL_ADDRESS pa;
+    volatile UCHAR *s, *cb;
+    ULONG cr0, id0, id1, nsmr, ncb, psize, npage, i, smr, s2cr;
+
+    pa.QuadPart = (LONGLONG)SMMU_BASE;
+    s = (volatile UCHAR *)MmMapIoSpaceEx(pa, SMMU_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if (s == NULL) {
+        LogPrint("SMMU map failed\n");
+        return;
+    }
+    cr0 = Rd(s, 0x0);
+    id0 = Rd(s, 0x20);
+    id1 = Rd(s, 0x24);
+    nsmr = id0 & 0xFF;
+    ncb = id1 & 0xFF;
+    psize = (id1 & (1u << 31)) ? 0x10000 : 0x1000;
+    npage = 1u << (((id1 >> 28) & 7) + 1);
+    LogPrint("--- GPU SMMU: sCR0 %08x (CLIENTPD %u USFCFG %u) ID0 %08x ID1 %08x ID2 %08x: %u SMRs %u CBs page %x x%u\n",
+             cr0, cr0 & 1, (cr0 >> 10) & 1, id0, id1, Rd(s, 0x28), nsmr, ncb, psize, npage);
+    for (i = 0; i < nsmr && i < 64; i++) {
+        smr = Rd(s, 0x800 + 4 * i);
+        s2cr = Rd(s, 0xC00 + 4 * i);
+        if (smr != 0 || s2cr != 0) {
+            LogPrint("  SMR%u %08x (valid %u sid %x mask %x) S2CR %08x type %u cb %u\n", i, smr, smr >> 31,
+                     smr & 0xFFFF, (smr >> 16) & 0x7FFF, s2cr, (s2cr >> 16) & 3, s2cr & 0xFF);
+        }
+    }
+    for (i = 0; i < ncb && (npage + i + 1) * psize <= SMMU_SIZE; i++) {
+        cb = s + (SIZE_T)(npage + i) * psize;
+        LogPrint("  CB%u CBAR %08x CBA2R %08x SCTLR %08x TCR %08x TTBR0 %08x%08x FSR %08x\n", i,
+                 Rd(s, psize + 4 * i), Rd(s, psize + 0x800 + 4 * i), Rd(cb, 0x0), Rd(cb, 0x30), Rd(cb, 0x24),
+                 Rd(cb, 0x20), Rd(cb, 0x58));
+    }
+    MmUnmapIoSpace((PVOID)s, SMMU_SIZE);
+}
+
 static BOOLEAN g_Powered;
 
 static VOID HwStart(VOID)
@@ -320,6 +537,8 @@ static VOID HwStart(VOID)
     if (PowerUp()) {
         DumpClocks("powered");
         FirstGpuReads();
+        SmmuDump();
+        ZapLoad();
     } else {
         DumpClocks("power-up FAILED");
     }
