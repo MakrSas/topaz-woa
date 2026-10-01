@@ -344,6 +344,16 @@ void EvtWifiSendCommand(WDFDEVICE Device, WIFIREQUEST Request)
     case WDI_TASK_DOT11_RESET:
         OnDot11Reset(Request, hdr);
         break;
+    case WDI_ABORT_TASK:                          /* property: cancel the outstanding task (our scan) */
+        WLOG("ABORT_TASK (scan %s)\r\n", s_ScanPending ? "pending: finishing it now" : "not pending");
+        CompleteM3(Request, STATUS_SUCCESS);
+        FinishScan(STATUS_REQUEST_ABORTED, "aborted");
+        break;
+    case WDI_SET_ADAPTER_CONFIGURATION:           /* properties we can accept without doing anything */
+    case WDI_SET_LOCATION_PRIVACY:
+        WLOG("WDI property %u: accepted\r\n", id);
+        CompleteM3(Request, STATUS_SUCCESS);
+        break;
     default:
         if (s_Unsupported++ < 64) {
             WLOG("WDI message %u (port %u, %u bytes): not supported\r\n", id, hdr->PortId, inLen);

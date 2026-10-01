@@ -1,8 +1,8 @@
 /*
  * TopazWifi: driver/device setup (WDK wificx sample driver.cpp + device.cpp) and the modem thread
  * (TopazModem driver.c): the WLAN core boots the modem DSP through TrustZone and then runs its
- * polling loop forever on one thread. Safety as in TopazModem: the modem only boots when
- * C:\topaz\modem.arm exists, and the driver deletes it first.
+ * polling loop forever on one thread. It boots on every start (Wi-Fi needs it) unless
+ * C:\topaz\modem.off exists; the boot guard below stops a crashing driver from starting again.
  */
 #include "wpch.h"
 
@@ -15,18 +15,20 @@ static EVT_WDF_DRIVER_UNLOAD EvtDriverUnload;
 static EVT_WDF_DEVICE_PREPARE_HARDWARE EvtPrepareHardware;
 static EVT_WDF_DEVICE_RELEASE_HARDWARE EvtReleaseHardware;
 
-/* Consume C:\topaz\modem.arm: TRUE if it existed (and is now deleted). */
-static BOOLEAN ArmConsume(VOID)
+/* TRUE if Path exists (and Delete: it is deleted). */
+static BOOLEAN FileProbe(PCWSTR Path, BOOLEAN Delete)
 {
-    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\modem.arm");
+    UNICODE_STRING name;
     OBJECT_ATTRIBUTES oa;
     IO_STATUS_BLOCK iosb;
     HANDLE h;
 
+    RtlInitUnicodeString(&name, Path);
     InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    if (!NT_SUCCESS(ZwCreateFile(&h, DELETE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN,
-                                 FILE_DELETE_ON_CLOSE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
-                                 NULL, 0))) {
+    if (!NT_SUCCESS(ZwCreateFile(&h, (Delete ? DELETE : FILE_READ_ATTRIBUTES) | SYNCHRONIZE, &oa, &iosb, NULL,
+                                 FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN,
+                                 (Delete ? FILE_DELETE_ON_CLOSE : 0) | FILE_SYNCHRONOUS_IO_NONALERT |
+                                 FILE_NON_DIRECTORY_FILE, NULL, 0))) {
         return FALSE;
     }
     ZwClose(h);
@@ -104,11 +106,14 @@ static VOID ModemThread(PVOID Context)
     UNREFERENCED_PARAMETER(Context);
     KeSetSystemAffinityThreadEx((KAFFINITY)1);         /* TZ resumes + polling stay on one core */
     KeSetPriorityThread(KeGetCurrentThread(), LOW_REALTIME_PRIORITY);
-    if (!ArmConsume()) {
-        WLOG("C:\\topaz\\modem.arm missing: modem not started (run install.cmd to arm)\r\n");
+    /* Wi-Fi needs the modem on every boot: boot it unless C:\topaz\modem.off exists. A crash here is
+       caught by the boot guard (C:\topaz\wifi.boot). modem.arm (TopazModem's one-shot) is consumed too. */
+    FileProbe(L"\\??\\C:\\topaz\\modem.arm", TRUE);
+    if (FileProbe(L"\\??\\C:\\topaz\\modem.off", FALSE)) {
+        WLOG("C:\\topaz\\modem.off exists: modem not started\r\n");
         PsTerminateSystemThread(STATUS_SUCCESS);
     }
-    WLOG("armed: booting the modem\r\n");
+    WLOG("booting the modem\r\n");
     ExSetTimerResolution(10000, TRUE);
     s = ModemPasTest();                                /* returns only on gModemStop or a failure */
     WLOG("ModemPasTest returned %llx%s\r\n", (ULONGLONG)s, gModemStop ? " (driver stop)" : "");
