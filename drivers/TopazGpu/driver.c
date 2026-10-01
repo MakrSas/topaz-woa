@@ -15,6 +15,9 @@
  *                   (GDSCR bit31 = PWR_ON, bit0 = SW_COLLAPSE), GX clamp 0x1508, CX hw ctrl 0x1540,
  *                   GPU SMMU vote 0x5000.
  * v0.3: GPU powered, registers respond, always-on counter ticks at 19.2 MHz.
+ * v0.6: CP start (docs/P8_gpu.md "G1 v0.6 plan"): identity GPU SMMU bank for SID 0 mask 1, hw_init
+ * subset, SQE microcode (C:\topaz\fw\gpu\a630_sqe.fw minus its first dword), 32 KB ring,
+ * CP_ME_INIT, CP_SET_SECURE_MODE 0 (zap), CP_MEM_WRITE 0xC0FFEE00 into a buffer the CPU reads back.
  * v0.5: mem_setup size aligned to 4 KB like Linux (v0.4: init_image ok, mem_setup with 0x830 ->
  * 0xffcfffba, auth_and_reset -> 0xffcfffbc); PAS shutdown before init_image.
  * v0.4: + GPU SMMU (0x59a0000) dump, read only; + zap shader through TZ PAS id 13 the way Linux
@@ -27,7 +30,7 @@
  */
 #include "driver.h"
 
-#define TOPAZ_GPU_VERSION   "v0.5"
+#define TOPAZ_GPU_VERSION   "v0.6"
 
 #define GCC_BASE            0x01400000ULL
 #define GCC_SIZE            0x80000
@@ -520,6 +523,266 @@ static VOID SmmuDump(VOID)
     MmUnmapIoSpace((PVOID)s, SMMU_SIZE);
 }
 
+/* ---- CP start (v0.6) ---- */
+
+#define RB_BYTES            0x8000
+#define RB_DWORDS           (RB_BYTES / 4)
+#define CP_ME_INIT          0x48
+#define CP_SET_SECURE_MODE  0x66
+#define CP_MEM_WRITE        0x3d
+#define CP_NOP              0x10
+
+static volatile UCHAR *g_Gpu;
+static PULONG g_Ring, g_Sqe, g_Test;
+static ULONG g_SqeBytes, g_Wptr;
+
+static ULONG Par(ULONG V)
+{
+    return (0x9669 >> (0xF & (V ^ (V >> 4) ^ (V >> 8) ^ (V >> 12) ^ (V >> 16) ^ (V >> 20) ^ (V >> 24) ^ (V >> 28)))) & 1;
+}
+
+static ULONG Pkt7(ULONG Op, ULONG Cnt)
+{
+    return 0x70000000u | Cnt | (Par(Cnt) << 15) | ((Op & 0x7F) << 16) | (Par(Op) << 23);
+}
+
+static VOID GpuWr(ULONG Reg, ULONG Val)
+{
+    Wr(g_Gpu, 4 * Reg, Val);
+}
+
+static ULONG GpuRd(ULONG Reg)
+{
+    return Rd(g_Gpu, 4 * Reg);
+}
+
+static VOID GpuWr64(ULONG Reg, ULONGLONG Val)
+{
+    GpuWr(Reg, (ULONG)Val);
+    GpuWr(Reg + 1, (ULONG)(Val >> 32));
+}
+
+static PULONG DmaAlloc(ULONG Bytes, PULONGLONG Pa)
+{
+    PHYSICAL_ADDRESS lo, hi, bound;
+    PVOID va;
+
+    lo.QuadPart = 0;
+    hi.QuadPart = 0xEFFFFFFF;
+    bound.QuadPart = 0;
+    va = MmAllocateContiguousMemorySpecifyCache(Bytes, lo, hi, bound, MmNonCached);
+    if (va != NULL) {
+        RtlZeroMemory(va, Bytes);
+        *Pa = (ULONGLONG)MmGetPhysicalAddress(va).QuadPart;
+    }
+    return (PULONG)va;
+}
+
+static VOID Emit(ULONG V)
+{
+    g_Ring[g_Wptr % RB_DWORDS] = V;
+    g_Wptr++;
+}
+
+static VOID SmmuFault(PCSTR Tag)
+{
+    PHYSICAL_ADDRESS pa;
+    volatile UCHAR *s;
+
+    pa.QuadPart = (LONGLONG)SMMU_BASE;
+    s = (volatile UCHAR *)MmMapIoSpaceEx(pa, SMMU_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if (s != NULL) {
+        LogPrint("  [%s] SMMU gfsr %08x CB0 SCTLR %08x FSR %08x FAR %08x%08x FSYNR0 %08x\n", Tag, Rd(s, 0x48),
+                 Rd(s, 0x8000), Rd(s, 0x8058), Rd(s, 0x8064), Rd(s, 0x8060), Rd(s, 0x8068));
+        MmUnmapIoSpace((PVOID)s, SMMU_SIZE);
+    }
+}
+
+/* Kick the ring and wait until the CP has consumed everything (RPTR == WPTR), up to Ms. */
+static BOOLEAN Submit(PCSTR What, ULONG Ms)
+{
+    ULONG i, rptr = 0, wptr = g_Wptr % RB_DWORDS;
+
+    KeMemoryBarrier();
+    GpuWr(0x807, wptr);                                  /* CP_RB_WPTR */
+    for (i = 0; i < Ms * 100; i++) {
+        rptr = GpuRd(0x806);                             /* CP_RB_RPTR */
+        if (rptr == wptr) {
+            LogPrint("  %s: done (rptr %u) after ~%u us, RBBM_STATUS %08x\n", What, rptr, i * 10, GpuRd(0x210));
+            return TRUE;
+        }
+        KeStallExecutionProcessor(10);
+    }
+    LogPrint("  %s: TIMEOUT rptr %u wptr %u RBBM_STATUS %08x INT_0_STATUS %08x CP_HW_FAULT %08x\n", What, rptr,
+             wptr, GpuRd(0x210), GpuRd(0x201), GpuRd(0x821));
+    SmmuFault(What);
+    return FALSE;
+}
+
+static BOOLEAN SmmuIdentity(VOID)
+{
+    PHYSICAL_ADDRESS pa;
+    volatile UCHAR *s;
+
+    pa.QuadPart = (LONGLONG)SMMU_BASE;
+    s = (volatile UCHAR *)MmMapIoSpaceEx(pa, SMMU_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if (s == NULL) {
+        return FALSE;
+    }
+    /* CB0 (page 8 of 4 KB): pass-through clone of what UEFI uses on the apps SMMU (TopazModem v0.7) */
+    Wr(s, 0x8058, 0xFFFFFFFF);                           /* FSR clear */
+    Wr(s, 0x8020, 0);
+    Wr(s, 0x8024, 0);                                    /* TTBR0 */
+    Wr(s, 0x8030, 0);                                    /* TCR */
+    Wr(s, 0x8010, 0);                                    /* TCR2 */
+    Wr(s, 0x8038, 0);
+    Wr(s, 0x803C, 0);                                    /* MAIR */
+    Wr(s, 0x1000 + 0x800, 1);                            /* CBA2R0: VA64 */
+    Wr(s, 0x1000, 0x0001f000);                           /* CBAR0 */
+    KeMemoryBarrier();
+    Wr(s, 0x8000, 0xE0);                                 /* SCTLR: M=0, fault report/irq */
+    KeMemoryBarrier();
+    Wr(s, 0xC00, 0);                                     /* S2CR0: translate via CB0 */
+    Wr(s, 0x800, (1u << 31) | (1u << 16) | 0);           /* SMR0: SID 0 mask 1 */
+    KeMemoryBarrier();
+    LogPrint("  SMMU: SMR0 %08x S2CR0 %08x CBAR0 %08x CBA2R0 %08x CB0 SCTLR %08x\n", Rd(s, 0x800), Rd(s, 0xC00),
+             Rd(s, 0x1000), Rd(s, 0x1800), Rd(s, 0x8000));
+    MmUnmapIoSpace((PVOID)s, SMMU_SIZE);
+    return TRUE;
+}
+
+static VOID HwInitRegs(VOID)
+{
+    ULONG i;
+    static const ULONG addrMode[] = { 0x842, 0xC01, 0x8601, 0x8e05, 0x9e01, 0xbe05, 0xa601, 0x9601, 0xE00,
+                                      0xae01, 0xb601, 0xF810 };
+
+    GpuWr(0x3c45, 0);                                    /* GBIF_HALT */
+    GpuRd(0x3c45);
+    GpuWr(0x16, 0);                                      /* RBBM_GBIF_HALT */
+    GpuRd(0x16);
+    GpuWr(0xF803, 0);                                    /* RBBM_SECVID_TSB_CNTL */
+    GpuWr64(0xF800, 0);                                  /* TSB_TRUSTED_BASE */
+    GpuWr(0xF802, 0);                                    /* TSB_TRUSTED_SIZE */
+    for (i = 0; i < ARRAYSIZE(addrMode); i++) {
+        GpuWr(addrMode[i], 1);                           /* 64-bit addressing */
+    }
+    for (i = 0; i < 4; i++) {
+        GpuWr(0x3c03 + i, 0x00071620);                   /* GBIF_QSB_SIDE0..3 (a610) */
+    }
+    GpuWr(0x11, 3);                                      /* RBBM_GBIF_CLIENT_QOS_CNTL */
+    GpuWr64(0xE05, 0x1fffffffff000ull + 0xfc0);          /* UCHE_WRITE_RANGE_MAX */
+    GpuWr64(0xE09, 0x1fffffffff000ull);                  /* UCHE_TRAP_BASE */
+    GpuWr64(0xE07, 0x1fffffffff000ull);                  /* UCHE_WRITE_THRU_BASE */
+    GpuWr64(0xE0B, 0x100000);                            /* UCHE_GMEM_RANGE_MIN */
+    GpuWr64(0xE0D, 0x100000 + 0x21000 - 1);              /* .._MAX: gmem 128K + 4K */
+    GpuWr(0xE18, 0x804);                                 /* UCHE_FILTER_CNTL */
+    GpuWr(0xE17, 4);                                     /* UCHE_CACHE_WAYS */
+    GpuWr(0x8c2, 0x00800060);                            /* CP_ROQ_THRESHOLDS_2 */
+    GpuWr(0x8c1, 0x40201b16);                            /* CP_ROQ_THRESHOLDS_1 */
+    GpuWr(0x8C3, 48);                                    /* CP_MEM_POOL_SIZE */
+    GpuWr(0x9e00, 0x00080000);                           /* PC_DBG_ECO_CNTL: prim fifo threshold */
+    GpuWr(0x98d, 1);                                     /* CP_AHB_CNTL */
+    GpuWr(0x1f, (1u << 30) | 0x3ffff);                   /* RBBM_INTERFACE_HANG_INT_CNTL */
+    GpuWr(0xe19, 0x81);                                  /* UCHE_CLIENT_PF */
+}
+
+static VOID CpStart(VOID)
+{
+    PHYSICAL_ADDRESS pa;
+    PUCHAR fw;
+    ULONG fwSize = 0;
+    ULONGLONG ringPa, sqePa, testPa;
+
+    LogPrint("--- CP start\n");
+    pa.QuadPart = (LONGLONG)GPU_BASE;
+    g_Gpu = (volatile UCHAR *)MmMapIoSpaceEx(pa, GPU_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    fw = ReadWholeFile(L"\\??\\C:\\topaz\\fw\\gpu\\a630_sqe.fw", &fwSize);
+    if (g_Gpu == NULL || fw == NULL || fwSize <= 4) {
+        LogPrint("  map/firmware failed (gpu %p sqe %p %u)\n", g_Gpu, fw, fwSize);
+        goto out;
+    }
+    g_SqeBytes = ROUND_TO_PAGES(fwSize - 4);
+    g_Sqe = DmaAlloc(g_SqeBytes, &sqePa);
+    g_Ring = DmaAlloc(RB_BYTES, &ringPa);
+    g_Test = DmaAlloc(PAGE_SIZE, &testPa);
+    if (g_Sqe == NULL || g_Ring == NULL || g_Test == NULL) {
+        LogPrint("  DMA alloc failed\n");
+        goto out;
+    }
+    RtlCopyMemory(g_Sqe, fw + 4, fwSize - 4);
+    g_Test[0] = 0x11111111;
+    LogPrint("  sqe %u bytes (first dword %08x skipped) @%llx, ring @%llx, test @%llx\n", fwSize - 4,
+             *(ULONG *)fw, sqePa, ringPa, testPa);
+    if (!SmmuIdentity()) {
+        LogPrint("  SMMU map failed\n");
+        goto out;
+    }
+    HwInitRegs();
+    GpuWr64(0x830, sqePa);                               /* CP_SQE_INSTR_BASE */
+    GpuWr64(0x800, ringPa);                              /* CP_RB_BASE */
+    GpuWr(0x802, 12 | (2 << 8) | (1u << 27));            /* CP_RB_CNTL: 32 KB, blk 32 B, NO_UPDATE */
+    g_Wptr = 0;
+    GpuWr(0x807, 0);
+    GpuWr(0x808, 1);                                     /* CP_SQE_CNTL: start */
+    LogPrint("  SQE started: RBBM_STATUS %08x CP_HW_FAULT %08x rptr %u\n", GpuRd(0x210), GpuRd(0x821), GpuRd(0x806));
+
+    Emit(Pkt7(CP_ME_INIT, 8));
+    Emit(0x2f);
+    Emit(3);
+    Emit(0x20000000);
+    Emit(0);
+    Emit(0);
+    Emit(0);
+    Emit(0);
+    Emit(0);
+    if (!Submit("CP_ME_INIT", 100)) {
+        goto out;
+    }
+    Emit(Pkt7(CP_SET_SECURE_MODE, 1));
+    Emit(0);
+    if (!Submit("CP_SET_SECURE_MODE 0", 100)) {
+        goto out;
+    }
+    Emit(Pkt7(CP_MEM_WRITE, 3));
+    Emit((ULONG)testPa);
+    Emit((ULONG)(testPa >> 32));
+    Emit(0xC0FFEE00);
+    Submit("CP_MEM_WRITE", 100);
+    KeStallExecutionProcessor(100);
+    LogPrint("  test buffer: %08x (0xC0FFEE00 = the GPU wrote to memory)\n", g_Test[0]);
+    SmmuFault("after test");
+out:
+    if (fw != NULL) {
+        ExFreePoolWithTag(fw, 'upGT');
+    }
+}
+
+static VOID CpStop(VOID)
+{
+    if (g_Gpu != NULL) {
+        GpuWr(0x808, 0);                                 /* CP_SQE_CNTL: stop */
+        MmUnmapIoSpace((PVOID)g_Gpu, GPU_SIZE);
+        g_Gpu = NULL;
+    }
+}
+
+static VOID CpFree(VOID)
+{
+    if (g_Sqe != NULL) {
+        MmFreeContiguousMemorySpecifyCache(g_Sqe, g_SqeBytes, MmNonCached);
+        g_Sqe = NULL;
+    }
+    if (g_Ring != NULL) {
+        MmFreeContiguousMemorySpecifyCache(g_Ring, RB_BYTES, MmNonCached);
+        g_Ring = NULL;
+    }
+    if (g_Test != NULL) {
+        MmFreeContiguousMemorySpecifyCache(g_Test, PAGE_SIZE, MmNonCached);
+        g_Test = NULL;
+    }
+}
+
 static BOOLEAN g_Powered;
 
 static VOID HwStart(VOID)
@@ -546,6 +809,7 @@ static VOID HwStart(VOID)
         FirstGpuReads();
         SmmuDump();
         ZapLoad();
+        CpStart();
     } else {
         DumpClocks("power-up FAILED");
     }
@@ -553,10 +817,12 @@ static VOID HwStart(VOID)
 
 static VOID HwStop(VOID)
 {
+    CpStop();
     if (g_Powered && g_GpuCc != NULL) {
         PowerDown();
         g_Powered = FALSE;
     }
+    CpFree();
     if (g_Gcc != NULL) {
         MmUnmapIoSpace((PVOID)g_Gcc, GCC_SIZE);
         g_Gcc = NULL;
