@@ -31,6 +31,7 @@ wants something undocumented — each item lists its main unknown.
 ## Planned
 | # | Item | Shared base | Cost | Main unknown |
 |---|---|---|---|---|
+| 0 | **CPU frequency** (no DVFS in Windows: no Qualcomm PEP/PPM) | — | read the level ~1 h; fixed max level ~1-2 h; own load-based governor a few hours | does the cpufreq-hw block accept apps writes |
 | 1 | Screen rotation (accelerometer / gyro) | display rotation; ADSP if the IMU sits behind it | display ~1 h; sensor: a few hours direct, ~1 day via ADSP | is the IMU bus open to apps |
 | 2 | SIM: mobile internet (**no calls**) | running modem + QRTR (already have) | QMI (SIM, network, data call) a few hours; IPA data path ~1 day; "Cellular" page ~1 day | IPA/GSI bring-up |
 | 3 | Sound (speaker, headphones) | ADSP boot + AudioReach | ADSP boot a few hours (PAS + GLINK code exists); graph + ACX 1-2 days | AudioReach graph / calibration |
@@ -40,6 +41,18 @@ wants something undocumented — each item lists its main unknown.
 
 Suggested order: rotation (cheap, visible) → SIM data (the modem base is done) → ADSP → sound → mic.
 The GPU experiment and display improvements fit in between; camera last.
+
+## 0. CPU frequency
+- Measured 2026-10-01 over SSH while the UI lagged: 65% total CPU with the VS Code installer running,
+  `dwm` alone ~2 of 8 cores (software composition, no GPU). Windows reports 908 MHz (perf counter) /
+  1517 MHz (WMI) for a 2.8 GHz-class SoC — not trustworthy, but nothing in this port drives DVFS, so
+  the cores most likely stay at the bootloader's level.
+- DT: `qcom,cpufreq-hw` at 0xF521000 (silver, domain 0) and 0xF523000 (gold, domain 1), 12 LUT
+  entries, LMh attached (hardware thermal limit). Linux `qcom-cpufreq-hw.c` (v1 layout): ENABLE 0x0,
+  FREQ_LUT 0x110 / VOLT_LUT 0x114 (32-byte rows), PERF_STATE 0x920 (the level to run at).
+- Plan: log the LUT and PERF_STATE from a driver (read only) → set the top level for both domains
+  (voltage and thermal throttling are handled by the OSM/LMh hardware) → later a simple governor
+  from CPU load (and idle states / PEP for battery).
 
 ## 1. Screen rotation
 - Windows auto-rotation needs only an **accelerometer** (gyro is optional). Two parts:
