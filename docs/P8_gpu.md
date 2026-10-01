@@ -84,3 +84,15 @@ animations need the GPU.
 - The GPU SMMU might have secure banks owned by TZ/hyp; the identity trick worked on the apps SMMU.
 - WDDM render-only + display-only cross-adapter path on ARM64 with our KMDOD display driver.
 - Mesa on Windows ARM64: d3d10umd is maintained for VMware; freedreno has never run on Windows.
+
+## Results
+- **TopazGpu v0.1** (2026-10-01, installed over SSH): the bootloader leaves the GPU **fully off** —
+  GPU_CX_GDSC and GPU_GX_GDSC = 0x00222001 (SW_COLLAPSE, no PWR_ON), CX GDS HW ctrl 0x1540 =
+  0x00005ff4, GPU CC PLL0/PLL1 mode 0 (unconfigured), gx_gfx3d / gmu RCGs root off, all GPU CC
+  branches CLK_OFF (cxo/ahb/gx_cxo enable bits set but off), GCC: gpu_cfg_ahb running, memnoc_gfx
+  enabled but off, snoc_dvm/iref/throttle off, vote 0x79004 = 0x00c05d5b (GPU GPLL0 bit 15 not set).
+- **TopazGpu v0.2** (fe1f7be): one-shot power-up (`C:\topaz\gpu.on`): GCC GPLL0 vote + bimc_gpu_axi /
+  memnoc_gfx / snoc_dvm branches → gpucc cxo/ahb → CX GDSC (poll 0x1540 bit31) → gmu RCG 200 MHz
+  (GPLL0/3) + cx_gmu + smmu vote → GX GDSC (BCR 0x1008 pulse, clamp 0x1508 release, poll 0x100c
+  bit31) → gx_gfx3d RCG 300 MHz (GPLL0/2) + branch (force mem core/periph) → read RBBM_STATUS,
+  CP_HW_FAULT, CP_ALWAYS_ON_COUNTER (should tick ~19.2 MHz). Powers down on device stop.
