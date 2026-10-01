@@ -1,0 +1,45 @@
+# P4: WLAN data path on topaz (WCN3990 via SNOC) — plan
+
+Source: upstream Linux `drivers/net/wireless/ath/ath10k/{snoc,ce,qmi,hw,htc}.c` (sparse clone on
+s8build: `~/work/wifi/linux`). Everything below happens after WLFW `FW_READY` (done in TopazModem v0.3).
+
+## Order (ath10k_snoc_hif_power_up + core start)
+
+1. **QMI WLAN_CFG (0x23)** — tells the firmware our copy-engine layout:
+   - TLV 0x11 `tgt_cfg`: u8 count + 12 x {pipe_num, pipe_dir, nentries, nbytes_max, flags} (u32 each)
+     = `target_ce_config_wlan` (CE0 out 32x2048, CE1 in 32x2048, CE2 in 64x2048, CE3 out 32x2048,
+     CE4 out 256x256 DIS_INTR, CE5 out 1024x64 DIS_INTR, CE6 inout 32x16384, CE7 dir 4 0x0,
+     CE8 in 32x2048 flags 0, CE9/10/11 in 32x2048). PIPEDIR: 1 in, 2 out, 3 inout. DIS_INTR = bit 3.
+   - TLV 0x12 `svc_cfg`: u8 count + N x {service_id, pipe_dir, pipe_num} (u32 each)
+     = `target_service_to_ce_map_wlan`. Service id = group << 8 | idx: WMI 0x100..0x104 (out 3, in 2),
+     RSVD_CTRL 0x001 (out 0, in 2), HTT_DATA 0x300 (out 4, in 1), HTT_DATA2 0x301 (in 9),
+     HTT_DATA3 0x302 (in 10), HTT_LOG 0x600 (in 11), TEST_RAW 0xFE00 (out 0/5, in 2). Terminator {0,0,0}
+     is in the table too (Linux sends it).
+   - TLV 0x13 `shadow_reg`: u8 count + 12 x {u16 ce_id, u16 reg_offset}: SRC_WR_IDX 0x3C for CE 0,3,4,5,7;
+     DST_WR_IDX 0x40 for CE 1,2,7,8,9,10,11.
+   - no host_version (TLV 0x10 absent).
+2. **QMI WLAN_MODE (0x22)**: TLV 0x01 mode (s32) = 0 MISSION, TLV 0x10 hw_debug u8 = 0.
+3. **RRI**: 12 x u32 DMA buffer; CE wrapper 0x24C004 = addr lo, 0x24C008 = addr hi; in every CE set
+   CTRL1 (0x18) bit "upd" (see `wcn3990_ctrl1_upd`) so the hardware writes read indices to memory.
+4. **CE rings** (`ath10k_ce_init_src_ring/dest_ring`), CE n regs at 0xC800000 + 0x240000 + 0x1000*n:
+   descriptors are `ce_desc_64` {u64 addr, u16 nbytes, u16 flags, u32 toeplitz} (16 B), ring sizes
+   rounded to a power of 2, base 0x0/0x4 (src) 0xC/0x10 (dst), size 0x8/0x14, CTRL1 0x18 dmax[15:0],
+   src/dst byte-swap bits 17/18 = 0, watermarks low 0 / high nentries, indices 0x3C/0x40/0x44/0x48.
+   Host side (Linux host_ce_config_wlan): CE0 src 16, CE1 dst 512, CE2 dst 64, CE3 src 32, CE4 src 2048,
+   CE5 dst 512, CE7 2/2, CE8 dst 128, CE9/10/11 dst 512.
+5. **Post RX buffers** on CE1/CE2/CE5/CE8/CE9/CE10/CE11 (2048 B each), write dst write index.
+6. **HTC**: the firmware sends HTC READY on CE1/CE2 (svc RSVD_CTRL in 2) -> connect WMI_CONTROL,
+   HTT_DATA -> WMI READY event -> WMI init -> scan.
+
+## Hard questions
+
+- **DMA addresses**: every ring/buffer address goes through the apps SMMU, stream 0x1A0.
+  TopazModem v0.4 logs what is there. Linux maps an IOVA pool 0xA0000000+256 MiB in a stage-1
+  context bank ("fastmap"). Options: (a) stream already bypass -> use physical addresses; (b) a context
+  bank exists with Linux-like tables -> unlikely under Windows; (c) fault -> we program our own
+  SMR/S2CR + context bank with identity page tables for our DMA buffers (needs SMMU global register
+  write access from EL1; under the Qualcomm hypervisor this may be trapped).
+- **Interrupts**: CE IRQs SPI 0x166..0x171; we keep polling (read indices come via RRI memory).
+- **Shadow registers** (WCN3990 hw_params: target_64bit, shadow_reg_support, rri_on_ddr): source-ring
+  write indices go to shadow regs at membase + 0x32000 + 4*ce (CE 0, 3, 4, 5, 7) instead of CE+0x3C;
+  dest-ring write indices still go to CE+0x40. RRI enable = CTRL1 bit 19 (mask 0x80000).
