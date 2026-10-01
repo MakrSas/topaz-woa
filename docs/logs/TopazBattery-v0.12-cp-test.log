@@ -1,0 +1,471 @@
+==== TopazBattery v0.12 (ln8000 charge pump test, IBUS 1 A, bq off first) ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+CreateDeviceInterface(GUID_DEVICE_BATTERY): 00000000
+TLMM before: sda ctl=00000004 scl ctl=00000004
+GCC: vote=00005be0 s1 cbcr=00004220 (on) dfs level=0
+GENI 4a84000: fw_rev=00000303 proto=3 tx_depth=16 status=00000000
+GeniI2cInit: 00000000
+sm5602: id=0012 (00000000) status=0204 op_status=8010
+charger: reg03=1a reg0b=b6
+charge pumps: sc8551@66 reg13=00 (c000000e), ln8000@51 reg00=42 reg01=00 (00000000)
+ln8000 (driver start) 00..29: 42 00 ff 22 00 00 25 02 00 08 70 f8 21 00 57 0f 0d 00 00 00 00 00 00 00 00 00 00 3d 30 00 2f e4 8e 80 e2 3c 3e 0c 10 0e 8d 80
+ln8000: id=42 read_errors=0 sys_sts=22(standby ) safety=00 fault1=00 fault2=25 pid=03 bc_op1=00 bc_stsb=00
+ln8000 cfg: iin_limit=3050mA vfloat=4430mV vac_ovp=13V sys_ctrl=2f(standby_en=1 1to1=1 rcp=1) fault_ctrl=80(off: iin_ocp=0 vbat_ov=0 vac_ov=0 vin_ov=0) regulation=30 adc_mode=1 wdt=0 xiaomi_init=1
+rt1711h: vid=29cf pid=1711 (00000000)
+rt1711h before: alert=0000 mask=0fff tcpc_ctrl=00 role=0a power_ctrl=00 cc_status=13 power_status=0c fault=00 rtctrl8=2a rtctrl11=8f rtctrl14=0f
+rt1711h after: alert=0000 mask=0fff tcpc_ctrl=00 role=0a power_ctrl=00 cc_status=13 power_status=0c fault=00 rtctrl8=2a rtctrl11=8f rtctrl14=0f
+rt1711h: init writes 00000000 role=0a -> ok
+BattHwInit: 00000000
+charger regs (vbus_stat -1->5) 00..14: 26 06 11 1a 1f 21 8e 8d 03 44 73 b6 00 13 68 69 3e bc 27 20 4c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=1
+jeita: 35.1C zone -1 -> 5 (ichg 2000mA vreg 4400mV)
+chg adc: vbus=8600mV(gd=1) vbat=4384mV vsys=4404mV ichg=1950mA pbat=8548mW | lim: iinlim=2000mA idpm_lim=1700mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=68 r11=bc r12=27 r13=20
+poll: err=00000000 st=0204 soc=4e84(78.5%) v=4548(4326mV) i=10b2(2090mA) tex=e4b1(35.1C) cap=26cc(4849mAh) cyc=2 chg r03=1a r0b=b6 online=1 charging=1 done=0 cc=ff tc=toggling pd=off 0mV
+BattClassInit: 00000000
+type-c: toggling -> toggling (D0 entry)
+thread started
+type-c: [toggling] cc_status ff -> 04 (looking=0 term=Rp cc1=0 cc2=1) vbus_stat=0
+charger regs (vbus_stat 5->0) 00..14: 26 06 11 1a 1f 21 8e 8d 03 44 73 02 00 13 5d 60 3e 00 27 00 0c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+poll: err=00000000 st=0204 soc=4e84(78.5%) v=3e4e(4163mV) i=8329(-394mA) tex=e374(35.8C) cap=26cc(4849mAh) cyc=2 chg r03=1a r0b=02 online=0 charging=0 done=0 cc=04 tc=toggling pd=off 0mV
+type-c: [toggling] cc_status 04 -> 13 (looking=0 term=Rd cc1=3 cc2=0) vbus_stat=0
+type-c: toggling -> sink(charger) (partner Rp)
+pd +1ms: attach: cc_status=13 active cc1 rp=3, rx on (00000000)
+pd +1ms: state off -> wait-caps
+pd +118ms: state wait-caps -> wait-accept
+pd +118ms: Source_Capabilities rev 3.0 (using 3.0), 6 PDOs:
+pd +118ms:   PDO1 fixed 5000mV 3000mA (0801912c)
+pd +118ms:   PDO2 fixed 9000mV 3000mA (0002d12c)
+pd +118ms:   PDO3 fixed 12000mV 3000mA (0003c12c)
+pd +118ms:   PDO4 fixed 15000mV 3000mA (0004b12c)
+pd +118ms:   PDO5 fixed 20000mV 3250mA (00064145)
+pd +118ms:   PDO6 PPS 3300-11000mV 5000mA (c0dc2164)
+pd +118ms: Request PDO2 9000mV 2000mA rdo=210320c8 temp=35.8C
+pd +122ms: state wait-accept -> wait-ps-rdy
+pd +122ms: Accept
+pd +252ms: state wait-ps-rdy -> ready
+pd +252ms: PS_RDY: contract fixed 9000mV 2000mA
+ln8000 (after PD) 00..29: 42 00 ff 22 00 00 25 02 00 08 9c 98 22 00 47 23 0d 00 00 00 00 00 00 00 00 00 00 3d 30 00 2f e4 8e 80 e2 3c 3e 0c 10 0e 8d 80
+ln8000: id=42 read_errors=0 sys_sts=22(standby ) safety=00 fault1=00 fault2=25 pid=03 bc_op1=00 bc_stsb=00
+ln8000 cfg: iin_limit=3050mA vfloat=4430mV vac_ovp=13V sys_ctrl=2f(standby_en=1 1to1=1 rcp=1) fault_ctrl=80(off: iin_ocp=0 vbat_ov=0 vac_ov=0 vin_ov=0) regulation=30 adc_mode=1 wdt=0 xiaomi_init=1
+pd +0ms: PPS test (charge pump off): APDO6 3300-11000mV 5000mA, battery 35.8C
+pd +1ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +136ms: state wait-ps-rdy -> ready
+pd +136ms: PS_RDY: contract PPS 8000mV 2500mA
+pd +537ms: PPS 8000mV: ln8000 vin=7792mV iin=39mA vbat=4170mV tdie_raw=3
+pd +539ms: state ready -> wait-accept
+pd +543ms: state wait-accept -> wait-ps-rdy
+pd +543ms: Accept
+pd +561ms: state wait-ps-rdy -> ready
+pd +561ms: PS_RDY: contract PPS 8400mV 2500mA
+pd +962ms: PPS 8400mV: ln8000 vin=8208mV iin=39mA vbat=4170mV tdie_raw=3
+pd +964ms: state ready -> wait-accept
+pd +968ms: state wait-accept -> wait-ps-rdy
+pd +968ms: Accept
+pd +986ms: state wait-ps-rdy -> ready
+pd +986ms: PS_RDY: contract PPS 8800mV 2500mA
+pd +1387ms: PPS 8800mV: ln8000 vin=8608mV iin=39mA vbat=4175mV tdie_raw=3
+pd +1389ms: state ready -> wait-accept
+pd +1392ms: state wait-accept -> wait-ps-rdy
+pd +1392ms: Accept
+pd +1410ms: state wait-ps-rdy -> ready
+pd +1410ms: PS_RDY: contract PPS 9200mV 2500mA
+pd +1811ms: PPS 9200mV: ln8000 vin=9008mV iin=39mA vbat=4175mV tdie_raw=3
+pd +1813ms: state ready -> wait-accept
+pd +1817ms: state wait-accept -> wait-ps-rdy
+pd +1817ms: Accept
+pd +1835ms: state wait-ps-rdy -> ready
+pd +1835ms: PS_RDY: contract PPS 9000mV 2500mA
+pd +2235ms: PPS 9000mV: ln8000 vin=8816mV iin=39mA vbat=4180mV tdie_raw=3
+pd +2235ms: PPS test done: contract PPS 9000mV
+charger regs (vbus_stat 0->5) 00..14: 08 06 11 1a 1f 21 8e 8d 03 44 73 b6 00 13 5f 5d 3e 80 00 48 0c
+charger cfg: iinlim=500mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+charger limits: zone 5 vbus_stat=5 cc=13 | r00 08->26 (iinlim 2000mA) r04 1f->1f (ichg 1984mA) r06 8e->8e (vreg 4400mV) (00000000 00000000 00000000)
+chg adc: vbus=0mV(gd=1) vbat=4204mV vsys=4164mV ichg=0mA pbat=0mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=5f r11=80 r12=00 r13=26
+poll: err=00000000 st=0204 soc=4e84(78.5%) v=4016(4204mV) i=0104(126mA) tex=e3d1(35.6C) cap=26cc(4849mAh) cyc=2 chg r03=1a r0b=b6 online=1 charging=1 done=0 cc=13 tc=sink(charger) pd=ready 9000mV
+cp: START test: vbat 4175mV (gauge 4204mV, 35.6C, soc 78.5%) -> PPS 8640mV 1500mA, target IBUS 1000mA
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 8640mV 1500mA
+cp: PPS 8640mV in place: vin=8480mV iin=39mA vbat=4170mV
+ln8000 (before switching) 00..29: 42 00 ff 22 00 00 25 02 00 08 44 28 21 00 42 1f 0d 00 00 00 00 00 00 00 00 00 00 1e 30 00 2b e4 86 80 e2 3c 3e 0c 10 0e 87 80
+ln8000: id=42 read_errors=0 sys_sts=22(standby ) safety=00 fault1=00 fault2=25 pid=03 bc_op1=00 bc_stsb=00
+ln8000 cfg: iin_limit=1500mA vfloat=4400mV vac_ovp=11V sys_ctrl=2b(standby_en=1 1to1=1 rcp=0) fault_ctrl=80(off: iin_ocp=0 vbat_ov=0 vac_ov=0 vin_ov=0) regulation=30 adc_mode=1 wdt=0 xiaomi_init=1
+cp: switching on (00000000): sys_sts=04 vin=8448mV iin=234mA vbat=4180mV
+cp   1: vin=8448mV iin=224mA vbat=4180mV pps=8640mV | gauge 4204mV 126mA 35.6C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 8660mV 1500mA
+charger limits: zone 5 vbus_stat=5 cc=13 | r00 26->1c (iinlim 1500mA) r04 1f->1f (ichg 1984mA) r06 8e->8e (vreg 4400mV) (00000000 00000000 00000000)
+chg adc: vbus=8500mV(gd=1) vbat=4364mV vsys=4364mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=bb r12=27 r13=1c
+cp   2: vin=8432mV iin=166mA vbat=4180mV pps=8660mV | gauge 4214mV 440mA 35.5C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8680mV 1500mA
+cp   3: vin=8448mV iin=259mA vbat=4185mV pps=8680mV | gauge 4214mV 440mA 35.5C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 8700mV 1500mA
+cp   4: vin=8480mV iin=322mA vbat=4185mV pps=8700mV | gauge 4214mV 440mA 35.5C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +24ms: state wait-ps-rdy -> ready
+pd +24ms: PS_RDY: contract PPS 8720mV 1500mA
+cp   5: vin=8496mV iin=396mA vbat=4195mV pps=8720mV | gauge 4214mV 440mA 35.5C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 8740mV 1500mA
+cp   6: vin=8512mV iin=415mA vbat=4200mV pps=8740mV | gauge 4214mV 440mA 35.5C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8760mV 1500mA
+chg adc: vbus=8500mV(gd=1) vbat=4244mV vsys=4304mV ichg=1950mA pbat=8275mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=61 r11=bb r12=27 r13=1c
+cp   7: vin=8528mV iin=454mA vbat=4205mV pps=8760mV | gauge 4234mV 792mA 35.4C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8780mV 1500mA
+cp   8: vin=8544mV iin=498mA vbat=4205mV pps=8780mV | gauge 4234mV 792mA 35.4C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8800mV 1500mA
+cp   9: vin=8544mV iin=513mA vbat=4210mV pps=8800mV | gauge 4234mV 792mA 35.4C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 8820mV 1500mA
+cp  10: vin=8560mV iin=552mA vbat=4210mV pps=8820mV | gauge 4234mV 792mA 35.4C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8840mV 1500mA
+cp  11: vin=8560mV iin=567mA vbat=4215mV pps=8840mV | gauge 4234mV 792mA 35.4C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 8860mV 1500mA
+chg adc: vbus=8500mV(gd=1) vbat=4264mV vsys=4324mV ichg=1950mA pbat=8314mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=62 r11=bb r12=27 r13=1c
+cp  12: vin=8544mV iin=523mA vbat=4210mV pps=8860mV | gauge 4255mV 1122mA 35.2C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +4ms: state wait-accept -> wait-ps-rdy
+pd +4ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8880mV 1500mA
+cp  13: vin=8560mV iin=562mA vbat=4215mV pps=8880mV | gauge 4255mV 1122mA 35.2C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +4ms: state wait-accept -> wait-ps-rdy
+pd +4ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8900mV 1500mA
+cp  14: vin=8608mV iin=669mA vbat=4225mV pps=8900mV | gauge 4255mV 1122mA 35.2C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 8920mV 1500mA
+cp  15: vin=8608mV iin=669mA vbat=4225mV pps=8920mV | gauge 4255mV 1122mA 35.2C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8940mV 1500mA
+cp  16: vin=8624mV iin=718mA vbat=4230mV pps=8940mV | gauge 4255mV 1122mA 35.2C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 8960mV 1500mA
+chg adc: vbus=8600mV(gd=1) vbat=4284mV vsys=4364mV ichg=1950mA pbat=8353mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=63 r11=bc r12=27 r13=1c
+cp  17: vin=8640mV iin=767mA vbat=4230mV pps=8960mV | gauge 4277mV 1444mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 8980mV 1500mA
+cp  18: vin=8656mV iin=797mA vbat=4240mV pps=8980mV | gauge 4277mV 1444mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 9000mV 1500mA
+cp  19: vin=8672mV iin=821mA vbat=4240mV pps=9000mV | gauge 4277mV 1444mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +4ms: state wait-accept -> wait-ps-rdy
+pd +4ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 9020mV 1500mA
+cp  20: vin=8672mV iin=831mA vbat=4240mV pps=9020mV | gauge 4277mV 1444mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 9040mV 1500mA
+cp  21: vin=8688mV iin=850mA vbat=4245mV pps=9040mV | gauge 4277mV 1444mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+pd +22ms: PS_RDY: contract PPS 9060mV 1500mA
+chg adc: vbus=8700mV(gd=1) vbat=4304mV vsys=4364mV ichg=1950mA pbat=8392mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=64 r11=bd r12=27 r13=1c
+cp  22: vin=8704mV iin=889mA vbat=4250mV pps=9060mV | gauge 4295mV 1714mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+pd +3ms: state ready -> wait-accept
+pd +4ms: state wait-accept -> wait-ps-rdy
+pd +4ms: Accept
+pd +24ms: state wait-ps-rdy -> ready
+pd +24ms: PS_RDY: contract PPS 9080mV 1500mA
+cp  23: vin=8704mV iin=904mA vbat=4250mV pps=9080mV | gauge 4295mV 1714mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  24: vin=8688mV iin=865mA vbat=4245mV pps=9080mV | gauge 4295mV 1714mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+pd +3ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PS_RDY: contract PPS 9100mV 1500mA
+cp  25: vin=8704mV iin=943mA vbat=4255mV pps=9100mV | gauge 4295mV 1714mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  26: vin=8720mV iin=948mA vbat=4255mV pps=9100mV | gauge 4295mV 1714mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8700mV(gd=1) vbat=4324mV vsys=4384mV ichg=1950mA pbat=8431mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=65 r11=bd r12=27 r13=1c
+cp  27: vin=8720mV iin=938mA vbat=4255mV pps=9100mV | gauge 4309mV 1872mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  28: vin=8720mV iin=943mA vbat=4255mV pps=9100mV | gauge 4309mV 1872mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +4ms: state wait-accept -> wait-ps-rdy
+pd +4ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+pd +23ms: PPS keep-alive #1 9100mV: ok
+cp  29: vin=8720mV iin=924mA vbat=4255mV pps=9100mV | gauge 4309mV 1872mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  30: vin=8720mV iin=929mA vbat=4255mV pps=9100mV | gauge 4309mV 1872mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  31: vin=8720mV iin=933mA vbat=4260mV pps=9100mV | gauge 4309mV 1872mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4344mV vsys=4404mV ichg=1950mA pbat=8470mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=66 r11=be r12=27 r13=1c
+cp  32: vin=8704mV iin=885mA vbat=4255mV pps=9100mV | gauge 4310mV 1802mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+pd +3ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp  33: vin=8720mV iin=929mA vbat=4255mV pps=9120mV | gauge 4310mV 1802mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  34: vin=8736mV iin=973mA vbat=4260mV pps=9120mV | gauge 4310mV 1802mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  35: vin=8736mV iin=968mA vbat=4260mV pps=9120mV | gauge 4310mV 1802mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  36: vin=8736mV iin=973mA vbat=4265mV pps=9120mV | gauge 4310mV 1802mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4344mV vsys=4404mV ichg=1950mA pbat=8470mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=66 r11=be r12=27 r13=1c
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp  37: vin=8736mV iin=948mA vbat=4260mV pps=9120mV | gauge 4316mV 1900mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  38: vin=8736mV iin=968mA vbat=4260mV pps=9120mV | gauge 4316mV 1900mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  39: vin=8736mV iin=968mA vbat=4260mV pps=9120mV | gauge 4316mV 1900mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  40: vin=8736mV iin=953mA vbat=4265mV pps=9120mV | gauge 4316mV 1900mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+cp  41: vin=8720mV iin=943mA vbat=4260mV pps=9120mV | gauge 4316mV 1900mA 34.8C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4344mV vsys=4404mV ichg=1950mA pbat=8470mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=66 r11=be r12=27 r13=1c
+pd +1ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +24ms: state wait-ps-rdy -> ready
+cp  42: vin=8704mV iin=875mA vbat=4255mV pps=9120mV | gauge 4311mV 1948mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp  43: vin=8736mV iin=943mA vbat=4260mV pps=9140mV | gauge 4311mV 1948mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  44: vin=8752mV iin=982mA vbat=4265mV pps=9140mV | gauge 4311mV 1948mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  45: vin=8752mV iin=978mA vbat=4265mV pps=9140mV | gauge 4311mV 1948mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  46: vin=8752mV iin=978mA vbat=4265mV pps=9140mV | gauge 4311mV 1948mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4344mV vsys=4404mV ichg=1950mA pbat=8470mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=66 r11=be r12=27 r13=1c
+poll: err=00000000 st=0204 soc=4ee8(78.9%) v=44fc(4320mV) i=0fcf(1978mA) tex=e517(34.9C) cap=26cc(4849mAh) cyc=2 chg r03=0a r0b=a6 online=1 charging=1 done=0 cc=13 tc=sink(charger) pd=ready 9140mV
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+cp  47: vin=8736mV iin=963mA vbat=4265mV pps=9140mV | gauge 4320mV 1978mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  48: vin=8736mV iin=953mA vbat=4265mV pps=9140mV | gauge 4320mV 1978mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  49: vin=8752mV iin=982mA vbat=4265mV pps=9140mV | gauge 4320mV 1978mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  50: vin=8752mV iin=978mA vbat=4265mV pps=9140mV | gauge 4320mV 1978mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  51: vin=8752mV iin=978mA vbat=4265mV pps=9140mV | gauge 4320mV 1978mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4344mV vsys=4424mV ichg=1950mA pbat=8470mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=66 r11=be r12=27 r13=1c
+poll: err=00000000 st=0204 soc=4f01(79.0%) v=4519(4322mV) i=0fd5(1982mA) tex=e511(34.9C) cap=26cc(4849mAh) cyc=2 chg r03=0a r0b=a6 online=1 charging=1 done=0 cc=13 tc=sink(charger) pd=ready 9140mV
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+cp  52: vin=8752mV iin=933mA vbat=4265mV pps=9140mV | gauge 4322mV 1982mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  53: vin=8752mV iin=978mA vbat=4270mV pps=9140mV | gauge 4322mV 1982mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  54: vin=8736mV iin=943mA vbat=4265mV pps=9140mV | gauge 4322mV 1982mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  55: vin=8720mV iin=894mA vbat=4260mV pps=9140mV | gauge 4322mV 1982mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +24ms: state wait-ps-rdy -> ready
+cp  56: vin=8768mV iin=1012mA vbat=4275mV pps=9160mV | gauge 4322mV 1982mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8700mV(gd=1) vbat=4364mV vsys=4424mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=bd r12=27 r13=1c
+cp  57: vin=8768mV iin=1007mA vbat=4270mV pps=9160mV | gauge 4323mV 1942mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  58: vin=8768mV iin=1012mA vbat=4270mV pps=9160mV | gauge 4323mV 1942mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  59: vin=8768mV iin=1012mA vbat=4270mV pps=9160mV | gauge 4323mV 1942mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+cp  60: vin=8768mV iin=992mA vbat=4270mV pps=9160mV | gauge 4323mV 1942mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  61: vin=8768mV iin=1007mA vbat=4270mV pps=9160mV | gauge 4323mV 1942mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4424mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+cp  62: vin=8768mV iin=997mA vbat=4270mV pps=9160mV | gauge 4329mV 2036mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  63: vin=8768mV iin=1007mA vbat=4270mV pps=9160mV | gauge 4329mV 2036mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  64: vin=8768mV iin=1007mA vbat=4270mV pps=9160mV | gauge 4329mV 2036mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+cp  65: vin=8768mV iin=987mA vbat=4270mV pps=9160mV | gauge 4329mV 2036mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+cp  66: vin=8768mV iin=1007mA vbat=4270mV pps=9160mV | gauge 4329mV 2036mA 34.9C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4424mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+cp  67: vin=8736mV iin=933mA vbat=4265mV pps=9160mV | gauge 4328mV 1964mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  68: vin=8752mV iin=958mA vbat=4265mV pps=9160mV | gauge 4328mV 1964mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  69: vin=8768mV iin=1002mA vbat=4270mV pps=9160mV | gauge 4328mV 1964mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp  70: vin=8768mV iin=982mA vbat=4275mV pps=9160mV | gauge 4328mV 1964mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  71: vin=8768mV iin=1002mA vbat=4270mV pps=9160mV | gauge 4328mV 1964mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4444mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+cp  72: vin=8768mV iin=1002mA vbat=4275mV pps=9160mV | gauge 4330mV 1958mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  73: vin=8768mV iin=992mA vbat=4275mV pps=9160mV | gauge 4330mV 1958mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  74: vin=8768mV iin=1002mA vbat=4275mV pps=9160mV | gauge 4330mV 1958mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp  75: vin=8752mV iin=948mA vbat=4270mV pps=9160mV | gauge 4330mV 1958mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  76: vin=8768mV iin=978mA vbat=4275mV pps=9160mV | gauge 4330mV 1958mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4424mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+cp  77: vin=8768mV iin=1002mA vbat=4275mV pps=9160mV | gauge 4330mV 1974mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  78: vin=8768mV iin=1002mA vbat=4275mV pps=9160mV | gauge 4330mV 1974mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  79: vin=8736mV iin=909mA vbat=4270mV pps=9160mV | gauge 4330mV 1974mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +4ms: state wait-accept -> wait-ps-rdy
+pd +4ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp  80: vin=8736mV iin=933mA vbat=4270mV pps=9160mV | gauge 4330mV 1974mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  81: vin=8768mV iin=1002mA vbat=4275mV pps=9160mV | gauge 4330mV 1974mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4424mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+cp  82: vin=8752mV iin=948mA vbat=4270mV pps=9160mV | gauge 4322mV 2018mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  83: vin=8768mV iin=997mA vbat=4275mV pps=9160mV | gauge 4322mV 2018mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  84: vin=8768mV iin=1002mA vbat=4275mV pps=9160mV | gauge 4322mV 2018mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp  85: vin=8768mV iin=982mA vbat=4275mV pps=9160mV | gauge 4322mV 2018mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  86: vin=8768mV iin=968mA vbat=4275mV pps=9160mV | gauge 4322mV 2018mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4344mV vsys=4424mV ichg=1950mA pbat=8470mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=66 r11=be r12=27 r13=1c
+cp  87: vin=8768mV iin=992mA vbat=4275mV pps=9160mV | gauge 4331mV 2010mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  88: vin=8768mV iin=992mA vbat=4275mV pps=9160mV | gauge 4331mV 2010mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  89: vin=8768mV iin=1002mA vbat=4275mV pps=9160mV | gauge 4331mV 2010mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp  90: vin=8752mV iin=982mA vbat=4275mV pps=9160mV | gauge 4331mV 2010mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  91: vin=8752mV iin=948mA vbat=4270mV pps=9160mV | gauge 4331mV 2010mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4444mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+cp  92: vin=8736mV iin=880mA vbat=4265mV pps=9160mV | gauge 4327mV 1774mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +1ms: state ready -> wait-accept
+pd +4ms: state wait-accept -> wait-ps-rdy
+pd +4ms: Accept
+pd +22ms: state wait-ps-rdy -> ready
+cp  93: vin=8784mV iin=1002mA vbat=4275mV pps=9180mV | gauge 4327mV 1774mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  94: vin=8784mV iin=1031mA vbat=4280mV pps=9180mV | gauge 4327mV 1774mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  95: vin=8784mV iin=1031mA vbat=4280mV pps=9180mV | gauge 4327mV 1774mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  96: vin=8784mV iin=1026mA vbat=4280mV pps=9180mV | gauge 4327mV 1774mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4344mV vsys=4404mV ichg=1950mA pbat=8470mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=66 r11=be r12=27 r13=1c
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +21ms: state wait-ps-rdy -> ready
+cp  97: vin=8784mV iin=1012mA vbat=4280mV pps=9180mV | gauge 4338mV 2086mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  98: vin=8784mV iin=1022mA vbat=4280mV pps=9180mV | gauge 4338mV 2086mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp  99: vin=8784mV iin=1026mA vbat=4280mV pps=9180mV | gauge 4338mV 2086mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 100: vin=8784mV iin=1022mA vbat=4280mV pps=9180mV | gauge 4338mV 2086mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 101: vin=8784mV iin=1022mA vbat=4280mV pps=9180mV | gauge 4338mV 2086mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4424mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp 102: vin=8768mV iin=973mA vbat=4280mV pps=9180mV | gauge 4338mV 2080mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 103: vin=8784mV iin=1026mA vbat=4280mV pps=9180mV | gauge 4338mV 2080mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 104: vin=8768mV iin=997mA vbat=4280mV pps=9180mV | gauge 4338mV 2080mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 105: vin=8768mV iin=973mA vbat=4275mV pps=9180mV | gauge 4338mV 2080mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 106: vin=8784mV iin=1026mA vbat=4280mV pps=9180mV | gauge 4338mV 2080mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4444mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+poll: err=00000000 st=0204 soc=4f97(79.5%) v=454e(4327mV) i=0fb3(1966mA) tex=e4e2(35.0C) cap=26cc(4849mAh) cyc=2 chg r03=0a r0b=a6 online=1 charging=1 done=0 cc=13 tc=sink(charger) pd=ready 9180mV
+pd +1ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp 107: vin=8784mV iin=1007mA vbat=4280mV pps=9180mV | gauge 4327mV 1966mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 108: vin=8784mV iin=1012mA vbat=4280mV pps=9180mV | gauge 4327mV 1966mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 109: vin=8784mV iin=1012mA vbat=4285mV pps=9180mV | gauge 4327mV 1966mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 110: vin=8784mV iin=1007mA vbat=4280mV pps=9180mV | gauge 4327mV 1966mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 111: vin=8800mV iin=1022mA vbat=4280mV pps=9180mV | gauge 4327mV 1966mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4444mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+pd +2ms: state ready -> wait-accept
+pd +8ms: state wait-accept -> wait-ps-rdy
+pd +8ms: Accept
+pd +24ms: state wait-ps-rdy -> ready
+cp 112: vin=8752mV iin=904mA vbat=4270mV pps=9180mV | gauge 4338mV 2064mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 113: vin=8736mV iin=894mA vbat=4270mV pps=9180mV | gauge 4338mV 2064mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp 114: vin=8768mV iin=973mA vbat=4275mV pps=9200mV | gauge 4338mV 2064mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 115: vin=8768mV iin=968mA vbat=4275mV pps=9200mV | gauge 4338mV 2064mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 116: vin=8768mV iin=938mA vbat=4275mV pps=9200mV | gauge 4338mV 2064mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4444mV ichg=1950mA pbat=8509mW | lim: iinlim=1500mA idpm_lim=1500mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=1c r02=11 r04=1f r0e=67 r11=be r12=27 r13=1c
+cp 117: vin=8752mV iin=924mA vbat=4275mV pps=9200mV | gauge 4332mV 1938mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+pd +2ms: state ready -> wait-accept
+pd +6ms: state wait-accept -> wait-ps-rdy
+pd +6ms: Accept
+pd +23ms: state wait-ps-rdy -> ready
+cp 118: vin=8752mV iin=929mA vbat=4270mV pps=9200mV | gauge 4332mV 1938mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 119: vin=8752mV iin=909mA vbat=4270mV pps=9200mV | gauge 4332mV 1938mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp 120: vin=8768mV iin=948mA vbat=4275mV pps=9200mV | gauge 4332mV 1938mA 35.0C | sts=04 f1=00 f2=05 rcp=0
+cp: STOP (test done (120 s)) after 120 s: standby (00000000), bq2589x charging on
+pd +2ms: state ready -> wait-accept
+pd +5ms: state wait-accept -> wait-ps-rdy
+pd +5ms: Accept
+pd +136ms: state wait-ps-rdy -> ready
+pd +136ms: PS_RDY: contract fixed 9000mV 2000mA
+pd +136ms: back to fixed 9000mV (charge pump stopped): ok
+ln8000 (after stop) 00..29: 42 00 ff 02 00 00 05 02 00 08 78 48 22 00 57 0f 0d 00 00 00 00 00 00 00 00 00 00 1e 30 00 2a e4 86 80 e2 3c 3e 0c 10 0e 87 80
+ln8000: id=42 read_errors=0 sys_sts=02(standby ) safety=00 fault1=00 fault2=05 pid=03 bc_op1=00 bc_stsb=00
+ln8000 cfg: iin_limit=1500mA vfloat=4400mV vac_ovp=11V sys_ctrl=2a(standby_en=1 1to1=0 rcp=0) fault_ctrl=80(off: iin_ocp=0 vbat_ov=0 vac_ov=0 vin_ov=0) regulation=30 adc_mode=1 wdt=0 xiaomi_init=1
+charger limits: zone 5 vbus_stat=5 cc=13 | r00 1c->26 (iinlim 2000mA) r04 1f->1f (ichg 1984mA) r06 8e->8e (vreg 4400mV) (00000000 00000000 00000000)
+chg adc: vbus=8800mV(gd=1) vbat=4364mV vsys=4444mV ichg=1950mA pbat=8509mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=67 r11=be r12=27 r13=26
+chg adc: vbus=8700mV(gd=1) vbat=4384mV vsys=4404mV ichg=1950mA pbat=8548mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=68 r11=bd r12=27 r13=26
+chg adc: vbus=8700mV(gd=1) vbat=4384mV vsys=4424mV ichg=1950mA pbat=8548mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=68 r11=bd r12=27 r13=26
+chg adc: vbus=8600mV(gd=1) vbat=4384mV vsys=4404mV ichg=1950mA pbat=8548mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=68 r11=bc r12=27 r13=26
+chg adc: vbus=8700mV(gd=1) vbat=4384mV vsys=4404mV ichg=1950mA pbat=8548mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=68 r11=bd r12=27 r13=26
+chg adc: vbus=8700mV(gd=1) vbat=4384mV vsys=4404mV ichg=1950mA pbat=8548mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=68 r11=bd r12=27 r13=26
+poll: err=00000000 st=0204 soc=5014(80.0%) v=4627(4347mV) i=10b6(2092mA) tex=e460(35.3C) cap=26cc(4849mAh) cyc=2 chg r03=1a r0b=b6 online=1 charging=1 done=0 cc=13 tc=sink(charger) pd=ready 9000mV
+chg adc: vbus=8700mV(gd=1) vbat=4384mV vsys=4424mV ichg=1950mA pbat=8548mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=68 r11=bd r12=27 r13=26
+chg adc: vbus=8700mV(gd=1) vbat=4404mV vsys=4424mV ichg=1950mA pbat=8587mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=69 r11=bd r12=27 r13=26

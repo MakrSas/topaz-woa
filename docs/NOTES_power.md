@@ -38,14 +38,25 @@ All on QUP0 SE1 I2C (0x4A84000, GPIO 4/5):
   no longer input-limited (IDPM_STAT 0). Now limited by ICHG = 2 A (bq2589x DTB `charge-current`).
 - Charge pump fitted: **ln8000 @0x51** (reg00 = 0x42); sc8551 @0x66 does not answer.
 
-### 33 W path (not done): ln8000 2:1 charge pump + PPS
+### 33 W path: ln8000 2:1 charge pump + PPS (in progress)
 DTB `ln8000_charger@51` (lionsemi,ln8000-master, IRQ GPIO 84): bat-ovp 4550 mV (alarm 4525),
 bus-ovp 13000 mV (alarm 11000), bus-ocp 3750 mA (alarm 3500), tdie/tbus/tbat monitors disabled.
-Vendor driver source: Xiaomi kernels, `drivers/power/supply/lionsemi/ln8000_charger.c`.
-Steps: (1) read-only ln8000 register dump against the vendor register map; (2) PD 3.0 + PPS
-APDO request with the pump off (verify VBUS tracking, keep-alive Request < 10 s); (3) enable the
-pump at a low IBUS target with VBUS = 2*VBAT + margin, closed loop on IBUS/IBAT, all protections
-set from the DTB; (4) ramp toward IBAT 5.9 A (JEITA 15-48 C) with thermal limits.
+Register map: Xiaomi `drivers/power/supply/lionsemi/ln8000_charger.{c,h}` (e.g. EmanuelCN/kernel_xiaomi_sm8250).
+
+- Step 1 (v0.9, read only): ln8000 after Android: standby, no faults, IIN limit 3050 mA, VFLOAT
+  4430 mV, VAC OVP 13 V, all protections on, REGULATION_CTRL 0x30 (VFLOAT/IIN loops off).
+  ADC works (VIN 16 mV, IIN 4.89 mA, VBAT 5 mV LSB). Die temperature channel reads raw 3 (useless).
+- Step 2 (v0.10): PD 3.0 + PPS with the pump off: 8.0/8.4/8.8/9.2/9.0 V requests are followed
+  (ln8000 VIN ~0.2 V below at ~1 A), 20-130 ms per step, keep-alive every 5 s, no hard resets.
+- Step 3 (v0.12, log `docs/logs/TopazBattery-v0.12-cp-test.log`): **pump switching works.**
+  Sequence: bq2589x charging off -> PPS 2*VBAT+300 mV at 1.5 A -> ln8000 VFLOAT 4.40 V, IIN 1.5 A,
+  VAC OVP 11 V, RCP off -> STANDBY_EN=0, EN_1TO1=0 -> SYS_STS 0x04 (switching). 20 mV/s PPS steps
+  held IBUS 0.94-1.03 A for 120 s, battery current (gauge) 1.8-2.1 A, 35 C, no faults, clean stop
+  (standby, bq on, back to fixed 9 V). v0.11 lesson: with bq2589x still charging the 1.5 A PPS
+  went into current limit (VBUS 6 V) - turn the main charger off first.
+  Path resistance adapter -> ln8000 VIN ~0.35 V at 1 A. RCP never enabled (headroom < 300 mV).
+- Next: ramp IBUS 2 A, then 2.9 A (IBAT ~5.8 A, JEITA 15-48 C), continuous operation with a VBAT
+  taper and hand-over to bq2589x near full; needs SoC well below 80 % to test.
 
 ## 2. Sleep (Modern Standby)
 
