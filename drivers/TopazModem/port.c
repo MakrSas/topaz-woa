@@ -170,7 +170,9 @@ UINTN UnicodeSPrint(CHAR16 *Buf, UINTN Size, CONST CHAR16 *Fmt, ...)
 
 UINT64 GetPerformanceCounter(VOID)
 {
-  return KeQueryInterruptTimePrecise (NULL);     /* 100 ns units */
+  ULONG64 qpc;                                   /* out param is mandatory: NULL bugchecked v0.1 */
+
+  return KeQueryInterruptTimePrecise (&qpc);     /* 100 ns units */
 }
 
 UINT64 GetTimeInNanoSecond(UINT64 Ticks)
