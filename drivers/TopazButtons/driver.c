@@ -13,7 +13,7 @@
 #define SPMI_CORE_SIZE      0x1100
 #define SPMI_APID_MAP       0x900
 #define SPMI_OBSRVR_BASE    0x03E00000ULL
-#define SPMI_CH_STRIDE      0x10000ULL
+#define SPMI_OBS_STRIDE     0x80ULL          /* v5: obsrvr + 0x10000*ee + 0x80*apid, ee 0 = apps */
 
 #define ARB_CMD             0x00
 #define ARB_STATUS          0x08
@@ -135,10 +135,19 @@ static NTSTATUS HwInit(PDEVICE_CONTEXT Ctx)
         return STATUS_NOT_FOUND;
     }
 
-    pa.QuadPart = (LONGLONG)(SPMI_OBSRVR_BASE + ch * SPMI_CH_STRIDE);
-    Ctx->Obs = (volatile UCHAR *)MmMapIoSpaceEx(pa, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    pa.QuadPart = (LONGLONG)(SPMI_OBSRVR_BASE + ch * SPMI_OBS_STRIDE);
+    Ctx->Obs = (volatile UCHAR *)MmMapIoSpaceEx(pa, SPMI_OBS_STRIDE, PAGE_READWRITE | PAGE_NOCACHE);
     if (Ctx->Obs == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    {
+        UCHAR regs[0x20];
+        ULONG i;
+        for (i = 0; i < sizeof(regs); i++) {
+            regs[i] = 0xEE;
+            PonRead(Ctx, (UCHAR)i, &regs[i]);
+        }
+        LogHex("PON 00-1f:", regs, sizeof(regs));   /* 0x04 TYPE should be 01 (PON) */
     }
     status = PonRead(Ctx, PON_INT_RT_STS, &rt);
     LogPrint("PON INT_RT_STS=%02x (%08x)\n", rt, status);
@@ -154,7 +163,7 @@ static VOID HwDeinit(PDEVICE_CONTEXT Ctx)
 {
     Ctx->HwReady = FALSE;
     if (Ctx->Obs != NULL) {
-        MmUnmapIoSpace((PVOID)Ctx->Obs, PAGE_SIZE);
+        MmUnmapIoSpace((PVOID)Ctx->Obs, SPMI_OBS_STRIDE);
         Ctx->Obs = NULL;
     }
 }
@@ -220,7 +229,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS status;
 
     LogOpen();
-    LogPrint("==== TopazButtons v0.2 ====\n");
+    LogPrint("==== TopazButtons v0.3 ====\n");
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd);
     config.EvtDriverUnload = EvtDriverUnload;
     status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, WDF_NO_HANDLE);
