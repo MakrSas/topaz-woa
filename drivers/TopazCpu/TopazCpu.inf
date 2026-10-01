@@ -1,0 +1,57 @@
+;
+; TopazCpu.inf - CPU frequency (cpufreq-hw) of Redmi Note 12 4G (topaz/tapas, SM6225)
+; Root-enumerated KMDF driver: logs and sets the CPU frequency level of both clusters.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = TopazCpu.cat
+DriverVer   = ; set by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TopazCpu.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = TopazCpu_Device, Root\TopazCpu
+
+[TopazCpu_Device.NT]
+CopyFiles = TopazCpu_CopyFiles
+
+[TopazCpu_CopyFiles]
+TopazCpu.sys
+
+[TopazCpu_Device.NT.Services]
+AddService = TopazCpu, 0x00000002, TopazCpu_Service
+
+[TopazCpu_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\TopazCpu.sys
+
+[TopazCpu_Device.NT.Wdf]
+KmdfService = TopazCpu, TopazCpu_WdfSection
+
+[TopazCpu_WdfSection]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName     = "topaz-woa"
+ManufacturerName = "topaz-woa"
+DiskName         = "TopazCpu Installation Disk"
+DeviceDesc       = "CPU Frequency Control (Redmi Note 12 4G)"
+ServiceName      = "TopazCpu"
