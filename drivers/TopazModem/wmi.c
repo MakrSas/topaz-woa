@@ -18,6 +18,7 @@
 #define WMI_EV_SCAN               0x3001
 #define WMI_EV_MGMT_RX            0x7001
 #define WMI_EV_CHAN_INFO          0x4002
+#define WMI_EV_UPDATE_STATS       0x1d004
 #define WMI_CMD_INIT              0x1
 
 #define TAG_ARRAY_UINT32          0x10
@@ -354,9 +355,15 @@ VOID WmiRx(CONST UINT8 *D, UINT32 Len)
     mChanInfo++;
     ScanChanInfo (D + 4, Len - 4);
     break;
+  case WMI_EV_UPDATE_STATS:
+    ScanStats (D + 4, Len - 4);
+    break;
   default:
     if (mUnknown++ < 32) {
       Out ("  t=%u.%03u wmi: event %x, %u bytes\r\n", T, id, Len);
+      if (mUnknown <= 6) {
+        ScanDump ("ev", D, Len, 16);
+      }
     }
     break;
   }

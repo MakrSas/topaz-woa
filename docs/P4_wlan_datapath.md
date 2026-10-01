@@ -139,3 +139,14 @@ and WMI commands queue while the endpoint has no credit.
 - v0.11 checks it read-only: SPMI observer reads of those rails (before the modem boots and after scan 1)
   + WMI CHAN_INFO per channel (noise floor, rx_clear, **rx_frame_count**) to tell "radio deaf" from
   "frames received but not forwarded".
+
+## Rails: off at boot, on after the first scan (TopazModem v0.11, log docs/logs/TopazModem-v0.11.log)
+
+SPMI observer reads (PM6125 LDOs are on SID 1; L8 apid 82, L9 83, L16 90, L17 91, L23 97):
+- before the modem boots: L8 en 80 (ready), L9 en 80, **L16 / L17 / L23 en 00 (off)**;
+- after scan 1: **L16, L17, L23 all en 80, status 87 (ready)**, L23 vset changed (e8/0c -> 80/0c).
+So somebody (the modem / WLAN firmware via RPM) switches the RF rails on; apps does not have to.
+Still 0 beacons. Only one CHAN_INFO with the COMPLETE flag arrived and it was all zeros (layout or
+flag guess wrong). v0.12: rails at each step (FW_READY, WLAN_MODE, WMI READY, after scans), raw CHAN_INFO
+dumps, raw dumps of the unknown events (0x3a001, 0x401f), and WMI pdev stats (chan_nf, rx_frame,
+rx_clear, cycle, phy_err + raw tx/rx counters) before and after the scans.

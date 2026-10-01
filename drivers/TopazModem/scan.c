@@ -166,6 +166,8 @@ VOID ScanStart(VOID)
     return;
   }
   mStarted = TRUE;
+  PmicProbe ("WMI READY");
+  ScanRequestStats ("baseline");
   a = SendChanList ();
   b = SendVdevCreate ();
   c = SendStartScan ();
@@ -212,12 +214,13 @@ VOID ScanEvent(CONST UINT8 *Tlvs, UINT32 Len)
   if (e[0] == EV_COMPLETED || e[0] == EV_START_FAILED || e[0] == EV_DEQUEUED) {
     mScanning = FALSE;
     mScans++;
-    Out ("  t=%u.%03u *** scan %u done: %u channels visited, %u BSS known, %u beacons/probe resp ***\r\n", T,
-         mScans, mForeign, mNumBss, mFrames);
+    Out ("  t=%u.%03u *** scan %u done: %u channels visited, %u BSS known, %u beacons/probe resp, %u chan info ***\r\n",
+         T, mScans, mForeign, mNumBss, mFrames, mChanInfo);
     mForeign = 0;
     mNextScanMs = mScans < MAX_SCANS ? ModemMs () + RESCAN_MS : 0;
-    if (mScans == 1) {
-      PmicProbe ();                                /* rails again, now that the radio was used */
+    if (mScans == 1 || mScans == MAX_SCANS) {
+      PmicProbe ("after scan");
+      ScanRequestStats ("after scan");
     }
     Step ("WMI scan done");
   }
@@ -329,7 +332,11 @@ VOID ScanChanInfo(CONST UINT8 *Tlvs, UINT32 Len)
   CONST UINT32 *c;
 
   mChanInfo++;
-  if (Len < 4 + 52 || mScans != 0) {               /* first scan only: 37 lines */
+  if (mChanInfo <= 4) {
+    Out ("  t=%u.%03u chinfo #%u raw (%u bytes):\r\n", T, mChanInfo, Len);
+    ScanDump ("chinfo", Tlvs, Len, 24);
+  }
+  if (Len < 4 + 52 || mScans != 0 || *(CONST UINT16 *)(Tlvs + 2) != 0x26) {   /* TAG_STRUCT_CHAN_INFO_EVENT */
     return;
   }
   c = (CONST UINT32 *)(Tlvs + 4);
@@ -338,4 +345,52 @@ VOID ScanChanInfo(CONST UINT8 *Tlvs, UINT32 Len)
   }
   Out ("  chinfo %u MHz: err %u nf %d rx_clear %u cycle %u rx_frames %u tx_frames %u mac_clk %u\r\n", c[1], c[0],
        (INT32)c[3], c[4], c[5], c[8], c[11], c[12]);
+}
+
+/* Raw dump as u32 words, 8 per line. */
+VOID ScanDump(CONST CHAR8 *Tag, CONST UINT8 *P, UINT32 Len, UINT32 MaxWords)
+{
+  CONST UINT32 *w = (CONST UINT32 *)P;
+  UINT32 n = MIN (Len / 4, MaxWords), i;
+
+  for (i = 0; i < n; i += 8) {
+    Out ("    %a +%03x: %08x %08x %08x %08x %08x %08x %08x %08x\r\n", Tag, i * 4, w[i],
+         i + 1 < n ? w[i + 1] : 0, i + 2 < n ? w[i + 2] : 0, i + 3 < n ? w[i + 3] : 0, i + 4 < n ? w[i + 4] : 0,
+         i + 5 < n ? w[i + 5] : 0, i + 6 < n ? w[i + 6] : 0, i + 7 < n ? w[i + 7] : 0);
+  }
+}
+
+/* WMI REQUEST_STATS (pdev): base {chan_nf, tx_frame, rx_frame, rx_clear, cycle, phy_err, tx_pwr} + tx + rx */
+VOID ScanRequestStats(CONST CHAR8 *Why)
+{
+  UINT8 m[4 + 20], *p;
+  BOOLEAN ok;
+
+  ZeroMem (m, sizeof (m));
+  p = WmiPutTlv (m, 0x8F, 20);                     /* TAG_STRUCT_REQUEST_STATS_CMD */
+  p = PutU32 (p, 1u << 2);                         /* WMI_TLV_STAT_PDEV */
+  ok = WmiSend (0x16001, m, sizeof (m));           /* WMI_TLV_REQUEST_STATS_CMDID */
+  Out ("  t=%u.%03u stats: pdev stats requested (%a) %a\r\n", T, Why, ok ? "ok" : "FAILED");
+}
+
+/* WMI UPDATE_STATS: TLV stats_event {stats_id, num_pdev, ...} + byte array with the stats */
+VOID ScanStats(CONST UINT8 *Tlvs, UINT32 Len)
+{
+  UINT32 o = 0;
+
+  while (o + 4 <= Len) {
+    UINT16 l = *(CONST UINT16 *)&Tlvs[o], tag = *(CONST UINT16 *)&Tlvs[o + 2];
+    CONST UINT32 *v = (CONST UINT32 *)&Tlvs[o + 4];
+    if (o + 4 + l > Len) {
+      break;
+    }
+    if (tag == 0x46 && l >= 8) {                   /* TAG_STRUCT_STATS_EVENT */
+      Out ("  t=%u.%03u stats: id %x, %u pdev, %u vdev, %u peer\r\n", T, v[0], v[1], v[2], v[3]);
+    } else if (tag == 0x11 && l >= 28) {           /* byte array: pdev stats first */
+      Out ("  stats: chan_nf %d, tx_frame %u, rx_frame %u, rx_clear %u, cycle %u, phy_err %u, tx_pwr %u\r\n",
+           (INT32)v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
+      ScanDump ("pdev", (CONST UINT8 *)v, l, 64);
+    }
+    o += 4 + l;
+  }
 }

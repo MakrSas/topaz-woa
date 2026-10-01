@@ -425,6 +425,7 @@ VOID WlfwRx(CONST UINT8 *D, UINT32 Len)
       mFwReady = TRUE;
       Step ("FW READY");
       Out ("  t=%u.%03u *** WLAN FIRMWARE READY ***\r\n", (UINT32)(ModemMs () / 1000), (UINT32)(ModemMs () % 1000));
+      PmicProbe ("FW_READY");
       SmmuProbe (FALSE);
       SendWlanCfg ();
     } else {
@@ -498,6 +499,7 @@ VOID WlfwRx(CONST UINT8 *D, UINT32 Len)
     if (ok) {
       Step ("WLAN ON (mission)");
       gBS->Stall (100 * 1000);
+      PmicProbe ("WLAN_MODE on");
       CeProbe ();                               /* the WLAN block should be powered now */
       if (CeStart ()) {                         /* rings + RX buffers: HTC READY should follow */
         Step ("CE up, waiting HTC READY");

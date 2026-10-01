@@ -22,7 +22,7 @@ typedef struct { CONST CHAR8 *Name; UINT8 Periph; CONST CHAR8 *Use; } RAIL;
 /* qcom_spmi-regulator.c pm6125_regulators: Ln at 0x4000 + 0x100 * (n - 1) */
 STATIC CONST RAIL mRails[] = {
   { "L8", 0x47, "wlan cx-mx" }, { "L9", 0x48, "bt io" }, { "L16", 0x4F, "1.8 xo" },
-  { "L17", 0x50, "1.3 rfa" }, { "L23", 0x56, "3.3 ch0 (PA)" },
+  { "L17", 0x50, "1.3 rfa" }, { "L23", 0x56, "3.3 ch0 PA" },
 };
 
 STATIC UINT32 FindApid(UINT8 *Core, UINT32 Ppid)
@@ -54,32 +54,31 @@ STATIC UINT32 ObsRead(UINT8 *Obs, UINT8 Off)
   return 0x1EE;
 }
 
-VOID PmicProbe(VOID)
+/* One line per call: en (0x46) / status (0x08) / vset (0x41:0x40) of each rail; SID 1 = PM6125 LDOs. */
+VOID PmicProbe(CONST CHAR8 *When)
 {
   UINT8 *core = MapPhys (SPMI_CORE_PA, SPMI_CORE_SIZE, FALSE), *obs;
-  UINT32 r, sid, apid;
+  CHAR8 line[200];
+  UINTN n = 0;
+  UINT32 r, apid;
 
   if (core == NULL) {
     Out ("  pmic: map failed\r\n");
     return;
   }
-  Out ("  pmic: SPMI arbiter %08x, WLAN rails (read-only; en = reg 0x46 bit7, status = 0x08):\r\n",
-       MmioRead32 ((UINTN)core));
+  line[0] = 0;
   for (r = 0; r < ARRAY_SIZE (mRails); r++) {
-    for (sid = 0; sid < 2; sid++) {
-      apid = FindApid (core, (sid << 8) | mRails[r].Periph);
-      if (apid == MAX_UINT32) {
-        continue;
-      }
-      obs = MapPhys (SPMI_OBS_PA + (UINT64)apid * SPMI_OBS_STRIDE, SPMI_OBS_STRIDE, FALSE);
-      if (obs == NULL) {
-        continue;
-      }
-      Out ("   %a sid %u apid %u (%a): type %x/%x status %x vset %x/%x mode %x en %x\r\n", mRails[r].Name, sid,
-           apid, mRails[r].Use, ObsRead (obs, 0x04), ObsRead (obs, 0x05), ObsRead (obs, 0x08),
-           ObsRead (obs, 0x40), ObsRead (obs, 0x41), ObsRead (obs, 0x45), ObsRead (obs, 0x46));
-      UnmapPhys (obs, SPMI_OBS_STRIDE);
+    apid = FindApid (core, (1u << 8) | mRails[r].Periph);
+    obs = apid == MAX_UINT32 ? NULL : MapPhys (SPMI_OBS_PA + (UINT64)apid * SPMI_OBS_STRIDE, SPMI_OBS_STRIDE, FALSE);
+    if (obs == NULL) {
+      n += AsciiSPrint (line + n, sizeof (line) - n, " %a ?", mRails[r].Name);
+      continue;
     }
+    n += AsciiSPrint (line + n, sizeof (line) - n, " %a %02x/%02x/%02x%02x", mRails[r].Name, ObsRead (obs, 0x46),
+                      ObsRead (obs, 0x08), ObsRead (obs, 0x41), ObsRead (obs, 0x40));
+    UnmapPhys (obs, SPMI_OBS_STRIDE);
   }
   UnmapPhys (core, SPMI_CORE_SIZE);
+  Out ("  t=%u.%03u pmic (%a) en/status/vset:%a\r\n", (UINT32)(ModemMs () / 1000), (UINT32)(ModemMs () % 1000),
+       When, line);
 }

@@ -381,7 +381,7 @@ EFI_STATUS ModemPasTest(VOID)
   }
   SmmuProbe (TRUE);
   SmmuWlanMap ();
-  PmicProbe ();                                 /* WLAN/RF rails, read-only (P4 diagnostics) */
+  PmicProbe ("before modem boot");             /* WLAN/RF rails, read-only (P4 diagnostics) */
   {
     /* The modem must start cold: its GLINK/QRTR peer state from an earlier boot is gone. */
     SMEM_PART_HDR *part = SmemPartition (0, 1);
