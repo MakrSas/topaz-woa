@@ -15,6 +15,9 @@
 #define WMI_EV_SERVICE_AVAILABLE  0x3
 #define WMI_EV_SERVICE_READY_EXT  0x4009          /* qcacld numbering, unused by ath10k */
 #define WMI_EV_SERVICE_READY_EXT2 0x4022
+#define WMI_EV_SCAN               0x3001
+#define WMI_EV_MGMT_RX            0x7001
+#define WMI_EV_CHAN_INFO          0x4002
 #define WMI_CMD_INIT              0x1
 
 #define TAG_ARRAY_UINT32          0x10
@@ -26,6 +29,7 @@
 #define TAG_INIT_CMD              0x4A
 #define TAG_RESOURCE_CONFIG       0x4B
 #define TAG_HOST_MEM_CHUNK        0x4C
+#define TAG_SERVICE_AVAILABLE     0x22F
 
 #define ABI_VER0                  0x01000000u      /* major 1, minor 0 */
 #define ABI_VER1                  53
@@ -52,13 +56,14 @@ typedef struct {                                   /* wmi_tlv_svc_rdy_ev (head) 
 typedef struct { UINT32 ReqId, UnitSize, NumUnitInfo, NumUnits; } WMI_MEM_REQ;
 
 STATIC BOOLEAN  mInitSent, mReadyRx;
-STATIC UINT32   mSvcMap[8];                        /* first 256 service bits */
+STATIC UINT32   mSvcMap[32];                       /* TLV base map: 4 services per u32 word */
+STATIC UINT32   mSvcExt[4];                        /* SERVICE_AVAILABLE: services 128.., 32 per word */
 STATIC UINT32   mNumReqs;
 STATIC WMI_MEM_REQ mReq[MAX_MEM_REQS];
 STATIC UINT64   mChunkPa[MAX_MEM_REQS];
 STATIC UINT32   mChunkLen[MAX_MEM_REQS];
 STATIC UINT8    mMac[6];
-STATIC UINT32   mEvents, mUnknown;
+STATIC UINT32   mEvents, mUnknown, mChanInfo;
 
 /* Walk TLVs: Fn(tag, value, len) for each one at this level. */
 typedef VOID (*TLV_FN)(UINT16 Tag, CONST UINT8 *V, UINT32 Len);
@@ -78,9 +83,14 @@ STATIC VOID TlvWalk(CONST UINT8 *P, UINT32 Len, TLV_FN Fn)
   }
 }
 
+/* WMI_SERVICE_IS_ENABLED (BIT(id % sizeof(u32)): 4 per word) / WMI_TLV_EXT_SERVICE_IS_ENABLED */
 STATIC BOOLEAN SvcBit(UINT32 Bit)
 {
-  return Bit < 256 && (mSvcMap[Bit / 32] & (1u << (Bit % 32))) != 0;
+  if (Bit < 128) {
+    return (mSvcMap[Bit / 4] & (1u << (Bit % 4))) != 0;
+  }
+  Bit -= 128;
+  return Bit < 128 && (mSvcExt[Bit / 32] & (1u << (Bit % 32))) != 0;
 }
 
 STATIC BOOLEAN mSeenBmap, mSeenReqs;
@@ -125,9 +135,16 @@ STATIC VOID OnSvcRdyTlv(UINT16 Tag, CONST UINT8 *V, UINT32 Len)
   case TAG_ARRAY_UINT32:
     if (!mSeenBmap) {
       mSeenBmap = TRUE;
-      CopyMem (mSvcMap, V, MIN (Len, sizeof (mSvcMap)));
-      Out ("  wmi: service map (%u B) %08x %08x %08x %08x %08x %08x %08x %08x\r\n", Len, mSvcMap[0],
-           mSvcMap[1], mSvcMap[2], mSvcMap[3], mSvcMap[4], mSvcMap[5], mSvcMap[6], mSvcMap[7]);
+      {
+        CHAR8 nib[33];
+        UINT32 i;
+        CopyMem (mSvcMap, V, MIN (Len, sizeof (mSvcMap)));
+        for (i = 0; i < 32; i++) {
+          nib[i] = "0123456789abcdef"[mSvcMap[i] & 0xF];
+        }
+        nib[32] = 0;
+        Out ("  wmi: service map (%u B, nibble per 4 services 0..127) %a\r\n", Len, nib);
+      }
     }
     break;
   case TAG_ARRAY_STRUCT:
@@ -227,7 +244,7 @@ STATIC UINT32 AllocChunks(VOID)
   return mNumReqs;
 }
 
-STATIC UINT8 *PutTlv(UINT8 *P, UINT16 Tag, UINT32 Len)
+UINT8 *WmiPutTlv(UINT8 *P, UINT16 Tag, UINT32 Len)
 {
   *(UINT16 *)&P[0] = (UINT16)Len;
   *(UINT16 *)&P[2] = Tag;
@@ -245,7 +262,7 @@ STATIC VOID SendInit(VOID)
   ZeroMem (m, sizeof (m));
   *(UINT32 *)p = WMI_CMD_INIT;
   p += 4;
-  p = PutTlv (p, TAG_INIT_CMD, sizeof (WMI_ABI) + 4);
+  p = WmiPutTlv (p, TAG_INIT_CMD, sizeof (WMI_ABI) + 4);
   abi = (WMI_ABI *)p;
   abi->Ver0 = ABI_VER0;
   abi->Ver1 = ABI_VER1;
@@ -253,12 +270,12 @@ STATIC VOID SendInit(VOID)
   abi->Ns1 = ABI_NS1;
   *(UINT32 *)(p + sizeof (WMI_ABI)) = n;
   p += sizeof (WMI_ABI) + 4;
-  p = PutTlv (p, TAG_RESOURCE_CONFIG, sizeof (WMI_RES_CFG));
+  p = WmiPutTlv (p, TAG_RESOURCE_CONFIG, sizeof (WMI_RES_CFG));
   FillResCfg ((WMI_RES_CFG *)p);
   p += sizeof (WMI_RES_CFG);
-  p = PutTlv (p, TAG_ARRAY_STRUCT, n * 20);
+  p = WmiPutTlv (p, TAG_ARRAY_STRUCT, n * 20);
   for (i = 0; i < n; i++) {
-    UINT32 *c = (UINT32 *)PutTlv (p, TAG_HOST_MEM_CHUNK, 16);
+    UINT32 *c = (UINT32 *)WmiPutTlv (p, TAG_HOST_MEM_CHUNK, 16);
     c[0] = mReq[i].ReqId;
     c[1] = (UINT32)mChunkPa[i];
     c[2] = mChunkLen[i];
@@ -300,7 +317,12 @@ VOID WmiRx(CONST UINT8 *D, UINT32 Len)
   mEvents++;
   switch (id) {
   case WMI_EV_SERVICE_AVAILABLE:
-    Out ("  t=%u.%03u wmi: SERVICE_AVAILABLE, %u bytes\r\n", T, Len);
+    /* value = u32 bitmap length (bits) + ext bitmap (ath10k_wmi_tlv_svc_avail_parse) */
+    if (Len >= 4 + 4 + 4 + sizeof (mSvcExt) && *(CONST UINT16 *)(D + 6) == TAG_SERVICE_AVAILABLE) {
+      CopyMem (mSvcExt, D + 12, sizeof (mSvcExt));
+    }
+    Out ("  t=%u.%03u wmi: SERVICE_AVAILABLE, %u bytes, ext map %08x %08x %08x %08x\r\n", T, Len, mSvcExt[0],
+         mSvcExt[1], mSvcExt[2], mSvcExt[3]);
     break;
   case WMI_EV_SERVICE_READY:
     Out ("  t=%u.%03u wmi: SERVICE_READY, %u bytes\r\n", T, Len);
@@ -318,6 +340,18 @@ VOID WmiRx(CONST UINT8 *D, UINT32 Len)
   case WMI_EV_READY:
     Out ("  t=%u.%03u wmi: READY event, %u bytes\r\n", T, Len);
     TlvWalk (D + 4, Len - 4, OnReadyTlv);
+    if (mReadyRx) {
+      ScanStart ();                                /* channel list, vdev, passive scan */
+    }
+    break;
+  case WMI_EV_SCAN:
+    ScanEvent (D + 4, Len - 4);
+    break;
+  case WMI_EV_MGMT_RX:
+    ScanMgmtRx (D + 4, Len - 4);
+    break;
+  case WMI_EV_CHAN_INFO:                           /* per-channel stats during scans */
+    mChanInfo++;
     break;
   default:
     if (mUnknown++ < 32) {
@@ -329,7 +363,20 @@ VOID WmiRx(CONST UINT8 *D, UINT32 Len)
 
 VOID WmiSummary(VOID)
 {
-  Out ("  wmi: %u events, init %a, ready %a, MAC %02x:%02x:%02x:%02x:%02x:%02x, %u mem req(s)\r\n", mEvents,
-       mInitSent ? "sent" : "no", mReadyRx ? "YES" : "no", mMac[0], mMac[1], mMac[2], mMac[3], mMac[4], mMac[5],
-       mNumReqs);
+  Out ("  wmi: %u events (%u chan info), init %a, ready %a, MAC %02x:%02x:%02x:%02x:%02x:%02x, %u mem req(s)\r\n",
+       mEvents, mChanInfo, mInitSent ? "sent" : "no", mReadyRx ? "YES" : "no", mMac[0], mMac[1], mMac[2], mMac[3],
+       mMac[4], mMac[5], mNumReqs);
+}
+
+/* wmi_cmd_hdr + TLVs, on the WMI endpoint (queued while HTC has no credit). */
+BOOLEAN WmiSend(UINT32 CmdId, CONST VOID *Tlvs, UINT32 Len)
+{
+  STATIC UINT8 m[2048];
+
+  if (Len + 4 > sizeof (m)) {
+    return FALSE;
+  }
+  *(UINT32 *)m = CmdId & 0xFFFFFF;
+  CopyMem (m + 4, Tlvs, Len);
+  return HtcWmiSend (m, Len + 4);
 }

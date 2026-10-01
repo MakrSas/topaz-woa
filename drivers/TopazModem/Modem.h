@@ -78,4 +78,11 @@ VOID           HtcSummary(VOID);
 BOOLEAN        HtcWmiSend(CONST VOID *Data, UINT32 Len);  /* wmi_cmd_hdr + TLVs */
 VOID           WmiRx(CONST UINT8 *Data, UINT32 Len);       /* wmi.c */
 VOID           WmiSummary(VOID);
+BOOLEAN        WmiSend(UINT32 CmdId, CONST VOID *Tlvs, UINT32 Len);
+UINT8         *WmiPutTlv(UINT8 *P, UINT16 Tag, UINT32 Len);   /* returns the value pointer */
+VOID           ScanStart(VOID);                                /* scan.c */
+VOID           ScanEvent(CONST UINT8 *Tlvs, UINT32 Len);
+VOID           ScanMgmtRx(CONST UINT8 *Tlvs, UINT32 Len);
+VOID           ScanPoll(VOID);
+VOID           ScanSummary(VOID);
 VOID           WlfwSetStep(CONST CHAR8 *S);

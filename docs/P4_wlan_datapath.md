@@ -105,3 +105,21 @@ Next (milestone 3): parse SERVICE_READY (TLVs: hal reg caps, mem_reqs) and send 
 (cmd 0x1: init_cmd + resource_config + host_mem_chunks from PhysAlloc), then wait for WMI READY
 (event 2: MAC address, abi version). WMI sends go on CE3 with eid 2 and HTC credit flow (1 credit,
 credits come back in HTC trailers).
+
+## WMI READY (TopazModem v0.9, 2026-10-01, log docs/logs/TopazModem-v0.9.log)
+
+- SERVICE_READY parsed: fw 0x32497fff, **ABI 1.0 "QCA_ML" (abi_ver1 1074, ath10k sends 53 — accepted)**,
+  phy_cap 3, 1 RF chain, HT 0x3813, VHT 0x73901132, max 68 scan channels, **num_mem_reqs 0** (no host
+  memory needed), regdomain 0x406c, 2G 2312-2732 / 5G 4912-6100 MHz.
+- INIT (220 bytes: abi + ath10k wcn3990 resource config, 0 chunks) on CE3/eid 2 -> **WMI READY at
+  t=4.779 s (16 ms later), status 0**, MAC 00:00:00:00:00:00 (normal for WCN3990: the host owns the MAC —
+  Android reads persist/wlan_mac.bin; ath10k uses DT or a random one).
+- Other events: 0x3a001 (148 B, before READY, likely regulatory channel list, newer than ath10k),
+  0x401f (1148 B), 0x1d00a WLAN_FREQ_AVOID (LTE coex). After INIT the firmware takes over CE5 and CE8
+  (both reprogrammed to MSA rings) — same as with Linux, our host rings there just stay idle.
+- Bug found: the TLV base service map is 4 services per u32 word (ath10k WMI_SERVICE_IS_ENABLED uses
+  BIT(id % sizeof(u32))), the ext map from SERVICE_AVAILABLE is {u32 bits, 4 x u32}. Fixed in v0.10.
+
+Next (v0.10): passive scan over WMI — SCAN_CHAN_LIST (all passive), VDEV_CREATE (vdev 0 STA, local MAC
+02:54:4f:50:41:5a), START_SCAN; beacons arrive as WMI MGMT_RX (0x7001). HTC credit reports are now logged
+and WMI commands queue while the endpoint has no credit.

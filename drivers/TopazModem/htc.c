@@ -43,7 +43,7 @@ STATIC UINT16   mCreditCount, mCreditSize;
 STATIC UINT8    mMaxEp;
 STATIC BOOLEAN  mReady, mSetupDone;
 STATIC UINT8    mWmiEid = 0xFF, mHttEid = 0xFF;
-STATIC UINT32   mDumps, mWmiEvents;
+STATIC UINT32   mDumps, mWmiEvents, mCreditReports;
 
 STATIC VOID Hex(CONST CHAR8 *Tag, CONST UINT8 *D, UINT32 Len)
 {
@@ -195,6 +195,9 @@ STATIC VOID OnTrailer(CONST UINT8 *P, UINT32 Len)
         UINT8 eid = P[o + 2 + i];
         if (eid < EP_MAX) {
           mEp[eid].Credits = (UINT8)(mEp[eid].Credits + P[o + 3 + i]);
+          if (mCreditReports++ < 12) {
+            Out ("  t=%u.%03u htc: credit report ep %u +%u -> %u\r\n", T, eid, P[o + 3 + i], mEp[eid].Credits);
+          }
         }
       }
     }
@@ -202,13 +205,45 @@ STATIC VOID OnTrailer(CONST UINT8 *P, UINT32 Len)
   }
 }
 
+/* WMI messages wait here while the endpoint has no credit (ath10k queues them the same way). */
+#define WMIQ_LEN 6
+#define WMIQ_MAX 2040                           /* = WMI max_msg from the connect response */
+STATIC UINT8  mWmiQ[WMIQ_LEN][WMIQ_MAX];
+STATIC UINT16 mWmiQLen[WMIQ_LEN];
+STATIC UINT32 mWmiQHead, mWmiQTail;
+
+STATIC VOID WmiQPump(VOID)
+{
+  while (mWmiQHead != mWmiQTail && mWmiEid != 0xFF && mEp[mWmiEid].Credits != 0) {
+    UINT32 i = mWmiQHead % WMIQ_LEN;
+    if (!HtcSend (mWmiEid, mWmiQ[i], mWmiQLen[i])) {
+      break;
+    }
+    mWmiQHead++;
+  }
+}
+
 /* WMI goes out on the WMI_CONTROL endpoint (CE3), credit-flow controlled. */
 BOOLEAN HtcWmiSend(CONST VOID *Data, UINT32 Len)
 {
-  if (mWmiEid == 0xFF) {
+  UINT32 i;
+
+  if (mWmiEid == 0xFF || Len > WMIQ_MAX) {
     return FALSE;
   }
-  return HtcSend (mWmiEid, Data, Len);
+  if (mWmiQHead == mWmiQTail && mEp[mWmiEid].Credits != 0) {
+    return HtcSend (mWmiEid, Data, Len);
+  }
+  if (mWmiQTail - mWmiQHead >= WMIQ_LEN) {
+    Out ("  t=%u.%03u htc: wmi queue full, message dropped\r\n", T);
+    return FALSE;
+  }
+  i = mWmiQTail++ % WMIQ_LEN;
+  CopyMem (mWmiQ[i], Data, Len);
+  mWmiQLen[i] = (UINT16)Len;
+  Out ("  t=%u.%03u htc: wmi cmd %x queued (no credit), %u waiting\r\n", T, *(CONST UINT32 *)Data & 0xFFFFFF,
+       mWmiQTail - mWmiQHead);
+  return TRUE;
 }
 
 /* Called by CePoll for every completed receive buffer. */
@@ -231,6 +266,7 @@ VOID HtcRx(UINT32 Ce, CONST UINT8 *D, UINT32 Len)
   if ((h->Flags & HTC_FLAG_TRAILER) != 0 && h->Trailer <= plen) {
     OnTrailer (p + plen - h->Trailer, h->Trailer);
     plen -= h->Trailer;
+    WmiQPump ();
   }
   if (h->Eid < EP_MAX) {
     mEp[h->Eid].Rx++;
