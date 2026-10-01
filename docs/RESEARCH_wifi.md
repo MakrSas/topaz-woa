@@ -67,8 +67,14 @@ Linux references: `drivers/remoteproc/qcom_q6v5_pas.c`, `drivers/firmware/qcom_s
       - board data `bdwlan.bin` + `bdwlan.1xx/2xx/bxx` variants (picked by board id via WLFW QMI)
       - `modemr.jsn` / `modemuw.jsn` = pd-mapper service lists (root_pd, qmi instance 180: servreg, pdr, gps)
       - EFS backups for rmtfs: `modemst1`, `modemst2`, `fsg` (in `~/work/topaz/backup`)
-- [ ] P1 Spike in UEFI (cheapest place to experiment, RAM boot): Qualcomm `ScmDxe` protocol
-      (`EFIScm.h`) for PAS calls, load MPSS, watch smp2p "ready" / IPCRTR HELLO in SMEM.
+- [~] P1 Spike in UEFI (RAM boot), `uefi/TopazOtgDxe/ModemPas.c`, menu "Modem test":
+      **2026-10-01: TZ authenticated and started MPSS** (init_image 0/0, mem_setup 0/0,
+      auth_and_reset 0/0). Facts: raw SMC64 SiP calls (0x420002xx) from UEFI are accepted,
+      all PIL calls available; firmware read from modem_a (FAT, after ConnectController on all
+      BlockIo); split firmware (hash segment = modem.b01, 8056 B); relocatable (mem_setup
+      needed); long calls return QCOM_SCM_INTERRUPTED (1) and must be resumed with x0=1 and the
+      returned x6 (init 2 resumes, auth 22). No RPM proxy votes were made.
+      Next: read SMP2P (SMEM item 428, modem->apps) for "ready"/"fatal" to see if it really runs.
 - [ ] P2 Same in a Windows kernel driver (SMEM, GLINK-SMEM, QRTR, rmtfs/pd-mapper equivalents).
 - [ ] P3 WLFW QMI handshake (board data, mode on) — first proof the radio is alive.
 - [ ] P4 ath10k SNOC data path + WiFiCx miniport.

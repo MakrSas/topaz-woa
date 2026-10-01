@@ -21,6 +21,7 @@
 #include <Guid/EventGroup.h>
 #include <Protocol/EFIPmicPon.h>
 #include "AbSlot.h"
+#include "ModemPas.h"
 
 #define TAG "TopazOtg: "
 
@@ -424,8 +425,8 @@ STATIC VOID DumpLog(VOID)
  * SetActiveSlot (type GUID swap of every _a/_b pair), see docs/AGENT_BRIEF_drivers.md 2c.
  * Android is started from the PC with `fastboot set_active a`.
  */
-enum { MENU_WINDOWS, MENU_FASTBOOT, MENU_POWEROFF, MENU_COUNT, MENU_ANDROID = 100, MENU_TWRP };
-STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Fastboot", "Power off" };
+enum { MENU_WINDOWS, MENU_FASTBOOT, MENU_POWEROFF, MENU_MODEM, MENU_COUNT, MENU_ANDROID = 100, MENU_TWRP };
+STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Fastboot", "Power off", "Modem test (Wi-Fi P1)" };
 
 /*
  * Layout: slot b boot_b = this UEFI (active by default), slot a = Android + TWRP in
@@ -569,6 +570,13 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
     } else if (choice == MENU_FASTBOOT) {
       ConPrint ("\r\n  Rebooting to fastboot...\r\n");
       RebootWithReason (ABL_REASON_FASTBOOT);
+    } else if (choice == MENU_MODEM) {
+      gST->ConOut->ClearScreen (gST->ConOut);
+      ConPrint ("  result: %r\r\n  Any key: back to menu\r\n", ModemPasTest ());
+      while (!KeyPressed (&key)) {
+        gBS->Stall (100 * 1000);
+      }
+      continue;
     } else if (choice == MENU_POWEROFF) {
       {
         /*

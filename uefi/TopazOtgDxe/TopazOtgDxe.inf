@@ -10,6 +10,8 @@
   TopazOtgDxe.c
   AbSlot.c
   AbSlot.h
+  ModemPas.c
+  ModemPas.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -27,10 +29,15 @@
   UefiLib
   PrintLib
   MemoryAllocationLib
+  ArmSmcLib
 
 [Protocols]
   gQcomPmicPonProtocolGuid
   gEfiBlockIoProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
+[Guids]
+  gEfiFileInfoGuid
 
 [Depex]
   TRUE
