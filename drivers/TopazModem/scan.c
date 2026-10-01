@@ -6,6 +6,9 @@
  * with the last three bytes masked (they are geolocatable).
  */
 #include "Modem.h"
+#ifdef TOPAZ_WIFICX
+#include "wlanif.h"                                /* TopazWifi: scans on Windows' request */
+#endif
 
 #define Out ModemOut
 #define Step WlfwSetStep
@@ -71,6 +74,7 @@ STATIC BSS     mBss[MAX_BSS];
 STATIC UINT32  mNumBss, mScans, mForeign, mFrames, mOtherFrames, mChanInfo;
 STATIC UINTN   mNextScanMs;
 STATIC BOOLEAN mStarted, mScanning;
+STATIC volatile BOOLEAN mScanReq;                  /* TOPAZ_WIFICX: a scan asked for by WiFiCx */
 
 STATIC UINT8 *PutU32(UINT8 *P, UINT32 V)
 {
@@ -170,7 +174,12 @@ VOID ScanStart(VOID)
   ScanRequestStats ("baseline");
   a = SendChanList ();
   b = SendVdevCreate ();
+#ifdef TOPAZ_WIFICX
+  c = FALSE;                                       /* Windows decides when to scan */
+  WlanOnReady (mOurMac);
+#else
   c = SendStartScan ();
+#endif
   mScanning = c;
   Out ("  t=%u.%03u scan: chan list (%u ch) %a, vdev %u create %a, passive scan 1 %a\r\n", T, (UINT32)NFREQ,
        a ? "ok" : "FAILED", VDEV_ID, b ? "ok" : "FAILED", c ? "requested" : "FAILED");
@@ -217,7 +226,12 @@ VOID ScanEvent(CONST UINT8 *Tlvs, UINT32 Len)
     Out ("  t=%u.%03u *** scan %u done: %u channels visited, %u BSS known, %u beacons/probe resp, %u chan info ***\r\n",
          T, mScans, mForeign, mNumBss, mFrames, mChanInfo);
     mForeign = 0;
+#ifdef TOPAZ_WIFICX
+    mNextScanMs = 0;
+    WlanOnScanDone (e[0] == EV_COMPLETED ? 0 : (INT32)e[0]);
+#else
     mNextScanMs = mScans < MAX_SCANS ? ModemMs () + RESCAN_MS : 0;
+#endif
     if (mScans == 1 || mScans == MAX_SCANS) {
       PmicProbe ("after scan");
       ScanRequestStats ("after scan");
@@ -254,6 +268,9 @@ STATIC VOID OnFrame(CONST UINT8 *F, UINT32 Len, UINT32 Chan, INT32 Rssi)
       Chan = F[o + 2];
     }
   }
+#ifdef TOPAZ_WIFICX
+  WlanOnBss (F + 16, F + 24, Len - 24, Chan, Rssi, (F[0] >> 4) == 5);
+#endif
   for (i = 0; i < mNumBss; i++) {
     if (CompareMem (mBss[i].Bssid, F + 16, 6) == 0) {
       b = &mBss[i];
@@ -311,8 +328,26 @@ VOID ScanMgmtRx(CONST UINT8 *Tlvs, UINT32 Len)
 }
 
 /* From the GLINK loop: re-scan a few times so the table fills up. */
+#ifdef TOPAZ_WIFICX
+VOID WlanScanRequest(VOID)
+{
+  mScanReq = TRUE;
+}
+#endif
+
 VOID ScanPoll(VOID)
 {
+#ifdef TOPAZ_WIFICX
+  if (mStarted && !mScanning && mScanReq) {
+    mScanReq = FALSE;
+    mScanning = SendStartScan ();
+    Out ("  t=%u.%03u scan: Windows scan request -> passive scan %u %a\r\n", T, mScans + 1,
+         mScanning ? "requested" : "FAILED");
+    if (!mScanning) {
+      WlanOnScanDone (-1);
+    }
+  }
+#endif
   if (mStarted && !mScanning && mNextScanMs != 0 && ModemMs () >= mNextScanMs) {
     mNextScanMs = 0;
     mScanning = SendStartScan ();

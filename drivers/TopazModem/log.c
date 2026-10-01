@@ -16,7 +16,11 @@ static UINT64    g_LastFlush;
 
 VOID LogOpen(VOID)
 {
+#ifdef TOPAZ_WIFICX
+    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\TopazWifi.log");
+#else
     UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\TopazModem.log");
+#endif
     OBJECT_ATTRIBUTES oa;
     IO_STATUS_BLOCK iosb;
 

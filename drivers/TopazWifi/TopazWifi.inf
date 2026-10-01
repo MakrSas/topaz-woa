@@ -1,0 +1,75 @@
+;
+; TopazWifi.inf - Wi-Fi (WCN3950 via the modem DSP) for Redmi Note 12 4G (topaz/tapas, SM6225)
+; Root-enumerated WiFiCx/NetAdapterCx driver. It also boots the modem (replaces TopazModem:
+; never install both).
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Net
+ClassGuid   = {4d36e972-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = TopazWifi.cat
+DriverVer   = ; set by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TopazWifi.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = TopazWifi_Device.ndi, Root\TopazWifi
+
+[TopazWifi_Device.ndi.NT]
+CopyFiles          = TopazWifi_CopyFiles
+Characteristics    = 0x84       ; NCF_HAS_UI, NCF_PHYSICAL
+BusType            = 0          ; Internal
+AddReg             = TopazWifi_Reg
+*IfType            = 71         ; IF_TYPE_IEEE80211
+*MediaType         = 16         ; NdisMediumNative802_11
+*PhysicalMediaType = 9          ; NdisPhysicalMediumNative802_11
+
+[TopazWifi_CopyFiles]
+TopazWifi.sys
+
+[TopazWifi_Device.ndi.NT.Services]
+AddService = TopazWifi, 0x00000002, TopazWifi_Service
+
+[TopazWifi_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\TopazWifi.sys
+
+[TopazWifi_Device.ndi.NT.Wdf]
+KmdfService = TopazWifi, TopazWifi_WdfSection
+
+[TopazWifi_WdfSection]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[TopazWifi_Reg]
+HKR, Ndi,             Service,    0, "TopazWifi"
+HKR, Ndi\Interfaces,  UpperRange, 0, "ndis5"
+HKR, Ndi\Interfaces,  LowerRange, 0, "wlan,ethernet"
+HKR, NetworkInterface, *IfConnectorPresent, 0x00010001, 1
+HKR, NetworkInterface, *ConnectionType,     0x00010001, 1   ; NET_IF_CONNECTION_DEDICATED
+HKR, NetworkInterface, *DirectionType,      0x00010001, 0   ; NET_IF_DIRECTION_SENDRECEIVE
+HKR, NetworkInterface, *AccessType,         0x00010001, 2   ; NET_IF_ACCESS_BROADCAST
+HKR, NetworkInterface, *HardwareLoopback,   0x00010001, 0
+HKR, , NumberOfNetworkInterfaces, 0x00010001, 1             ; station only, no Wi-Fi Direct
+
+[Strings]
+ProviderName     = "topaz-woa"
+ManufacturerName = "topaz-woa"
+DiskName         = "TopazWifi Installation Disk"
+DeviceDesc       = "Qualcomm WCN3950 Wi-Fi (Redmi Note 12 4G)"
+ServiceName      = "TopazWifi"

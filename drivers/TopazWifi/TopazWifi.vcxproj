@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TopazWifi: WiFiCx (1.0) + NetAdapterCx (2.2) client driver for the WCN3950 of Redmi Note 12 4G.
+  The WLAN core (modem boot, GLINK/QRTR, WLFW, CE/HTC/WMI/HTT, scan) is compiled from ../TopazModem
+  with TOPAZ_WIFICX; the w*.cpp files are the WiFiCx front end (based on the WDK wificx sample).
+  Versions match Windows 11 22H2/23H2 (22631): KMDF 1.33, NetAdapterCx 2.2, WiFiCx 1.0.
+-->
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{8C3D2F61-7A1B-4E59-9D04-6225A1F0C3B7}</ProjectGuid>
+    <TemplateGuid>{497e31cb-056b-4f31-abb8-447fd55ee5a5}</TemplateGuid>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <MinimumVisualStudioVersion>12.0</MinimumVisualStudioVersion>
+    <Configuration>Release</Configuration>
+    <Platform>ARM64</Platform>
+    <RootNamespace>TopazWifi</RootNamespace>
+    <WindowsTargetPlatformVersion>$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>KMDF</DriverType>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
+    <KMDF_VERSION_MINOR>33</KMDF_VERSION_MINOR>
+    <KMDF_MINIMUM_VERSION_REQUIRED>33</KMDF_MINIMUM_VERSION_REQUIRED>
+    <NetAdapterDriver>true</NetAdapterDriver>
+    <NETADAPTER_VERSION_MAJOR>2</NETADAPTER_VERSION_MAJOR>
+    <NETADAPTER_VERSION_MINOR>2</NETADAPTER_VERSION_MINOR>
+    <WIFI_VERSION_MAJOR>1</WIFI_VERSION_MAJOR>
+    <WIFI_VERSION_MINOR>0</WIFI_VERSION_MINOR>
+    <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\marmasm.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup>
+    <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
+    <SignMode>Off</SignMode>
+    <EnableInf2cat>false</EnableInf2cat>
+    <EnableInfVerif>false</EnableInfVerif>
+    <RunInfVerif>false</RunInfVerif>
+    <ApiValidator_Enable>false</ApiValidator_Enable>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WppEnabled>false</WppEnabled>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <WarningLevel>Level3</WarningLevel>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <PreprocessorDefinitions>TOPAZ_WIFICX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\TopazModem;$(DDK_INC_PATH)wlan\2.0;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4201;4214;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>$(DDK_LIB_PATH)wlan\2.0\WificxTLVGenParse.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <DriverSign>
+      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
+    </DriverSign>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <!-- WiFiCx front end -->
+    <ClCompile Include="wdrv.cpp" />
+    <ClCompile Include="wcaps.cpp" />
+    <ClCompile Include="wcmd.cpp" />
+    <ClCompile Include="wnet.cpp" />
+    <ClCompile Include="wmem.cpp" />
+    <!-- WLAN core, shared with TopazModem -->
+    <ClCompile Include="..\TopazModem\ce.c" />
+    <ClCompile Include="..\TopazModem\fileio.c" />
+    <ClCompile Include="..\TopazModem\htc.c" />
+    <ClCompile Include="..\TopazModem\htt.c" />
+    <ClCompile Include="..\TopazModem\Glink.c" />
+    <ClCompile Include="..\TopazModem\log.c" />
+    <ClCompile Include="..\TopazModem\ModemPas.c" />
+    <ClCompile Include="..\TopazModem\ModemSvc.c" />
+    <ClCompile Include="..\TopazModem\pmic.c" />
+    <ClCompile Include="..\TopazModem\port.c" />
+    <ClCompile Include="..\TopazModem\scan.c" />
+    <ClCompile Include="..\TopazModem\Smem.c" />
+    <ClCompile Include="..\TopazModem\Wlfw.c" />
+    <ClCompile Include="..\TopazModem\wlanprobe.c" />
+    <ClCompile Include="..\TopazModem\wmi.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <MARMASM Include="..\TopazModem\smc.asm" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="wpch.h" />
+    <ClInclude Include="..\TopazModem\wlanif.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <FilesToPackage Include="$(TargetPath)" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\marmasm.targets" />
+  </ImportGroup>
+</Project>
