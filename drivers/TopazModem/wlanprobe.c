@@ -96,3 +96,48 @@ VOID CeProbe(VOID)
   UnmapPhys (ce, (CE_COUNT + 1) * SIZE_4KB);
   LogSetLazy (TRUE);
 }
+
+/*
+ * WLAN stream 0x1A0 has no stream match and sCR0.USFCFG = 1, so every WLAN DMA would fault.
+ * Put a bypass entry (S2CR type 1) for sid 0x1A0 / mask 1 into a free SMR slot (highest index,
+ * away from the ones UEFI set up), then read it back: the hypervisor may ignore EL1 writes.
+ */
+BOOLEAN SmmuWlanBypass(VOID)
+{
+  UINT8 *s = MapPhys (SMMU_PA, SMMU_SIZE, FALSE);
+  UINT32 nsmr, i, slot = MAX_UINT32, smr, s2cr, n;
+
+  if (s == NULL) {
+    Out ("  smmu: map failed\r\n");
+    return FALSE;
+  }
+  nsmr = R32 (s, 0x20) & 0xFF;
+  for (i = nsmr; i-- > 0;) {
+    smr = R32 (s, 0x800 + 4 * i);
+    if ((smr >> 31) != 0 && SidMatch (smr)) {
+      slot = i;                                 /* already there (driver restart) */
+      break;
+    }
+    if ((smr >> 31) == 0 && slot == MAX_UINT32) {
+      slot = i;
+    }
+  }
+  if (slot == MAX_UINT32) {
+    Out ("  smmu: no free SMR\r\n");
+    UnmapPhys (s, SMMU_SIZE);
+    return FALSE;
+  }
+  MmioWrite32 ((UINTN)s + 0xC00 + 4 * slot, 1u << 16);                       /* S2CR: bypass */
+  MmioWrite32 ((UINTN)s + 0x800 + 4 * slot, (1u << 31) | (WLAN_SID_MASK << 16) | WLAN_SID);
+  MemoryFence ();
+  MmioWrite32 ((UINTN)s + 0x70, 0);                                           /* sTLBGSYNC */
+  for (n = 0; n < 100000 && (R32 (s, 0x74) & 1) != 0; n++) {
+    KeStallExecutionProcessor (1);
+  }
+  smr  = R32 (s, 0x800 + 4 * slot);
+  s2cr = R32 (s, 0xC00 + 4 * slot);
+  Out ("  smmu: WLAN bypass in SMR%u: SMR %08x S2CR %08x (sync %u us) -> %a\r\n", slot, smr, s2cr, n,
+       ((smr >> 31) != 0 && SidMatch (smr) && ((s2cr >> 16) & 3) == 1) ? "OK" : "NOT WRITTEN");
+  UnmapPhys (s, SMMU_SIZE);
+  return ((smr >> 31) != 0 && ((s2cr >> 16) & 3) == 1);
+}

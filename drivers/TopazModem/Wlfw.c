@@ -23,6 +23,8 @@
 #define WLFW_MSA_INFO       0x2D
 #define WLFW_MSA_READY      0x2E
 #define WLFW_HOST_CAP       0x34
+#define WLFW_WLAN_MODE      0x22
+#define WLFW_WLAN_CFG       0x23
 
 #define WLFW_MSA_BASE       0x51900000u         /* DTB wlan_msa_region, inside "PIL Reserved" */
 #define WLFW_MSA_SIZE       0x00100000u
@@ -259,6 +261,66 @@ STATIC VOID SendCalReport(VOID)
   Step ("cal_report sent");
 }
 
+/*
+ * P4: ath10k_snoc_wlan_enable(): WLAN_CFG with the copy-engine layout, then WLAN_MODE mission.
+ * Tables copied from Linux snoc.c (target_ce_config_wlan, target_service_to_ce_map_wlan,
+ * target_shadow_reg_cfg_map). PIPEDIR 1 in, 2 out, 3 inout; flags bit 3 = DIS_INTR.
+ */
+STATIC CONST UINT32 mTgtCe[12][5] = {
+  { 0, 2, 32, 2048, 0 }, { 1, 1, 32, 2048, 0 }, { 2, 1, 64, 2048, 0 }, { 3, 2, 32, 2048, 0 },
+  { 4, 2, 256, 256, 8 }, { 5, 2, 1024, 64, 8 }, { 6, 3, 32, 16384, 0 }, { 7, 4, 0, 0, 8 },
+  { 8, 1, 32, 2048, 0 }, { 9, 1, 32, 2048, 0 }, { 10, 1, 32, 2048, 0 }, { 11, 1, 32, 2048, 0 },
+};
+STATIC CONST UINT32 mSvcCe[][3] = {
+  { 0x104, 2, 3 }, { 0x104, 1, 2 }, { 0x102, 2, 3 }, { 0x102, 1, 2 }, { 0x101, 2, 3 }, { 0x101, 1, 2 },
+  { 0x103, 2, 3 }, { 0x103, 1, 2 }, { 0x100, 2, 3 }, { 0x100, 1, 2 }, { 0x001, 2, 0 }, { 0x001, 1, 2 },
+  { 0xFE00, 2, 0 }, { 0xFE00, 1, 2 }, { 0x300, 2, 4 }, { 0x300, 1, 1 }, { 0xFE00, 2, 5 }, { 0x301, 1, 9 },
+  { 0x302, 1, 10 }, { 0x600, 1, 11 }, { 0, 0, 0 },
+};
+STATIC CONST UINT16 mShadow[12][2] = {
+  { 0, 0x3C }, { 3, 0x3C }, { 4, 0x3C }, { 5, 0x3C }, { 7, 0x3C }, { 1, 0x40 },
+  { 2, 0x40 }, { 7, 0x40 }, { 8, 0x40 }, { 9, 0x40 }, { 10, 0x40 }, { 11, 0x40 },
+};
+
+/* TLV with a u8 element count in front of an array */
+STATIC VOID MsgArray(WMSG *M, UINT8 Type, UINT8 Count, CONST VOID *V, UINT16 Bytes)
+{
+  UINT8 *t = M->B + M->N;
+
+  t[0] = Type;
+  *(UINT16 *)(t + 1) = (UINT16)(1 + Bytes);
+  t[3] = Count;
+  CopyMem (t + 4, V, Bytes);
+  M->N += 4 + Bytes;
+}
+
+STATIC VOID SendWlanCfg(VOID)
+{
+  WMSG m;
+
+  if (!MsgNew (&m, WLFW_WLAN_CFG)) {
+    return;
+  }
+  MsgArray (&m, 0x11, 12, mTgtCe, sizeof (mTgtCe));
+  MsgArray (&m, 0x12, (UINT8)ARRAY_SIZE (mSvcCe), mSvcCe, sizeof (mSvcCe));
+  MsgArray (&m, 0x13, 12, mShadow, sizeof (mShadow));
+  MsgSend (&m);
+  Step ("wlan_cfg sent");
+}
+
+STATIC VOID SendWlanMode(UINT32 Mode)
+{
+  WMSG m;
+
+  if (!MsgNew (&m, WLFW_WLAN_MODE)) {
+    return;
+  }
+  MsgU32 (&m, 0x01, Mode);                      /* 0 = mission */
+  MsgU8 (&m, 0x10, 0);                          /* hw_debug */
+  MsgSend (&m);
+  Step ("wlan_mode sent");
+}
+
 STATIC VOID StartBdf(VOID)
 {
   if (mBdfStarted || !mMsaInd || !mCapDone) {
@@ -364,7 +426,7 @@ VOID WlfwRx(CONST UINT8 *D, UINT32 Len)
       Step ("FW READY");
       Out ("  t=%u.%03u *** WLAN FIRMWARE READY ***\r\n", (UINT32)(ModemMs () / 1000), (UINT32)(ModemMs () % 1000));
       SmmuProbe (FALSE);
-      CeProbe ();
+      SendWlanCfg ();
     } else {
       Out ("  wlfw: indication %x\r\n", msg);
     }
@@ -423,6 +485,21 @@ VOID WlfwRx(CONST UINT8 *D, UINT32 Len)
   case WLFW_CAL_REPORT:
     Out ("  wlfw: cal_report %a err %u, waiting for FW_READY\r\n", ok ? "ok" : "FAILED", err);
     Step ("waiting FW_READY");
+    break;
+  case WLFW_WLAN_CFG:
+    Out ("  wlfw: wlan_cfg %a err %u\r\n", ok ? "ok" : "FAILED", err);
+    if (ok) {
+      SendWlanMode (0);
+    }
+    break;
+  case WLFW_WLAN_MODE:
+    Out ("  t=%u.%03u wlfw: wlan_mode mission %a err %u\r\n", (UINT32)(ModemMs () / 1000),
+         (UINT32)(ModemMs () % 1000), ok ? "ok" : "FAILED", err);
+    if (ok) {
+      Step ("WLAN ON (mission)");
+      gBS->Stall (100 * 1000);
+      CeProbe ();                               /* the WLAN block should be powered now */
+    }
     break;
   default:
     Out ("  wlfw: response %x %a err %u\r\n", msg, ok ? "ok" : "FAILED", err);
