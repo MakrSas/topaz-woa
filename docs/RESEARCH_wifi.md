@@ -1,6 +1,6 @@
 # Wi-Fi on topaz under Windows — research log
 
-Status: **research**, nothing runs yet. Started 2026-10-01.
+Status: modem DSP boots to READY from UEFI (P1). Started 2026-10-01.
 Source of facts: the phone's DTB (`~/work/topaz/backup/fdt.dts`), Linux upstream/MiCode drivers.
 
 ## 1. What the hardware is
@@ -67,14 +67,23 @@ Linux references: `drivers/remoteproc/qcom_q6v5_pas.c`, `drivers/firmware/qcom_s
       - board data `bdwlan.bin` + `bdwlan.1xx/2xx/bxx` variants (picked by board id via WLFW QMI)
       - `modemr.jsn` / `modemuw.jsn` = pd-mapper service lists (root_pd, qmi instance 180: servreg, pdr, gps)
       - EFS backups for rmtfs: `modemst1`, `modemst2`, `fsg` (in `~/work/topaz/backup`)
-- [~] P1 Spike in UEFI (RAM boot), `uefi/TopazOtgDxe/ModemPas.c`, menu "Modem test":
+- [x] P1 Spike in UEFI (RAM boot), `uefi/TopazOtgDxe/ModemPas.c`, menu "Modem test":
       **2026-10-01: TZ authenticated and started MPSS** (init_image 0/0, mem_setup 0/0,
       auth_and_reset 0/0). Facts: raw SMC64 SiP calls (0x420002xx) from UEFI are accepted,
       all PIL calls available; firmware read from modem_a (FAT, after ConnectController on all
       BlockIo); split firmware (hash segment = modem.b01, 8056 B); relocatable (mem_setup
       needed); long calls return QCOM_SCM_INTERRUPTED (1) and must be resumed with x0=1 and the
       returned x6 (init 2 resumes, auth 22). No RPM proxy votes were made.
-      Next: read SMP2P (SMEM item 428, modem->apps) for "ready"/"fatal" to see if it really runs.
+      **2026-10-01 later: MPSS reaches READY.** SMEM v12 (global partition), ptable at
+      0x461FF000, apps<->modem partition @0x460DD000. The modem creates its SMP2P item 435
+      (modem->apps) 0.25 s after auth_and_reset but adds no entries until apps creates item 428
+      (apps->modem): allocated under TCSR hwlock 3 (0x343000, block 0x340000 is not in the UEFI
+      map -> gDS AddMemorySpace + UC), magic `$SMP` v1 features 1, kick = APCS 0x0F111008 bit 14.
+      Then within the same 0.25 s: entries `smp2p`=0, `slave-kernel`=0x6 (READY + handover),
+      stable for 20 s, no FATAL, wdog SPI 0x133 not pending. Bits (DTB): 0 fatal, 1 ready,
+      2 handover, 3 stop-ack, 7 shutdown-ack. SMEM 421 reads "SFR Init: wdog or kernel error
+      suspected." — that is the modem's placeholder written at init, not a crash.
+      Still no RPM proxy votes and no rmtfs/pd-mapper — the modem does not need them to get READY.
 - [ ] P2 Same in a Windows kernel driver (SMEM, GLINK-SMEM, QRTR, rmtfs/pd-mapper equivalents).
 - [ ] P3 WLFW QMI handshake (board data, mode on) — first proof the radio is alive.
 - [ ] P4 ath10k SNOC data path + WiFiCx miniport.
