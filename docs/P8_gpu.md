@@ -96,3 +96,14 @@ animations need the GPU.
   (GPLL0/3) + cx_gmu + smmu vote → GX GDSC (BCR 0x1008 pulse, clamp 0x1508 release, poll 0x100c
   bit31) → gx_gfx3d RCG 300 MHz (GPLL0/2) + branch (force mem core/periph) → read RBBM_STATUS,
   CP_HW_FAULT, CP_ALWAYS_ON_COUNTER (should tick ~19.2 MHz). Powers down on device stop.
+- **TopazGpu v0.2** (2026-10-01): CX GDSC came up (PWR_ON), but the GPU CC cxo/ahb branches were
+  polled before it and stayed off → abort. They live in the CX domain.
+- **TopazGpu v0.3 (2026-10-02): GPU POWERED AND RESPONDING.** Order: GCC GPLL0 vote (0x79004 bit 15)
+  + bimc_gpu_axi → CX GDSC (0x106c, status 0x1540 = 0x80001fe0) → gpucc cxo/ahb running → gmu RCG
+  GPLL0/3 (cfg 0x505) + cx_gmu + smmu vote running → GX GDSC (BCR pulse, clamp release, 0x100c =
+  0xf8222000 PWR_ON) → gx_gfx3d RCG GPLL0/2 = 300 MHz (cfg 0x503) + branch (0x6221) running. GPU reads:
+  RBBM_STATUS 0x00000001, CP_HW_FAULT 0, CP_ALWAYS_ON_COUNTER 0x27143 → 0x59547 in ~10.7 ms
+  (19.2 MHz) — no bus hang. GCC memnoc_gfx / snoc_dvm_gfx still report CLK_OFF (BRANCH_VOTED, Linux
+  does not poll them) — check once the CP touches memory.
+- Next (v0.4): GPU SMMU 0x59a0000 state dump (read only), then identity bank; zap via PAS 13; SQE;
+  ring; CP_ME_INIT; CP_MEM_WRITE test.
