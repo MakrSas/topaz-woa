@@ -1,5 +1,14 @@
 # Windows on topaz: USB host boot + manual driver install
 
+## Default boot (since 2026-10-01): Windows
+Slot **b** is active: `boot_b` = Mu UEFI (`Mu-topaz-v4-DEFAULT-WIN-RELEASE.img`), a 3 s menu
+(Windows / Fastboot / Power off), then Windows. Power on without a PC -> Windows; Windows
+"Restart" comes back to Windows.
+- Android: `ssh s8build ~/work/topaz-boot.sh android` (= `fastboot set_active a; fastboot reboot`).
+  Slot a stays active (HyperOS, TWRP via Vol+ / `adb reboot recovery`) until switched back.
+- Back to Windows: `ssh s8build ~/work/topaz-boot.sh windows`.
+- Fastboot from any state: Vol- + Power (or the menu item).
+
 ## Boot with USB (keyboard/mouse/flash via hub)
 1. Phone in bootloader fastboot (`fastboot getvar is-userspace` -> `no`), cable to the laptop.
 2. `ssh s8build fastboot boot ~/work/win/uefi/Mu-topaz-v4-GOOD-usb-host-20261001.img`

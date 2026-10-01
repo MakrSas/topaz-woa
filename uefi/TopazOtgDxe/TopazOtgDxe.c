@@ -419,8 +419,13 @@ STATIC VOID DumpLog(VOID)
 
 /* ---- Boot menu: Vol+/Vol- move, Power (any other key) selects ---------------- */
 
-enum { MENU_WINDOWS, MENU_ANDROID, MENU_TWRP, MENU_FASTBOOT, MENU_POWEROFF, MENU_COUNT };
-STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Android", "TWRP", "Fastboot", "Power off" };
+/*
+ * Android/TWRP items are disabled: switching A/B from UEFI needs the full ABL
+ * SetActiveSlot (type GUID swap of every _a/_b pair), see docs/AGENT_BRIEF_drivers.md 2c.
+ * Android is started from the PC with `fastboot set_active a`.
+ */
+enum { MENU_WINDOWS, MENU_FASTBOOT, MENU_POWEROFF, MENU_COUNT, MENU_ANDROID = 100, MENU_TWRP };
+STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Fastboot", "Power off" };
 
 /*
  * Layout: slot b boot_b = this UEFI (active by default), slot a = Android + TWRP in
@@ -544,7 +549,7 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
   }
 
   for (;;) {
-    choice = BootMenu (10);
+    choice = BootMenu (3);
     if (choice == MENU_ANDROID || choice == MENU_TWRP) {
       EFI_STATUS st = EFI_ERROR (mAbStatus) ? mAbStatus :
                       !AB_ACTIVE (mAb.AttrB) ? EFI_ALREADY_STARTED : AbSlotRequestA (&mAb);
