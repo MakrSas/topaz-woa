@@ -105,6 +105,7 @@ typedef struct _DEVICE_CONTEXT {
     ULONG        Polls;
     ULONG        LastVbusStat;      /* charger REG0B VBUS_STAT at the last poll (~0 = none yet) */
     UCHAR        LastCcStatus;      /* rt1711h CC_STATUS at the last poll */
+    ULONG        JeitaZone;         /* index into the JEITA table, ~0 = none yet */
     BOOLEAN      TcpcOk;            /* rt1711h answered and is in sink Rd/Rd: CC states usable */
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 

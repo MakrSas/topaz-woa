@@ -94,6 +94,7 @@ NTSTATUS BattHwInit(PDEVICE_CONTEXT Ctx)
         Ctx->LastCcStatus = 0xFF;
     }
     Ctx->LastVbusStat = (ULONG)~0;
+    Ctx->JeitaZone = (ULONG)~0;
     Ctx->HwReady = TRUE;
     return STATUS_SUCCESS;
 }
@@ -182,15 +183,123 @@ static BOOLEAN CcSeesSource(UCHAR Cc)
     return Cc != 0xFF && (TCPC_CC1(Cc) != 0 || TCPC_CC2(Cc) != 0);
 }
 
-static VOID ChargerPolicy(PDEVICE_CONTEXT Ctx, UCHAR R03, UCHAR R0B, UCHAR Cc)
+/*
+ * Software JEITA, zones and currents from the topaz DTB (qcom,nopmi-chg), capped to what the
+ * bq2589x alone may do. Ordered cold -> hot; MinTenths = lower bound of the zone.
+ */
+typedef struct _JEITA_ZONE {
+    LONG  MinTenths;
+    ULONG IchgMa;       /* 0 = do not charge */
+    ULONG VregMv;
+} JEITA_ZONE;
+
+static const JEITA_ZONE g_Jeita[] = {
+    { -1000,    0, 0 },                                   /* below -10 degC: no charging */
+    {  -100,  490, CHG_VREG_MV },                         /* -10..0  temp_tn1_to_t0_fcc */
+    {     0,  950, CHG_VREG_MV },                         /*   0..5  temp_t0_to_t1_fcc */
+    {    50, CHG_ICHG_MAX_MA, CHG_VREG_MV },              /*   5..10 (DTB 2400) */
+    {   100, CHG_ICHG_MAX_MA, CHG_VREG_MV },              /*  10..15 (DTB 3900) */
+    {   150, CHG_ICHG_MAX_MA, CHG_VREG_MV },              /*  15..48 (DTB 5950, charge-pump path) */
+    {   480, CHG_ICHG_HOT_MA, CHG_VREG_HOT_MV },          /*  48..60 (DTB 2350 / 4.10 V) */
+    {   600,    0, 0 },                                   /* above 60 degC: no charging */
+};
+#define JEITA_ZONES (sizeof(g_Jeita) / sizeof(g_Jeita[0]))
+
+static ULONG JeitaZoneOf(LONG Tenths)
+{
+    ULONG z = 0;
+    while (z + 1 < JEITA_ZONES && Tenths >= g_Jeita[z + 1].MinTenths) {
+        z++;
+    }
+    return z;
+}
+
+/* Moves to a zone with less current at once; to one with more only 1.5 degC inside it. */
+static ULONG JeitaUpdate(PDEVICE_CONTEXT Ctx, LONG Tenths)
+{
+    ULONG z = JeitaZoneOf(Tenths), last = Ctx->JeitaZone;
+
+    if (last < JEITA_ZONES && z != last && g_Jeita[z].IchgMa >= g_Jeita[last].IchgMa &&
+        (JeitaZoneOf(Tenths - 15) != z || JeitaZoneOf(Tenths + 15) != z)) {
+        z = last;
+    }
+    if (z != last) {
+        LogPrint("jeita: %d.%dC zone %d -> %u (ichg %umA vreg %umV)\n", Tenths / 10,
+                 (Tenths < 0 ? -Tenths : Tenths) % 10, last < JEITA_ZONES ? (LONG)last : -1, z,
+                 g_Jeita[z].IchgMa, g_Jeita[z].VregMv);
+        Ctx->JeitaZone = z;
+    }
+    return z;
+}
+
+/*
+ * Input limit from what the source says it can give: Type-C Rp advert first, then the
+ * charger's own BC1.2 result. 0 = leave the charger's own choice alone.
+ */
+static ULONG InputLimitMa(UCHAR R0B, UCHAR Cc)
+{
+    ULONG rp = 0;
+
+    if (Cc != 0xFF) {
+        rp = max(TCPC_CC1(Cc), TCPC_CC2(Cc));
+    }
+    if (rp == 3) {
+        return CHG_IINLIM_MAX_MA;           /* Rp 3.0 A */
+    }
+    if (rp == 2) {
+        return 1500;                        /* Rp 1.5 A */
+    }
+    switch (CHG_VBUS_STAT(R0B)) {
+    case 2:  return 1500;                   /* CDP */
+    case 3:                                 /* DCP */
+    case 4:  return CHG_IINLIM_MAX_MA;      /* HVDCP (still 5 V: we don't ask for more) */
+    default: return 0;                      /* SDP / unknown / non-standard: keep */
+    }
+}
+
+/* ICHG / VREG / IINLIM, written only when they differ from what the charger holds. */
+static VOID ChargerLimits(PDEVICE_CONTEXT Ctx, ULONG Zone, UCHAR R0B, UCHAR Cc)
+{
+    UCHAR r00 = 0, r04 = 0, r06 = 0, w00, w04, w06;
+    ULONG iin = InputLimitMa(R0B, Cc);
+
+    if (!NT_SUCCESS(I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG00, &r00)) ||
+        !NT_SUCCESS(I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG04, &r04)) ||
+        !NT_SUCCESS(I2cReadByte(&Ctx->Bus, CHG_ADDR, CHG_REG06, &r06))) {
+        return;
+    }
+    w04 = r04;
+    w06 = r06;
+    if (g_Jeita[Zone].IchgMa != 0) {
+        w04 = (UCHAR)((r04 & 0x80) | (g_Jeita[Zone].IchgMa / 64));                  /* round down */
+        w06 = (UCHAR)((r06 & 0x03) | (((g_Jeita[Zone].VregMv - 3840) / 16) << 2));
+    }
+    w00 = r00;
+    if (iin != 0) {
+        w00 = (UCHAR)((r00 & 0xC0) | ((iin - 100) / 50));
+    }
+    if (w00 != r00 || w04 != r04 || w06 != r06) {
+        NTSTATUS a = STATUS_SUCCESS, b = STATUS_SUCCESS, c = STATUS_SUCCESS;
+        if (w06 != r06) a = I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG06, w06);
+        if (w04 != r04) b = I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG04, w04);
+        if (w00 != r00) c = I2cWriteByte(&Ctx->Bus, CHG_ADDR, CHG_REG00, w00);
+        LogPrint("charger limits: zone %u vbus_stat=%u cc=%02x | r00 %02x->%02x (iinlim %umA) r04 %02x->%02x (ichg %umA) "
+                 "r06 %02x->%02x (vreg %umV) (%08x %08x %08x)\n",
+                 Zone, CHG_VBUS_STAT(R0B), Cc, r00, w00, 100 + 50 * (w00 & 0x3F), r04, w04, 64 * (w04 & 0x7F),
+                 r06, w06, 3840 + 16 * (w06 >> 2), a, b, c);
+    }
+}
+
+static VOID ChargerPolicy(PDEVICE_CONTEXT Ctx, UCHAR R03, UCHAR R0B, UCHAR Cc, BOOLEAN Allow)
 {
     ULONG vbus = CHG_VBUS_STAT(R0B);
     UCHAR want = R03;
+    UCHAR chg = Allow ? CHG_CHG_CONFIG : 0;
 
     if (vbus == 7 && (R03 & CHG_OTG_CONFIG) && CcSeesSource(Cc)) {
-        want = (UCHAR)((R03 | CHG_CHG_CONFIG) & ~CHG_OTG_CONFIG);   /* adapter plugged into our boost */
+        want = (UCHAR)(((R03 & ~CHG_CHG_CONFIG) | chg) & ~CHG_OTG_CONFIG);  /* adapter plugged into our boost */
     } else if (vbus >= 1 && vbus <= 6) {
-        want = (UCHAR)((R03 | CHG_CHG_CONFIG) & ~CHG_OTG_CONFIG);   /* adapter: charge */
+        want = (UCHAR)(((R03 & ~CHG_CHG_CONFIG) | chg) & ~CHG_OTG_CONFIG);  /* adapter: charge (if JEITA allows) */
     } else if (vbus == 0) {
         want = (UCHAR)(R03 | CHG_OTG_CONFIG);                      /* nothing: boost for the hub */
     }
@@ -267,7 +376,16 @@ VOID BattPoll(PDEVICE_CONTEXT Ctx)
         Ctx->LastCcStatus = s.CcStatus;
     }
 
-    ChargerPolicy(Ctx, s.ChgReg03, s.ChgReg0B, s.CcStatus);
+    {
+        /* No trusted temperature -> no charging changes beyond the old on/off policy */
+        ULONG zone = s.Valid ? JeitaUpdate(Ctx, s.TempTenthsC) : Ctx->JeitaZone;
+        BOOLEAN allow = zone >= JEITA_ZONES || g_Jeita[zone].IchgMa != 0;
+
+        ChargerPolicy(Ctx, s.ChgReg03, s.ChgReg0B, s.CcStatus, allow);
+        if (zone < JEITA_ZONES && s.OnLine) {
+            ChargerLimits(Ctx, zone, s.ChgReg0B, s.CcStatus);
+        }
+    }
 
     state = (s.OnLine ? 1 : 0) | (s.Charging ? 2 : 0) | (s.ChargeDone ? 4 : 0);
     notifySoc = s.SocTenths / 10;

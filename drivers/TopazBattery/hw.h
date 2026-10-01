@@ -143,6 +143,17 @@
 #define TCPC_CC1(r)              ((r) & 3)          /* as sink: 0 open, 1 Rp default USB, 2 Rp 1.5 A, 3 Rp 3.0 A */
 #define TCPC_CC2(r)              (((r) >> 2) & 3)
 
+/*
+ * Charge limits through the bq2589x alone (no charge pump), from the topaz DTB:
+ * bq2589x node charge-current 2000 mA / input-current 2000 mA, nopmi fv-max 4.40 V (stricter
+ * than charge-voltage 4.45 V), nopmi software JEITA zones (temp_*_thres, temp_*_fcc, *_cv).
+ */
+#define CHG_ICHG_MAX_MA          2000
+#define CHG_IINLIM_MAX_MA        2000
+#define CHG_VREG_MV              4400
+#define CHG_VREG_HOT_MV          4100      /* jeita_temp_t3_to_t4_cv, 48..60 degC */
+#define CHG_ICHG_HOT_MA          1024      /* DTB allows 2350; kept lower on purpose */
+
 /* ---- battery pack (topaz: 5000 mAh nominal, 4.45 V max) ------------------ */
 #define BATT_DESIGN_MAH          5000
 #define BATT_NOMINAL_MV          3870

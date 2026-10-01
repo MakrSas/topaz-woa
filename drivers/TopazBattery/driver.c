@@ -14,7 +14,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS status;
 
     LogOpen();
-    LogPrint("==== TopazBattery v0.4 (charger ADC readout, Type-C source detect) ====\n");
+    LogPrint("==== TopazBattery v0.5 (2 A charge, JEITA, Type-C source detect) ====\n");
 
     WDF_DRIVER_CONFIG_INIT(&config, TopazEvtDeviceAdd);
     config.EvtDriverUnload = TopazEvtDriverUnload;
