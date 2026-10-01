@@ -37,6 +37,12 @@ the English layout — decode it). Estimates in hours/days (Wi-Fi took one day e
   (proprietary, reference only), `lp.py` (super.img LP parser), `vendor_a.img` (ColorOS vendor,
   691 MB) → extract `a610_zap.*` from it (`fsck.erofs --extract` or debugfs, depending on the fs).
 - User gave blanket permission to download what is needed for this work ("качай все что можно").
+- **Firmware extracted** to s8build `~/work/gpu/vfw/` (a610_zap.mdt/.b00-.b02/.elf, vendor a630_sqe.fw).
+- **TopazGpu v0.1** (`drivers/TopazGpu`, commit 690fa9c, CI run 36924106509): read-only dump of the GPU
+  clock tree (GCC GPU branches + GPU CC PLLs/RCGs/CBCRs/GDSCs) to `C:\TopazGpu.log`. Not yet installed —
+  ask the user, then install over SSH (no reboot). Next v0.2: power-up with GX_GFX3D from GPLL0
+  (parent 5 of gx_gfx3d RCG, 600 MHz / 2 = 300 MHz, no GPU CC PLL needed), CX then GX GDSC on, then
+  first reads of the GPU core (chip id), then SMMU, zap, SQE, ring (P8_gpu.md G1 list).
 
 ## Still open (older)
 - Wi-Fi P6 HT/VHT (`docs/HANDOFF_p6_htvht.md`), then P7 (CE interrupts, real MAC, stats).
