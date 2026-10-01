@@ -31,7 +31,7 @@ wants something undocumented — each item lists its main unknown.
 ## Planned
 | # | Item | Shared base | Cost | Main unknown |
 |---|---|---|---|---|
-| 0 | **CPU frequency** (no DVFS in Windows: no Qualcomm PEP/PPM) | — | read the level ~1 h; fixed max level ~1-2 h; own load-based governor a few hours | does the cpufreq-hw block accept apps writes |
+| 0 | **CPU frequency** (no DVFS in Windows: no Qualcomm PEP/PPM) | — | **done (fixed max, TopazCpu v0.1)**; load-based governor + thermal a few hours | heat / battery at max level |
 | 1 | Screen rotation (accelerometer / gyro) | display rotation; ADSP if the IMU sits behind it | display ~1 h; sensor: a few hours direct, ~1 day via ADSP | is the IMU bus open to apps |
 | 2 | SIM: mobile internet (**no calls**) | running modem + QRTR (already have) | QMI (SIM, network, data call) a few hours; IPA data path ~1 day; "Cellular" page ~1 day | IPA/GSI bring-up |
 | 3 | Sound (speaker, headphones) | ADSP boot + AudioReach | ADSP boot a few hours (PAS + GLINK code exists); graph + ACX 1-2 days | AudioReach graph / calibration |
@@ -53,6 +53,15 @@ The GPU experiment and display improvements fit in between; camera last.
 - Plan: log the LUT and PERF_STATE from a driver (read only) → set the top level for both domains
   (voltage and thermal throttling are handled by the OSM/LMh hardware) → later a simple governor
   from CPU load (and idle states / PEP for battery).
+- **Result (TopazCpu v0.1, 2026-10-01):** the bootloader leaves silver at level 4 = 1516 MHz and
+  **gold at level 0 = 300 MHz** (of 2803). Tables: silver 300/691/940/1190/1516/1804/1900 MHz
+  (552-800 mV), gold 300/806/1056/1344/1766/2208/2400/2592/2803 MHz (572-908 mV). With
+  `C:\topaz\cpu.max` both clusters go to the top level: single-core SHA-256 gold 2 → 21 MB/s, silver
+  5 → 7 MB/s; the user: "стало СИЛЬНО лучше". One hang a few minutes later (cause unknown, user
+  killed a task → black screen, hard reboot); stable after the reboot so far. CURRENT_VOTE (0x704)
+  reads a constant 0x0474009e on both domains — not the running level on this SoC; drop it in v0.2.
+  Install over SSH: package to `C:\topaz\stage\TopazCpu`, certutil Root/TrustedPublisher, devcon
+  install; undo: delete `C:\topaz\cpu.max` + `devcon restart Root\TopazCpu`.
 
 ## 1. Screen rotation
 - Windows auto-rotation needs only an **accelerometer** (gyro is optional). Two parts:
