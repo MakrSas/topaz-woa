@@ -102,4 +102,6 @@ VOID           AssocEvent(UINT32 Id, CONST UINT8 *Tlvs, UINT32 Len);
 VOID           AssocPoll(VOID);
 BOOLEAN        AssocIsUp(VOID);
 CONST UINT8   *AssocBssid(VOID);
+BOOLEAN        AssocPtkInstalled(VOID);                       /* pairwise key is in the firmware */
+VOID           HttTxPoll(VOID);                               /* htt.c: drain the data TX queue */
 VOID           WlfwSetStep(CONST CHAR8 *S);

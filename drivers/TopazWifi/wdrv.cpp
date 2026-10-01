@@ -38,7 +38,7 @@ static BOOLEAN FileProbe(PCWSTR Path, BOOLEAN Delete)
 /*
  * Boot guard: a Net driver loads on every boot, so a crash in its setup would repeat forever.
  * DeviceAdd creates C:\topaz\wifi.boot and refuses to start if it already exists (the previous
- * start never got 60 s in); a passive timer deletes it after 60 s of normal running.
+ * start never got 20 s in); a passive timer deletes it after 20 s of normal running.
  * install-wifi.cmd deletes it before every install.
  */
 static BOOLEAN GuardEnter(VOID)
@@ -80,7 +80,7 @@ static VOID EvtGuardTimer(WDFTIMER Timer)
 {
     UNREFERENCED_PARAMETER(Timer);
     GuardLeave();
-    WLOG("boot guard: 60 s up, C:\\topaz\\wifi.boot removed\r\n");
+    WLOG("boot guard: 20 s up, C:\\topaz\\wifi.boot removed\r\n");
 }
 
 static VOID GuardTimerStart(WDFDEVICE Device)
@@ -95,7 +95,7 @@ static VOID GuardTimerStart(WDFDEVICE Device)
     attrs.ParentObject = Device;
     attrs.ExecutionLevel = WdfExecutionLevelPassive;
     if (NT_SUCCESS(WdfTimerCreate(&config, &attrs, &timer))) {
-        WdfTimerStart(timer, WDF_REL_TIMEOUT_IN_MS(60000));
+        WdfTimerStart(timer, WDF_REL_TIMEOUT_IN_MS(20000));
     }
 }
 
@@ -157,7 +157,7 @@ static NTSTATUS EvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 
     UNREFERENCED_PARAMETER(Driver);
     if (!GuardEnter()) {
-        WLOG("boot guard: C:\\topaz\\wifi.boot exists, the last start did not survive 60 s -> not starting\r\n");
+        WLOG("boot guard: C:\\topaz\\wifi.boot exists, the last start did not survive 20 s -> not starting\r\n");
         return STATUS_UNSUCCESSFUL;
     }
     status = NetDeviceInitConfig(DeviceInit);          /* data path: NetAdapterCx */

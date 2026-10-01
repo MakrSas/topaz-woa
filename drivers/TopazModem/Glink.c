@@ -674,6 +674,7 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
     HttPoll ();
 #ifdef TOPAZ_WIFICX
     AssocPoll ();                               /* TopazWifi: station association */
+    HttTxPoll ();                               /* TopazWifi: data frames from Windows */
 #endif
     busy = busy || mRxMsgs != rx0 || mTxMsgs != tx0;
     ModemIdle (busy);

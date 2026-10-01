@@ -32,6 +32,10 @@ VOID WlanOnAssocResult(LONG Status, ULONG Aid, _In_reads_bytes_(ReqLen) const UC
 /* Link gone: after WlanDisconnectRequest, or the AP deauthenticated/kicked us (Reason = 802.11 code). */
 VOID WlanOnDisconnected(ULONG Reason, BOOLEAN ByPeer);
 
+/* A received data frame in Windows' native 802.11 format (24-byte header, LLC/SNAP, payload),
+   i.e. what the firmware delivers in native-wifi decap mode. Copy it before returning. */
+VOID WlanOnRxFrame(_In_reads_bytes_(Len) const UCHAR *Frame, ULONG Len);
+
 /* ---- front end -> core (any thread) ---- */
 
 typedef struct _WLAN_CONNECT {
@@ -52,6 +56,10 @@ VOID WlanConnectRequest(_In_ const WLAN_CONNECT *Req);
 
 /* Leave the BSS (deauth, vdev down, peer delete); the answer is WlanOnDisconnected. */
 VOID WlanDisconnectRequest(USHORT Reason);
+
+/* Queue one native 802.11 data frame from Windows for transmission (copied; HTT TX on the modem
+   thread). FALSE when the queue is full or the frame too big (the frame is dropped). */
+BOOLEAN WlanTxQueue(_In_reads_bytes_(Len) const UCHAR *Frame, ULONG Len);
 
 /* TRUE while an association is being set up (scans must wait). */
 BOOLEAN WlanIsConnecting(VOID);

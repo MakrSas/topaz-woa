@@ -65,6 +65,7 @@ STATIC UINTN           mDeadline;
 STATIC UINT8           mAssocReq[512], mAssocResp[512];
 STATIC UINT32          mAssocReqLen, mAssocRespLen;
 STATIC UINT8          *mTxBuf;                       /* management frames for MGMT_TX_SEND (DMA) */
+STATIC BOOLEAN         mPtk;                         /* pairwise key installed (EAPOL may be encrypted) */
 STATIC UINT64          mTxPa;
 
 STATIC UINT8 *P32(UINT8 *P, UINT32 V)
@@ -427,6 +428,7 @@ STATIC VOID Begin(VOID)
   }
   mAssocReqLen = mAssocRespLen = 0;
   mStartResp = FALSE;
+  mPtk = FALSE;
   Out ("  t=%u.%03u assoc: %02x:%02x:%02x:**:**:** %u MHz bcn %u dtim %u %a\r\n", T, mReq.Bssid[0], mReq.Bssid[1],
        mReq.Bssid[2], mReq.Freq, bcn, dtim, mReq.Rsn ? "WPA2" : "open");
   SendPsOff ();
@@ -624,6 +626,11 @@ CONST UINT8 *AssocBssid(VOID)
   return mReq.Bssid;
 }
 
+BOOLEAN AssocPtkInstalled(VOID)
+{
+  return mPtk;
+}
+
 /* ---------------- keys (WDI_SET_ADD_CIPHER_KEYS -> VDEV_INSTALL_KEY) ---------------- */
 
 #define CMD_VDEV_INSTALL_KEY    0x5009
@@ -678,6 +685,7 @@ STATIC VOID KeysPoll(VOID)
     Out ("  t=%u.%03u assoc: install %a key idx %u cipher %u len %u -> %a\r\n", T, k[i].Group ? "group" : "pairwise",
          k[i].Idx, k[i].Cipher, k[i].Len, SendKey (&k[i]) ? "sent" : "FAILED");
     if (!k[i].Group) {
+      mPtk = TRUE;
       SendPeerParam (mReq.Bssid, PEER_PARAM_AUTHORIZE, 1);
       Step ("WPA2 keys installed");
     }

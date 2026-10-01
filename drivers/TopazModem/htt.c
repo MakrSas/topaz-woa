@@ -6,6 +6,9 @@
  * to put frames until the host ring exists. HTT messages go out on the HTT endpoint (CE4).
  */
 #include "Modem.h"
+#ifdef TOPAZ_WIFICX
+#include "wlanif.h"
+#endif
 
 #define Out ModemOut
 #define Step WlfwSetStep
@@ -20,6 +23,7 @@
 #define T2H_RX_IND              0x01
 #define T2H_PEER_MAP            0x03
 #define T2H_RX_IN_ORD_PADDR_IND 0x12
+#define T2H_TX_COMPL_IND        0x07
 
 #define RING_SIZE               256               /* power of 2, >= HTT_RX_RING_SIZE_MIN (128) */
 #define BUF_SIZE                2048              /* HTT_RX_BUF_SIZE */
@@ -40,6 +44,7 @@
 
 STATIC UINT8   *mBlk;                             /* [ring u64 x N][alloc idx][frag bank][buffers] */
 STATIC UINT64   mBlkPa, mRingPa, mIdxPa, mBankPa, mBufPa;
+STATIC UINT8   *mBank;                            /* frag desc bank: one htt_msdu_ext_desc_64 per msdu id */
 STATIC volatile UINT64 *mRing;
 STATIC volatile UINT32 *mIdx;
 STATIC UINT8   *mBuf;
@@ -75,6 +80,7 @@ STATIC BOOLEAN HttAlloc(VOID)
   mIdx    = (volatile UINT32 *)(mBlk + RING_SIZE * 8);   /* fw_idx_shadow_reg: host-written alloc index */
   mIdxPa  = mBlkPa + RING_SIZE * 8;
   mBankPa = mBlkPa + ring;
+  mBank   = mBlk + ring;
   mBuf    = mBlk + ring + bank;
   mBufPa  = mBlkPa + ring + bank;
   Out ("  htt: host memory %lx + %x (ring %u x %u B, frag bank %u x %u B)\r\n", mBlkPa, (UINT32)size, RING_SIZE,
@@ -194,6 +200,164 @@ VOID HttStart(VOID)
   Step ("HTT version req");
 }
 
+#ifdef TOPAZ_WIFICX
+/*
+ * Data TX (ath10k_htt_tx_64, native wifi): the frame sits in DMA memory, its htt_msdu_ext_desc_64
+ * in the frag desc bank points at it, and the TX_FRM message (cmd hdr + htt_data_tx_desc_64 + the
+ * first prefetch bytes for the classifier) goes out on the HTT endpoint (CE4). The slot is freed
+ * by HTT TX_COMPL_IND. Frames from Windows queue up here (any thread), the modem thread sends.
+ */
+#define TX_SLOTS       64
+#define TX_SLOT_SIZE   2048
+#define H2T_TX_FRM     1
+#define TXF0_MAC_HDR   0x01
+#define TXF0_NO_ENCRYPT 0x04
+#define TXF0_NATIVE    (1u << 5)                  /* pkt type ATH10K_HW_TXRX_NATIVE_WIFI */
+#define TXF1_TID_NONQOS (16u << 6)                /* HTT_DATA_TX_EXT_TID_NON_QOS_MCAST_BCAST */
+#define TXF1_POSTPONED (1u << 11)
+#define PREFETCH_LEN   50                         /* 802.11 + qos + ht, 802.1q, llc snap, dscp */
+
+typedef struct { UINT16 Len; UINT8 Data[TX_SLOT_SIZE]; } TXQ_ENT;
+
+STATIC UINT8      *mTxPool;                       /* TX_SLOTS frames, DMA */
+STATIC UINT64      mTxPoolPa;
+STATIC UINT64      mTxBusy;                       /* msdu id bitmap */
+STATIC TXQ_ENT    *mTxq;                          /* Windows -> modem thread */
+STATIC UINT32      mTxqHead, mTxqTail;
+STATIC KSPIN_LOCK  mTxqLock;
+STATIC UINT32      mTxSent, mTxDone, mTxFail, mTxDrop, mRxUp;
+
+BOOLEAN WlanTxQueue(CONST UCHAR *Frame, ULONG Len)
+{
+  KIRQL irql;
+  BOOLEAN ok = FALSE;
+
+  if (mTxq == NULL || Len < 24 || Len > TX_SLOT_SIZE) {
+    mTxDrop++;
+    return FALSE;
+  }
+  KeAcquireSpinLock (&mTxqLock, &irql);
+  if (mTxqTail - mTxqHead < TX_SLOTS) {
+    TXQ_ENT *e = &mTxq[mTxqTail % TX_SLOTS];
+    e->Len = (UINT16)Len;
+    CopyMem (e->Data, Frame, Len);
+    mTxqTail++;
+    ok = TRUE;
+  }
+  KeReleaseSpinLock (&mTxqLock, irql);
+  if (!ok) {
+    mTxDrop++;
+  }
+  return ok;
+}
+
+/* EAPOL (LLC/SNAP 88 8E right after the 24-byte header) goes out in the clear until the PTK is set */
+STATIC BOOLEAN IsEapol(CONST UINT8 *F, UINT32 Len)
+{
+  return Len >= 32 && F[24] == 0xAA && F[25] == 0xAA && F[30] == 0x88 && F[31] == 0x8E;
+}
+
+STATIC BOOLEAN TxOne(CONST UINT8 *F, UINT32 Len)
+{
+  UINT8 m[20 + 52], *p = m, *ext, f0;
+  UINT32 id, pf = ALIGN_VALUE (MIN (Len, PREFETCH_LEN), 4);
+  UINT64 pa;
+
+  for (id = 0; id < TX_SLOTS && (mTxBusy & (1ull << id)) != 0; id++) {
+  }
+  if (id == TX_SLOTS) {
+    return FALSE;
+  }
+  pa = mTxPoolPa + (UINT64)id * TX_SLOT_SIZE;
+  CopyMem (mTxPool + (UINTN)id * TX_SLOT_SIZE, F, Len);
+  ext = mBank + (UINTN)id * EXT_DESC_SIZE;         /* frags[0] at +24: paddr_lo, paddr_hi16, len16 */
+  ZeroMem (ext, EXT_DESC_SIZE);
+  *(UINT32 *)(ext + 24) = (UINT32)pa;
+  *(UINT16 *)(ext + 28) = (UINT16)(pa >> 32);
+  *(UINT16 *)(ext + 30) = (UINT16)Len;
+  __dsb (15);
+
+  f0 = TXF0_MAC_HDR | TXF0_NATIVE;
+  if (IsEapol (F, Len) && !AssocPtkInstalled ()) {
+    f0 |= TXF0_NO_ENCRYPT;
+  }
+  ZeroMem (m, sizeof (m));
+  *p++ = H2T_TX_FRM;
+  *p++ = f0;
+  p = Put16 (p, (UINT16)(TXF1_TID_NONQOS | TXF1_POSTPONED));   /* vdev 0 */
+  p = Put16 (p, (UINT16)Len);
+  p = Put16 (p, (UINT16)id);
+  p = Put64 (p, mBankPa + (UINT64)id * EXT_DESC_SIZE);
+  *(UINT32 *)p = 0xFFFF;                          /* peerid: HTT_INVALID_PEERID */
+  p += 4;
+  CopyMem (p, F, MIN (Len, pf));
+  if (!HtcHttSend (m, 20 + pf)) {
+    return FALSE;
+  }
+  mTxBusy |= 1ull << id;
+  mTxSent++;
+  if (mTxSent <= 6) {
+    Out ("  t=%u.%03u htt tx: id %u len %u fc %02x%02x%a\r\n", T, id, Len, F[0], F[1],
+         (f0 & TXF0_NO_ENCRYPT) ? " EAPOL (clear)" : "");
+  }
+  return TRUE;
+}
+
+VOID HttTxPoll(VOID)
+{
+  KIRQL irql;
+  UINT32 n;
+
+  if (mTxq == NULL) {                             /* first call: the queue + DMA pool */
+    KeInitializeSpinLock (&mTxqLock);
+    mTxPool = PhysAlloc (TX_SLOTS * TX_SLOT_SIZE, &mTxPoolPa);
+    if (mTxPool != NULL) {
+      mTxq = AllocateZeroPool (TX_SLOTS * sizeof (TXQ_ENT));
+    }
+    return;
+  }
+  if (!AssocIsUp ()) {                            /* not associated: nothing may go out */
+    KeAcquireSpinLock (&mTxqLock, &irql);
+    mTxDrop += mTxqTail - mTxqHead;
+    mTxqHead = mTxqTail;
+    KeReleaseSpinLock (&mTxqLock, irql);
+    return;
+  }
+  for (n = 0; n < 8 && mState == 2 && mBank != NULL; n++) {
+    TXQ_ENT *e;
+    KeAcquireSpinLock (&mTxqLock, &irql);
+    e = mTxqHead != mTxqTail ? &mTxq[mTxqHead % TX_SLOTS] : NULL;
+    KeReleaseSpinLock (&mTxqLock, irql);
+    if (e == NULL || !TxOne (e->Data, e->Len)) {
+      break;
+    }
+    KeAcquireSpinLock (&mTxqLock, &irql);
+    mTxqHead++;
+    KeReleaseSpinLock (&mTxqLock, irql);
+  }
+}
+
+/* HTT TX_COMPL_IND: {type, flags (status in [2:0]), num_msdus, flags2, u16 msdu ids[]} */
+STATIC VOID TxCompl(CONST UINT8 *P, UINT32 Len)
+{
+  UINT32 n = P[2], i, st = P[1] & 7;
+
+  for (i = 0; i < n && 4 + 2 * (i + 1) <= Len; i++) {
+    UINT16 id = *(CONST UINT16 *)(P + 4 + 2 * i);
+    if (id < TX_SLOTS) {
+      mTxBusy &= ~(1ull << id);
+    }
+  }
+  mTxDone += n;
+  if (st != 0) {
+    mTxFail += n;
+  }
+  if (mTxDone <= 6 || (st != 0 && mTxFail <= 6)) {
+    Out ("  t=%u.%03u htt tx compl: %u msdu(s) status %u\r\n", T, n, st);
+  }
+}
+#endif
+
 /* RX_IN_ORD_PADDR_IND: {type, info, peer_id, vdev_id, rsvd, msdu_count} + {u64 paddr, u16 len, u8 fw_desc, u8}[] */
 STATIC VOID OnInOrd(CONST UINT8 *P, UINT32 Len)
 {
@@ -215,6 +379,12 @@ STATIC VOID OnInOrd(CONST UINT8 *P, UINT32 Len)
       Out ("  t=%u.%03u htt rx: msdu len %u fw_desc %02x tid %u, fc %02x%02x a3 %02x:%02x:%02x:**:**:**\r\n", T, mlen,
            d[10], P[1] & 0x1F, h[0], h[1], h[16], h[17], h[18]);
     }
+#ifdef TOPAZ_WIFICX
+    if (AssocIsUp () && mlen <= BUF_SIZE - 4 * OFF_MSDU_PAYLOAD) {
+      WlanOnRxFrame (mBuf + (pa - mBufPa) + 4 * OFF_MSDU_PAYLOAD, mlen);   /* native wifi, after rx_desc_v2 */
+      mRxUp++;
+    }
+#endif
     PostBuf (pa);                                 /* recycle the same buffer */
     mRecycled++;
   }
@@ -240,6 +410,12 @@ VOID HttRx(CONST UINT8 *P, UINT32 Len)
     OnInOrd (P, Len);
     return;
   }
+#ifdef TOPAZ_WIFICX
+  if (type == T2H_TX_COMPL_IND && Len >= 4) {
+    TxCompl (P, Len);
+    return;
+  }
+#endif
   if (mMsgs <= 24) {
     Out ("  t=%u.%03u htt: msg type %x, %u bytes\r\n", T, type, Len);
     ScanDump ("htt", P, Len, 8);
@@ -256,6 +432,9 @@ VOID HttPoll(VOID)
 
 VOID HttSummary(VOID)
 {
+#ifdef TOPAZ_WIFICX
+  Out ("  htt data: rx up %u, tx sent %u done %u failed %u dropped %u\r\n", mRxUp, mTxSent, mTxDone, mTxFail, mTxDrop);
+#endif
   Out ("  htt: state %u, version %u.%u, %u msgs, %u in-order ind, %u msdus, %u recycled, alloc idx %u\r\n", mState,
        mVerMajor, mVerMinor, mMsgs, mInOrd, mMsdus, mRecycled, mAlloc);
 }
