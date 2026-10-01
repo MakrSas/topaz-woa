@@ -45,6 +45,15 @@ x 0..1349, y 0..2999 (y saturates at 2999) on 1080x2400 -> v0.4 uses HID logical
 Edge contacts sometimes come with id 9. The fw repeats an "up" slot for many
 frames -> report the lift once. v0.1 log path `\SystemRoot\..` never worked (use `\??\C:\`).
 
+## 2d. Battery — WORKS (TopazBattery v0.1, 2026-10-01)
+Root-enumerated battc miniclass (`drivers/TopazBattery`, simbatt structure), 5 s poll on QUP0 SE1.
+Windows shows percent/icon/time; battery saver available. Verified log (discharging on the hub):
+sm5602 id 0x0012, status 0x0204, soc 0x2c88 = 44.5 %, 3.77 V, current 0x8518 = -636 mA
+(bit15 set = discharge, rsns factor 2 correct), NTC 0xe8f0 = 32.8 C, BAT_CAP 0x26cc = 4849 mAh.
+Charger after UEFI: reg03=0x2a (OTG on, **CHG_CONFIG=0**: the boost needed it off), reg0b=0xe2
+(VBUS_STAT 7). The driver sets CHG_CONFIG=1/OTG off when an adapter appears and OTG on when
+VBUS is free (hub hot-plug). Charging path still to be verified with a real charger.
+
 ## 2a. USB host — WORKS (2026-10-01)
 Mouse through a bus-powered hub works in Windows with `Mu-topaz-v4-OTG3-RELEASE.img`
 (`~/work/win/uefi/`). Three pieces, all in UEFI (RAM boot, nothing flashed):
