@@ -1,0 +1,394 @@
+
+==== TopazModem v0.1 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+armed: booting the modem
+
+  ==== Wi-Fi P1: modem (MPSS) PAS boot ====
+  map: SMEM FFFFAB78D5000000 APCS FFFF9B8125F8D000 GICD FFFF9B8125F8E000
+  SMEM version 12, apps<->modem partition FFFFAB78D50DD000
+  call available: init=1 mem=1 auth=1 is_sup=1
+  modem.mdt: 0, 9100 bytes
+  phdrs=31 hash=1 region 4ab00000..51400000 relocate=1
+  hash from modem.b01: 0, 8056 of 8056 bytes
+  PAS init_image: ret=0 res=0 resumes=30 (meta 9100 bytes @ffffd000)
+  PAS mem_setup: ret=0 res=0
+  segments loaded
+  PAS auth_and_reset: ret=0 res=0 resumes=227 (0/0 = TZ verified and started the modem)
+  SMEM version 12, ptable ok
+  apps<->modem partition: FFFFAB78D50DD000
+  map TCSR mutex: FFFF9B811ECD0000
+  created apps->modem item 428: FFFFAB78D50E1070
+  apps->modem (428): magic 504d5324 v1 feat 01 pid 0->1 entries 0/16
+  t=0.00s modem wdog SPI pending=0
+  t=0.25s modem SMP2P item appeared (340 bytes)
+  t=0.25s SMP2P negotiated, features 01
+  t=0.25s slave-kernel=00000006 READY handover
+  ---- P2: GLINK/QRTR ----
+  \image\wlanmdsp.mbn: 3814776 bytes, crc32 a4fd8c71
+  glink desc FFFFAB78D50DD030 (modem made it) tx FFFFAB78D50DD060
+
+==== TopazModem v0.2 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+armed: booting the modem
+
+  ==== Wi-Fi P1: modem (MPSS) PAS boot ====
+  map: SMEM FFFFE97E11C00000 APCS FFFFD98130064000 GICD FFFFD98130065000
+  SMEM version 12, apps<->modem partition FFFFE97E11CDD000
+  call available: init=1 mem=1 auth=1 is_sup=1
+  modem.mdt: 0, 9100 bytes
+  phdrs=31 hash=1 region 4ab00000..51400000 relocate=1
+  hash from modem.b01: 0, 8056 of 8056 bytes
+  PAS init_image: ret=0 res=0 resumes=30 (meta 9100 bytes @ffffd000)
+  PAS mem_setup: ret=0 res=0
+  segments loaded
+  PAS auth_and_reset: ret=0 res=0 resumes=221 (0/0 = TZ verified and started the modem)
+  SMEM version 12, ptable ok
+  apps<->modem partition: FFFFE97E11CDD000
+  map TCSR mutex: FFFFD98130C09000
+  created apps->modem item 428: FFFFE97E11CE1070
+  apps->modem (428): magic 504d5324 v1 feat 01 pid 0->1 entries 0/16
+  t=0.00s modem wdog SPI pending=0
+  t=0.25s modem SMP2P item appeared (340 bytes)
+  t=0.25s SMP2P negotiated, features 01
+  t=0.25s slave-kernel=00000006 READY handover
+  ---- P2: GLINK/QRTR ----
+  \image\wlanmdsp.mbn: 3814776 bytes, crc32 a4fd8c71
+  glink desc FFFFE97E11CDD030 (modem made it) tx FFFFE97E11CDD060
+  t=0.000 modem RX FIFO FFFFE97E11CE1370, 16384 bytes
+  t=0.000 glink VERSION 1 features 7
+  t=0.000 glink VERSION_ACK 1 features 1
+  t=0.000 glink modem OPEN "glink_ssr" rcid 1
+  t=0.000 glink modem OPEN "IPCRTR" rcid 2
+  t=0.000 glink modem OPEN "SSM_RTR_MODEM_APPS" rcid 3
+  t=0.000 glink OPEN_ACK lcid 1
+  t=0.000 glink modem INTENT x1 (chan 2), have 1
+  t=0.000 glink modem INTENT x1 (chan 2), have 2
+  t=0.000 glink modem INTENT x1 (chan 2), have 3
+  t=0.000 IPCRTR open both ways, 8 intents sent
+  t=0.000 sent qrtr HELLO to node ffffffff
+  t=0.000 qrtr v1 HELLO from node 0
+  t=0.000 sent qrtr HELLO to node 0
+  announced pd-mapper 0x40, tftp 0x1000, rmtfs 0x0E
+  pd-mapper: "tms/pdr_enabled" -> 1 domain(s)
+  rmtfs: open /boot/modem_fs1 -> ok
+  pd-mapper: "tms/pddump_disabled" -> 0 domain(s)
+  t=0.005 qrtr type 6 from 0:fffffffe: 0 a 0 0
+  rmtfs: open /boot/modem_fs2 -> ok
+  t=0.008 qrtr type 6 from 0:fffffffe: 0 b 0 0
+  SCM assign ffd00000+300000 -> 3 vmids: ret=0 res=0
+  rmtfs: alloc 300000 for caller 1 -> ffd00000
+  t=0.017 qrtr type 6 from 0:fffffffe: 0 d 0 0
+  t=0.047 *** modem FATAL (slave-kernel 00000007) ***
+  glink: rx 64 msgs, tx 33, chan UP, modem intents 30 (128..8320 B), 0 requested, txq 0 drops 0
+  intents: 0 used, req pending 0, denied 0; head pkt 0 B; rx avail 0, tx head 3f8 tail 3f8
+  WLFW: not started
+  pd-mapper 2 reqs; rmtfs reads 0 writes 0 (dropped) errors 0; tftp writes 0
+  qrtr: modem node 0, hello rx 1, 4 services, 5 RESUME_TX
+  after P2: slave-kernel=00000007 FATAL, wdog pending=0
+  crash reason (421): rmts_api.c:1140:xpu lock failed -3145728 -1 -1
+  ModemPasTest: 0
+
+==== TopazModem v0.2 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+C:\topaz\modem.arm missing: modem not started (run install.cmd to arm)
+D0Exit target=5
+unload
+
+==== TopazModem v0.3 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+armed: booting the modem
+
+  ==== Wi-Fi P1: modem (MPSS) PAS boot ====
+  map: SMEM FFFF9B7F62000000 APCS FFFF8B81DEE70000 GICD FFFF8B81DEE71000
+  SMEM version 12, apps<->modem partition FFFF9B7F620DD000
+  call available: init=1 mem=1 auth=1 is_sup=1
+  modem.mdt: 0, 9100 bytes
+  phdrs=31 hash=1 region 4ab00000..51400000 relocate=1
+  hash from modem.b01: 0, 8056 of 8056 bytes
+  PAS init_image: ret=0 res=0 resumes=32 (meta 9100 bytes @efffd000)
+  PAS mem_setup: ret=0 res=0
+  segments loaded
+  PAS auth_and_reset: ret=0 res=0 resumes=221 (0/0 = TZ verified and started the modem)
+  SMEM version 12, ptable ok
+  apps<->modem partition: FFFF9B7F620DD000
+  map TCSR mutex: FFFF8B81DFD2F000
+  created apps->modem item 428: FFFF9B7F620E1070
+  apps->modem (428): magic 504d5324 v1 feat 01 pid 0->1 entries 0/16
+  t=0.00s modem wdog SPI pending=0
+  t=0.25s modem SMP2P item appeared (340 bytes)
+  t=0.25s SMP2P negotiated, features 01
+  t=0.25s slave-kernel=00000006 READY handover
+  ---- P2: GLINK/QRTR ----
+  \image\wlanmdsp.mbn: 3814776 bytes, crc32 a4fd8c71
+  glink desc FFFF9B7F620DD030 (modem made it) tx FFFF9B7F620DD060
+  t=0.000 modem RX FIFO FFFF9B7F620E1370, 16384 bytes
+  t=0.000 glink VERSION 1 features 7
+  t=0.000 glink VERSION_ACK 1 features 1
+  t=0.000 glink modem OPEN "glink_ssr" rcid 1
+  t=0.000 glink modem OPEN "IPCRTR" rcid 2
+  t=0.000 glink modem OPEN "SSM_RTR_MODEM_APPS" rcid 3
+  t=0.000 glink OPEN_ACK lcid 1
+  t=0.000 glink modem INTENT x1 (chan 2), have 1
+  t=0.000 glink modem INTENT x1 (chan 2), have 2
+  t=0.000 glink modem INTENT x1 (chan 2), have 3
+  t=0.000 IPCRTR open both ways, 8 intents sent
+  t=0.000 sent qrtr HELLO to node ffffffff
+  t=0.000 qrtr v1 HELLO from node 0
+  t=0.000 sent qrtr HELLO to node 0
+  announced pd-mapper 0x40, tftp 0x1000, rmtfs 0x0E
+  pd-mapper: "tms/pdr_enabled" -> 1 domain(s)
+  rmtfs: open /boot/modem_fs1 -> ok
+  pd-mapper: "tms/pddump_disabled" -> 0 domain(s)
+  t=0.002 qrtr type 6 from 0:fffffffe: 0 a 0 0
+  rmtfs: open /boot/modem_fs2 -> ok
+  t=0.007 qrtr type 6 from 0:fffffffe: 0 b 0 0
+  SCM assign efd00000+300000 -> 3 vmids: ret=0 res=0
+  rmtfs: alloc 300000 for caller 1 -> efd00000
+  t=0.016 qrtr type 6 from 0:fffffffe: 0 d 0 0
+  t=0.018 qrtr type 6 from 0:fffffffe: 0 e 0 0
+  t=0.020 qrtr type 6 from 0:fffffffe: 0 f 0 0
+  t=0.032 qrtr type 6 from 0:fffffffe: 0 10 0 0
+  t=0.195 qrtr type 6 from 0:fffffffe: 0 13 0 0
+  t=0.249 qrtr type 6 from 0:fffffffe: 0 14 0 0
+  t=0.253 glink modem OPEN "modem_apps" rcid 4
+  t=0.255 glink modem OPEN "LOOPBACK_CTL_MPSS" rcid 5
+  pd-mapper: "avs/audio" -> 0 domain(s)
+  pd-mapper: "kernel/elf_loader" -> 1 domain(s)
+  t=0.513 tftp WRQ server_check.txt seek 0 rsize 0 blk 7680 w 10
+  t=0.517 tftp RRQ wlanmdsp.mbn seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 3814776
+    t=0.519 sess 4101: modem ERROR 9 "End of Transfer" after 0 B
+  t=0.521 glink modem OPEN "DS" rcid 6
+  t=0.521 glink modem OPEN "DATA1" rcid 7
+  t=0.521 tftp RRQ wlanmdsp.mbn seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 3814776
+  t=0.521 glink modem OPEN "DATA2" rcid 8
+  t=0.521 glink modem OPEN "DATA3" rcid 9
+  t=0.521 glink modem OPEN "DATA4" rcid 10
+  t=0.521 glink modem OPEN "DATA11" rcid 11
+    t=0.523 sess 4102: modem ERROR 9 "End of Transfer" after 0 B
+  t=0.523 tftp RRQ wlanmdsp.mbn seek 0 rsize 3814776 blk 7680 w 10
+    t=0.525 sess 4103 ack 0 (0 B sent)
+  t=0.525 no modem intent for 7716 bytes, requesting (shown once)
+    t=0.571 sess 4103 ack 50 (384000 B sent)
+    t=0.615 sess 4103 ack 100 (768000 B sent)
+    t=0.661 sess 4103 ack 150 (1152000 B sent)
+    t=0.705 sess 4103 ack 200 (1536000 B sent)
+    t=0.751 sess 4103 ack 250 (1920000 B sent)
+    t=0.795 sess 4103 ack 300 (2304000 B sent)
+    t=0.841 sess 4103 ack 350 (2688000 B sent)
+    t=0.885 sess 4103 ack 400 (3072000 B sent)
+    t=0.931 sess 4103 ack 450 (3456000 B sent)
+    sess 4103 done: 3814776 B
+  t=1.068 *** WLFW service 0x45 up: inst 1 node 0 port 48 ***
+  wlfw: ind_register ok err 0, fw_status 0
+  wlfw: host_cap ok err 0
+  wlfw: msa_info ok err 0
+  wlfw: 2 MSA region(s)
+   region 0: 51900000 + 10000 secure 1
+  SCM assign 51900000+10000 -> 2 vmids: ret=fffffffffffffffe res=56
+   region 1: 51910000 + f0000 secure 0
+  SCM assign 51910000+f0000 -> 3 vmids: ret=fffffffffffffffe res=56
+  wlfw: MSA_READY indication
+  wlfw: msa_ready ok err 0
+  wlfw: cap ok err 0
+  wlfw: chip_id 4130 family 4007
+  wlfw: board_id ff
+  wlfw: soc_id 40690000
+  wlfw: fw_version 32497fff built 2024-01-18 04:57
+  wlfw: fw_build_id QC_IMAGE_VERSION_STRING=WLAN.HL.3.2.4-01083.3-QCAHLSWMTPLZ-1.47019.3.56296.4
+  wlfw: board data \image\bdwlan.bin, 26328 bytes
+  wlfw: board data sent in 5 segment(s)
+  wlfw: cal_report ok err 0, waiting for FW_READY
+  t=2.281 tftp RRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=2.285 tftp WRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10
+  t=2.289 tftp RRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=4.297 *** WLAN FIRMWARE READY ***
+  t=10.495 tftp RRQ mcfg.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=10.497 tftp WRQ mcfg.tmp seek 0 rsize 0 blk 7680 w 10
+  t=10.501 tftp RRQ mcfg.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=10.503 tftp RRQ mbn_hw.dig seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 32
+    t=10.554 sess 410a: modem ERROR 9 "End of Transfer" after 0 B
+  t=10.554 tftp RRQ mbn_hw.dig seek 0 rsize 32 blk 7680 w 10
+    sess 410b done: 32 B
+  t=10.558 tftp RRQ mbn_sw.dig seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 32
+    t=10.613 sess 410c: modem ERROR 9 "End of Transfer" after 0 B
+  t=10.613 tftp RRQ mbn_sw.dig seek 0 rsize 32 blk 7680 w 10
+    sess 410d done: 32 B
+  t=30.001 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=60.002 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=90.002 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=120.002 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=150.002 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=180.002 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=210.002 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=240.002 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=270.003 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=300.004 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=330.004 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=360.004 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=390.004 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=420.004 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=450.005 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=480.005 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=510.005 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=540.005 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=570.006 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=600.006 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=630.006 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=660.007 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=690.008 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+  t=720.008 status: slave-kernel 00000006, glink rx 1762 tx 1499, 43 services, WLFW: FW READY
+
+==== TopazModem v0.3 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+C:\topaz\modem.arm missing: modem not started (run install.cmd to arm)
+D0Exit target=5
+unload
+
+==== TopazModem v0.4 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+armed: booting the modem
+
+  ==== Wi-Fi P1: modem (MPSS) PAS boot ====
+  map: SMEM FFFF9479F7E00000 APCS FFFF848077B88000 GICD FFFF848077B89000
+  smmu: sCR0 00210406 (CLIENTPD 0 USFCFG 1) ID0 4c017e32 ID1 50000030 ID2 00005111: 50 SMRs, 48 CBs, page 1000 x64
+   SMR0 800000c0 (sid c0 mask 0) S2CR 00000000 type 0 cb 0
+   SMR1 800000a0 (sid a0 mask 0) S2CR 00000000 type 0 cb 0
+   SMR2 80000120 (sid 120 mask 0) S2CR 00000001 type 0 cb 1
+   SMR3 80000100 (sid 100 mask 0) S2CR 00000002 type 0 cb 2
+   SMR4 80020420 (sid 420 mask 2) S2CR 00000003 type 0 cb 3
+  smmu: WLAN stream 1a0: no match, USFCFG=1 -> FAULT
+  SMEM version 12, apps<->modem partition FFFF9479F7EDD000
+  call available: init=1 mem=1 auth=1 is_sup=1
+  modem.mdt: 0, 9100 bytes
+  phdrs=31 hash=1 region 4ab00000..51400000 relocate=1
+  hash from modem.b01: 0, 8056 of 8056 bytes
+  PAS init_image: ret=0 res=0 resumes=31 (meta 9100 bytes @efffd000)
+  PAS mem_setup: ret=0 res=0
+  segments loaded
+  PAS auth_and_reset: ret=0 res=0 resumes=360 (0/0 = TZ verified and started the modem)
+  SMEM version 12, ptable ok
+  apps<->modem partition: FFFF9479F7EDD000
+  map TCSR mutex: FFFF848037E8E000
+  created apps->modem item 428: FFFF9479F7EE1070
+  apps->modem (428): magic 504d5324 v1 feat 01 pid 0->1 entries 0/16
+  t=0.00s modem wdog SPI pending=0
+  t=0.25s modem SMP2P item appeared (340 bytes)
+  t=0.25s SMP2P negotiated, features 01
+  t=0.25s slave-kernel=00000006 READY handover
+  ---- P2: GLINK/QRTR ----
+  \image\wlanmdsp.mbn: 3814776 bytes, crc32 a4fd8c71
+  glink desc FFFF9479F7EDD030 (modem made it) tx FFFF9479F7EDD060
+  t=0.000 modem RX FIFO FFFF9479F7EE1370, 16384 bytes
+  t=0.000 glink VERSION 1 features 7
+  t=0.000 glink VERSION_ACK 1 features 1
+  t=0.000 glink modem OPEN "glink_ssr" rcid 1
+  t=0.000 glink modem OPEN "IPCRTR" rcid 2
+  t=0.000 glink modem OPEN "SSM_RTR_MODEM_APPS" rcid 3
+  t=0.000 glink OPEN_ACK lcid 1
+  t=0.000 glink modem INTENT x1 (chan 2), have 1
+  t=0.000 glink modem INTENT x1 (chan 2), have 2
+  t=0.000 glink modem INTENT x1 (chan 2), have 3
+  t=0.000 IPCRTR open both ways, 8 intents sent
+  t=0.000 sent qrtr HELLO to node ffffffff
+  t=0.001 qrtr v1 HELLO from node 0
+  t=0.001 sent qrtr HELLO to node 0
+  announced pd-mapper 0x40, tftp 0x1000, rmtfs 0x0E
+  pd-mapper: "tms/pdr_enabled" -> 1 domain(s)
+  rmtfs: open /boot/modem_fs1 -> ok
+  pd-mapper: "tms/pddump_disabled" -> 0 domain(s)
+  t=0.005 qrtr type 6 from 0:fffffffe: 0 a 0 0
+  rmtfs: open /boot/modem_fs2 -> ok
+  t=0.008 qrtr type 6 from 0:fffffffe: 0 b 0 0
+  SCM assign efd00000+300000 -> 3 vmids: ret=0 res=0
+  rmtfs: alloc 300000 for caller 1 -> efd00000
+  t=0.016 qrtr type 6 from 0:fffffffe: 0 d 0 0
+  t=0.018 qrtr type 6 from 0:fffffffe: 0 e 0 0
+  t=0.019 qrtr type 6 from 0:fffffffe: 0 f 0 0
+  t=0.031 qrtr type 6 from 0:fffffffe: 0 10 0 0
+  t=0.192 qrtr type 6 from 0:fffffffe: 0 13 0 0
+  t=0.246 qrtr type 6 from 0:fffffffe: 0 14 0 0
+  t=0.250 glink modem OPEN "modem_apps" rcid 4
+  t=0.252 glink modem OPEN "LOOPBACK_CTL_MPSS" rcid 5
+  pd-mapper: "avs/audio" -> 0 domain(s)
+  t=0.500 glink modem wants an intent of 52 bytes
+  pd-mapper: "kernel/elf_loader" -> 1 domain(s)
+  t=0.508 tftp WRQ server_check.txt seek 0 rsize 0 blk 7680 w 10
+  t=0.512 tftp RRQ wlanmdsp.mbn seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 3814776
+    t=0.514 sess 4101: modem ERROR 9 "End of Transfer" after 0 B
+  t=0.518 glink modem OPEN "DS" rcid 6
+  t=0.518 glink modem OPEN "DATA1" rcid 7
+  t=0.518 glink modem OPEN "DATA2" rcid 8
+  t=0.518 glink modem OPEN "DATA3" rcid 9
+  t=0.518 glink modem OPEN "DATA4" rcid 10
+  t=0.518 glink modem OPEN "DATA11" rcid 11
+  t=0.518 tftp RRQ wlanmdsp.mbn seek 0 rsize 0 blk 7680 w 10 tsize
+    -> tsize 3814776
+    t=0.520 sess 4102: modem ERROR 9 "End of Transfer" after 0 B
+  t=0.520 tftp RRQ wlanmdsp.mbn seek 0 rsize 3814776 blk 7680 w 10
+    t=0.522 sess 4103 ack 0 (0 B sent)
+  t=0.522 no modem intent for 7716 bytes, requesting (shown once)
+    t=0.568 sess 4103 ack 50 (384000 B sent)
+    t=0.612 sess 4103 ack 100 (768000 B sent)
+    t=0.658 sess 4103 ack 150 (1152000 B sent)
+    t=0.702 sess 4103 ack 200 (1536000 B sent)
+    t=0.748 sess 4103 ack 250 (1920000 B sent)
+    t=0.792 sess 4103 ack 300 (2304000 B sent)
+    t=0.838 sess 4103 ack 350 (2688000 B sent)
+    t=0.882 sess 4103 ack 400 (3072000 B sent)
+    t=0.928 sess 4103 ack 450 (3456000 B sent)
+    sess 4103 done: 3814776 B
+  t=1.065 *** WLFW service 0x45 up: inst 1 node 0 port 48 ***
+  wlfw: ind_register ok err 0, fw_status 0
+  wlfw: host_cap ok err 0
+  wlfw: msa_info ok err 0
+  wlfw: 2 MSA region(s)
+   region 0: 51900000 + 10000 secure 1
+  SCM assign 51900000+10000 -> 2 vmids: ret=fffffffffffffffe res=56
+   region 1: 51910000 + f0000 secure 0
+  SCM assign 51910000+f0000 -> 3 vmids: ret=fffffffffffffffe res=56
+  wlfw: MSA_READY indication
+  wlfw: msa_ready ok err 0
+  wlfw: cap ok err 0
+  wlfw: chip_id 4130 family 4007
+  wlfw: board_id ff
+  wlfw: soc_id 40690000
+  wlfw: fw_version 32497fff built 2024-01-18 04:57
+  wlfw: fw_build_id QC_IMAGE_VERSION_STRING=WLAN.HL.3.2.4-01083.3-QCAHLSWMTPLZ-1.47019.3.56296.4
+  wlfw: board data \image\bdwlan.bin, 26328 bytes
+  wlfw: board data sent in 5 segment(s)
+  wlfw: cal_report ok err 0, waiting for FW_READY
+  t=2.279 tftp RRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=2.282 tftp WRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10
+  t=2.286 tftp RRQ lctoem.tmp seek 0 rsize 0 blk 7680 w 10 tsize
+    -> not found
+  t=4.297 *** WLAN FIRMWARE READY ***
+  smmu: sCR0 00210406 (CLIENTPD 0 USFCFG 1) ID0 4c017e32 ID1 50000030 ID2 00005111: 50 SMRs, 48 CBs, page 1000 x64
+  smmu: WLAN stream 1a0: no match, USFCFG=1 -> FAULT
+
+==== TopazModem v0.3 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+C:\topaz\modem.arm missing: modem not started (run install.cmd to arm)
+D0Exit target=5
+unload
+
+==== TopazModem v0.4 ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+C:\topaz\modem.arm missing: modem not started (run install.cmd to arm)

@@ -43,3 +43,25 @@ s8build: `~/work/wifi/linux`). Everything below happens after WLFW `FW_READY` (d
 - **Shadow registers** (WCN3990 hw_params: target_64bit, shadow_reg_support, rri_on_ddr): source-ring
   write indices go to shadow regs at membase + 0x32000 + 4*ce (CE 0, 3, 4, 5, 7) instead of CE+0x3C;
   dest-ring write indices still go to CE+0x40. RRI enable = CTRL1 bit 19 (mask 0x80000).
+
+## Results (TopazModem v0.5, 2026-10-01, log docs/logs/TopazModem-v0.5.log)
+
+Everything after FW_READY works EXCEPT the SMMU bypass:
+- **WLAN_CFG ok, WLAN_MODE mission ok** at t=4.64 s; modem stays READY 90+ s, no FATAL.
+- **CE registers readable after WLAN_MODE** (not before — reading them right after FW_READY hung the
+  bus in v0.4). The firmware itself fills the CE ring base addresses, and they point into the MSA
+  carveout (0x519xxxxx): ce0 dr 0x51948300, ce1 sr 0x51945c00, ce2 sr 0x51945380, ce6 sr/dr
+  0x5193xxxx, ce9/10/11 sr 0x519xxxxx. ce wrapper +0xC = 0xdeadc0de (marker).
+- **SMMU bypass REJECTED.** Writing the SMR works (SMR49 = 0x800101a0: valid, sid 0x1a0 mask 1
+  survives), but S2CR type comes back **2 (FAULT)** though we wrote 1 (BYPASS). Qualcomm SMMUs
+  force unconfigured/bypass streams to fault; UEFI's own streams all use **type 0 (translate) +
+  a context bank** (SMR0..4 -> cb 0..3). So bypass is not an option here.
+
+### Next: give WLAN its own translating context bank (identity map)
+Replicate what UEFI does for its streams: S2CR type 0 -> a free context bank, stage-1, with page
+tables that identity-map (IOVA = PA) the host DMA buffers we hand the firmware. Global writes from
+EL1 are honoured (SMR took), so the per-CB regs (CBAR in GR1, SCTLR/TCR/TTBR0/MAIR in the CB page)
+should take too. Steps: pick a free cb (UEFI used 0..3; take e.g. 8), CBAR = stage1 + our VMID,
+TTBR0 = our L1 table PA, TCR/MAIR for a 32/36-bit AArch64 stage-1 map, SCTLR.M=1, then S2CR[49]
+type 0 cbndx=8. Identity-map the CE ring region + our buffers. Verify by reading S2CR back as type 0.
+Only then allocate host rings/buffers and start HTC.
