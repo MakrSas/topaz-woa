@@ -29,6 +29,8 @@ typedef UINT64     EFI_PHYSICAL_ADDRESS;
 #define EFI_OUT_OF_RESOURCES   EFIERR (9)
 #define EFI_NOT_FOUND          EFIERR (14)
 #define EFI_SECURITY_VIOLATION EFIERR (26)
+#define EFI_ABORTED            EFIERR (21)
+#define EFI_ALREADY_STARTED    EFIERR (20)
 #define EFI_ERROR(s)           (((INTN)(s)) < 0)
 
 #define MIN(a, b)              (((a) < (b)) ? (a) : (b))
@@ -76,7 +78,7 @@ VOID *PaToVa(UINT64 Pa);                         /* only for PhysAlloc() buffers
 #define StrCmp(a, b)                 wcscmp ((a), (b))
 UINTN AsciiStrDecimalToUintn(CONST CHAR8 *S);
 UINTN AsciiSPrint(CHAR8 *Buf, UINTN Size, CONST CHAR8 *Fmt, ...);   /* EDK2 format (%a, %lu, %r) */
-UINTN UnicodeSPrint(CHAR16 *Buf, UINTN Size, CONST CHAR16 *Fmt, ...); /* plain %u/%x only */
+UINTN UnicodeSPrint(CHAR16 *Buf, UINTN Size, CONST CHAR16 *Fmt, ...); /* plain %u/%x only, Size in bytes */
 
 /* ---- time ---- */
 UINT64 GetPerformanceCounter(VOID);
@@ -118,4 +120,4 @@ VOID TopazArmCallSmc(ARM_SMC_ARGS *Args);       /* smc.asm */
 /* ---- log ---- */
 VOID LogOpen(VOID);
 VOID LogClose(VOID);
-VOID LogPrint(PCSTR Fmt, ...);
+VOID LogPrint(PCSTR Fmt, ...);                  /* MSVC format, unbuffered */
