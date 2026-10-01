@@ -171,3 +171,27 @@ RX_RING_CFG (256 x 2 KiB host buffers, wcn3990 rx_desc_v2 offsets in words: atte
 mpdu_start 4, msdu_start 7, msdu_end 12, mpdu_end 26, ppdu_start 27, ppdu_end 37, hdr_status 74,
 payload 90; computed by compiling ath10k rx_desc.h) -> AGGR_CFG v2 (64/3), all on CE4; then the scan.
 RX_IN_ORD_PADDR_IND buffers are recycled and their 802.11 headers logged.
+
+## FIRST SCAN RESULTS in Windows (TopazModem v0.13, 2026-10-01, log docs/logs/TopazModem-v0.13.log)
+
+HTT setup was the missing piece:
+- VERSION_REQ -> **HTT VERSION_CONF 3.96** within 1 ms; FRAG_DESC_BANK_CFG, RX_RING_CFG (256 x 2 KiB,
+  255 posted) and AGGR_CFG all accepted on CE4 (eid 1).
+- Passive scan (same WMI commands as v0.10) now delivers WMI MGMT_RX beacons: **scan 1: 13 BSS /
+  18 beacons, after 3 scans 18 BSS / 54 beacons**, 2.4 GHz ch 1-11 and 5 GHz ch 48/64, RSSI -61..-95 dBm
+  (SSIDs redacted in the committed log). pdev stats: phy_err now non-zero, rx path alive.
+- No HTT RX_IN_ORD_PADDR_IND yet: management frames still come over WMI; the host rx ring will carry
+  data frames once associated.
+- Modem stays READY, no FATAL, credits/queue fine.
+
+This completes P4 steps 1-4 of docs/HANDOFF_p4_htc_wmi.md (CE rings, HTC, WMI init, HTT setup) and the
+precondition for step 5 ("scan results over WMI").
+
+### Next
+- **MAC address**: WMI READY reports 00:00:00:00:00:00; the host must choose it (stock: persist
+  `wlan_mac.bin`; else a stable locally administered one). Now vdev 0 uses 02:54:4f:50:41:5a.
+- **Association path** (still inside TopazModem, test-only): vdev start + peer create, auth/assoc
+  frames (WMI mgmt tx), WMI install key, HTT TX (frag desc bank) + HTT RX in-order data, EAPOL.
+- **Step 5, WiFiCx/NetAdapter miniport**: expose scan / connect / data to Windows; the OS supplicant
+  does WPA2 (EAPOL over the data path), the driver installs keys. Plan several iterations.
+- Replace 1 ms polling with the CE interrupts (SPI 0x166..0x171) before this becomes a real driver.
