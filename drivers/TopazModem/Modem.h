@@ -66,4 +66,4 @@ extern volatile BOOLEAN gModemStop;
 /* P4 probes (wlanprobe.c), read-only */
 VOID           SmmuProbe(BOOLEAN All);
 VOID           CeProbe(VOID);
-BOOLEAN        SmmuWlanBypass(VOID);
+BOOLEAN        SmmuWlanMap(VOID);

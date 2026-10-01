@@ -101,46 +101,89 @@ VOID CeProbe(VOID)
 }
 
 /*
- * WLAN stream 0x1A0 has no stream match and sCR0.USFCFG = 1, so every WLAN DMA would fault.
- * Put a bypass entry (S2CR type 1) for sid 0x1A0 / mask 1 into a free SMR slot (highest index,
- * away from the ones UEFI set up), then read it back: the hypervisor may ignore EL1 writes.
+ * Give the WLAN stream 0x1A0 its own identity (pass-through) context bank, exactly as UEFI does
+ * for its own streams: a global S2CR type-1 (bypass) is forced to FAULT by this Qualcomm SMMU,
+ * but a context bank with SCTLR.M=0 (stage-1 translation OFF) passes addresses through unchanged
+ * = identity. UEFI's cb0..3 are all CBAR 0x1f000 / CBA2R 1 (VA64) / SCTLR 0xe0 / TCR,TTBR0,MAIR 0.
+ * We clone that into a free bank and point S2CR type 0 at it.
  */
-BOOLEAN SmmuWlanBypass(VOID)
+#define CB_CLONE_CBAR   0x0001f000u             /* S1_TRANS_S2_FAULT, S1_MEMATTR WB */
+#define CB_CLONE_CBA2R  0x00000001u             /* VA64 */
+#define CB_CLONE_SCTLR  0x000000e0u             /* CFCFG|CFIE|CFRE, M=0 -> no translation */
+
+BOOLEAN SmmuWlanMap(VOID)
 {
   UINT8 *s = MapPhys (SMMU_PA, SMMU_SIZE, FALSE);
-  UINT32 nsmr, i, slot = MAX_UINT32, smr, s2cr, n;
+  UINT32 id0, id1, nsmr, ncb, npage, psize, i, slot = MAX_UINT32, cb = MAX_UINT32, smr, s2cr, n;
+  UINT64 used = 0;                              /* bitmap of CBs referenced by valid SMRs */
+  UINT8 *gr1, *cbp;
 
   if (s == NULL) {
     Out ("  smmu: map failed\r\n");
     return FALSE;
   }
-  nsmr = R32 (s, 0x20) & 0xFF;
-  for (i = nsmr; i-- > 0;) {
+  id0   = R32 (s, 0x20);
+  id1   = R32 (s, 0x24);
+  nsmr  = id0 & 0xFF;
+  ncb   = id1 & 0xFF;
+  psize = (id1 & (1u << 31)) ? 0x10000 : 0x1000;
+  npage = 1u << (((id1 >> 28) & 7) + 1);
+  gr1   = s + psize;
+
+  for (i = 0; i < nsmr && i < 128; i++) {
     smr = R32 (s, 0x800 + 4 * i);
+    s2cr = R32 (s, 0xC00 + 4 * i);
     if ((smr >> 31) != 0 && SidMatch (smr)) {
-      slot = i;                                 /* already there (driver restart) */
-      break;
-    }
-    if ((smr >> 31) == 0 && slot == MAX_UINT32) {
+      slot = i;                                 /* already present (driver restart): reuse it */
+    } else if ((smr >> 31) == 0 && slot == MAX_UINT32) {
       slot = i;
     }
+    if ((smr >> 31) != 0 && ((s2cr >> 16) & 3) == 0) {
+      used |= 1ull << (s2cr & 0x3F);
+    }
   }
-  if (slot == MAX_UINT32) {
-    Out ("  smmu: no free SMR\r\n");
+  for (i = 4; i < ncb && i < 64; i++) {         /* keep clear of UEFI's cb0..3 */
+    if ((used & (1ull << i)) == 0) {
+      cb = i;
+      break;
+    }
+  }
+  if (slot == MAX_UINT32 || cb == MAX_UINT32 || (UINTN)(npage + cb + 1) * psize > SMMU_SIZE) {
+    Out ("  smmu: no free SMR/CB (slot %u cb %u)\r\n", slot, cb);
     UnmapPhys (s, SMMU_SIZE);
     return FALSE;
   }
-  MmioWrite32 ((UINTN)s + 0xC00 + 4 * slot, 1u << 16);                       /* S2CR: bypass */
+  cbp = s + (UINTN)npage * psize + (UINTN)cb * psize;
+
+  /* 1. the context bank: clone UEFI's pass-through config, clear any stale fault */
+  MmioWrite32 ((UINTN)cbp + 0x58, 0xFFFFFFFF);            /* FSR: clear */
+  MmioWrite32 ((UINTN)cbp + 0x20, 0);                     /* TTBR0 lo */
+  MmioWrite32 ((UINTN)cbp + 0x24, 0);                     /* TTBR0 hi */
+  MmioWrite32 ((UINTN)cbp + 0x30, 0);                     /* TCR */
+  MmioWrite32 ((UINTN)cbp + 0x10, 0);                     /* TCR2 */
+  MmioWrite32 ((UINTN)cbp + 0x38, 0);                     /* MAIR0 */
+  MmioWrite32 ((UINTN)cbp + 0x3C, 0);                     /* MAIR1 */
+  MmioWrite32 ((UINTN)gr1 + 0x800 + 4 * cb, CB_CLONE_CBA2R);
+  MmioWrite32 ((UINTN)gr1 + 0x000 + 4 * cb, CB_CLONE_CBAR);
+  MemoryFence ();
+  MmioWrite32 ((UINTN)cbp + 0x0, CB_CLONE_SCTLR);        /* SCTLR last */
+  MemoryFence ();
+
+  /* 2. stream match -> this bank (S2CR type 0 = translate), SMR valid last */
+  MmioWrite32 ((UINTN)s + 0xC00 + 4 * slot, cb);          /* S2CR: type 0, cbndx = cb */
   MmioWrite32 ((UINTN)s + 0x800 + 4 * slot, (1u << 31) | (WLAN_SID_MASK << 16) | WLAN_SID);
   MemoryFence ();
-  MmioWrite32 ((UINTN)s + 0x70, 0);                                           /* sTLBGSYNC */
+  MmioWrite32 ((UINTN)s + 0x70, 0);                       /* sTLBGSYNC */
   for (n = 0; n < 100000 && (R32 (s, 0x74) & 1) != 0; n++) {
     KeStallExecutionProcessor (1);
   }
+
   smr  = R32 (s, 0x800 + 4 * slot);
   s2cr = R32 (s, 0xC00 + 4 * slot);
-  Out ("  smmu: WLAN bypass in SMR%u: SMR %08x S2CR %08x (sync %u us) -> %a\r\n", slot, smr, s2cr, n,
-       ((smr >> 31) != 0 && SidMatch (smr) && ((s2cr >> 16) & 3) == 1) ? "OK" : "NOT WRITTEN");
+  Out ("  smmu: WLAN identity CB%u in SMR%u: SMR %08x S2CR %08x SCTLR %08x (sync %u us) -> %a\r\n",
+       cb, slot, smr, s2cr, R32 (cbp, 0x0), n,
+       ((smr >> 31) != 0 && SidMatch (smr) && ((s2cr >> 16) & 3) == 0 && (s2cr & 0x3F) == cb) ?
+       "OK (type 0 translate)" : "NOT as written");
   UnmapPhys (s, SMMU_SIZE);
-  return ((smr >> 31) != 0 && ((s2cr >> 16) & 3) == 1);
+  return ((smr >> 31) != 0 && ((s2cr >> 16) & 3) == 0);
 }
