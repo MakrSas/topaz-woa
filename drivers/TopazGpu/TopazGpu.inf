@@ -1,0 +1,57 @@
+;
+; TopazGpu.inf - Adreno 610 bring-up (G1) on Redmi Note 12 4G (topaz/tapas, SM6225)
+; Root-enumerated KMDF test driver: GPU clocks, power domains, microcode, ring buffer.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = TopazGpu.cat
+DriverVer   = ; set by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TopazGpu.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = TopazGpu_Device, Root\TopazGpu
+
+[TopazGpu_Device.NT]
+CopyFiles = TopazGpu_CopyFiles
+
+[TopazGpu_CopyFiles]
+TopazGpu.sys
+
+[TopazGpu_Device.NT.Services]
+AddService = TopazGpu, 0x00000002, TopazGpu_Service
+
+[TopazGpu_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\TopazGpu.sys
+
+[TopazGpu_Device.NT.Wdf]
+KmdfService = TopazGpu, TopazGpu_WdfSection
+
+[TopazGpu_WdfSection]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName     = "topaz-woa"
+ManufacturerName = "topaz-woa"
+DiskName         = "TopazGpu Installation Disk"
+DeviceDesc       = "Adreno 610 bring-up (Redmi Note 12 4G)"
+ServiceName      = "TopazGpu"
