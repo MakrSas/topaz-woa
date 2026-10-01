@@ -5,10 +5,10 @@ partitioning, flashing and the phone's boot slots. Read this whole file first.
 
 ## 1. Where things are (2026-10-01)
 - Windows 11 Pro ARM64 **22621**, ru-RU, user `makr` (no password, autologon), boots to
-  desktop through Mu-Silicium UEFI loaded from RAM (`fastboot boot`). Display = UEFI
-  framebuffer (1080x2400), UFS works, CPU works. Since 2026-10-01 USB host
-  (mouse/keyboard/flash via hub) and touch work, so drivers are installed by hand from a flash drive and
-  Windows can be shut down cleanly from Start (no more dirty NTFS). Buttons still don't work.
+  desktop through Mu-Silicium UEFI flashed in boot_b. Display = UEFI
+  framebuffer (1080x2400), UFS works, CPU works. USB host (mouse/keyboard/flash via hub),
+  touch, battery and power off all work. Drivers are installed by hand from a flash drive.
+  Buttons still don't work.
 - Test signing is ON in BCD (`16000049` on loader `{68d01361-c243-4f1a-b850-5681ad4345e2}`).
 - `drivers/TopazTouch` v0.1 is written, **builds in CI, not yet tested on hardware**.
   It is a root-enumerated KMDF driver that maps TLMM/GCC/QUP registers directly
@@ -54,13 +54,15 @@ Charger after UEFI: reg03=0x2a (OTG on, **CHG_CONFIG=0**: the boost needed it of
 (VBUS_STAT 7). The driver sets CHG_CONFIG=1/OTG off when an adapter appears and OTG on when
 VBUS is free (hub hot-plug). Charging path still to be verified with a real charger.
 
-## 2e. Power off does not work (2026-10-01, open)
-Windows "Shut down" and the UEFI menu "Power off" both reboot (no charger connected), with Mu's
-PSCI `ResetSystemRuntimeDxe` and also with Qualcomm's `ResetRuntimeDxe` (tried in APRIORI after
-PmicDxe, reverted). With a charger the PMIC powers on and ABL boots the active slot (b = UEFI),
-there is no off-mode charging screen. Workaround used by the user: go to fastboot (Vol- + Power
-or menu "Fastboot") instead of powering off. Ideas: PMIC PON PS_HOLD_RESET_CTL = shutdown before
-SYSTEM_OFF; detect PON reason USB_CHG in UEFI and show a charging screen.
+## 2e. Power off — WORKS (2026-10-01)
+Fixed by hooking `gRT->ResetSystem` in TopazOtgDxe (now a `DXE_RUNTIME_DRIVER`). On
+`EfiResetShutdown` the hook writes PM6125 PON registers via SPMI arbiter v5 before PSCI:
+disable S2 (RST_CTL2 &= ~0x80), set type SHUTDOWN (RST_CTL1 = 0x04), re-enable S2
+(RST_CTL2 |= 0x80) — same sequence as Linux `qcom_pon_power_off()`. The SPMI channel for
+PON (SID 0, PID 0x08) is found at boot by walking the arbiter mapping table at 0x01C40800.
+Channel MMIO pages (write 0x01E00000+ch*0x10000, read 0x03E00000+ch*0x10000) are marked
+`EFI_MEMORY_RUNTIME` and pointers are converted at `SetVirtualAddressMap`. Works from both
+the UEFI menu and Windows "Shut down".
 
 ## 2a. USB host — WORKS (2026-10-01)
 Mouse through a bus-powered hub works in Windows with `Mu-topaz-v4-OTG3-RELEASE.img`

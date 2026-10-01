@@ -17,7 +17,7 @@ apply "$HERE/patches/mu-fat-fixes.patch" Mu_Basecore        # FAT: reject oversi
 apply "$HERE/patches/mu-topazotg.diff" .                    # TopazOtgDxe in dsc + DXE.inc
 
 mkdir -p Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe
-cp "$HERE"/TopazOtgDxe/TopazOtgDxe.{c,inf} Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe/
+cp "$HERE"/TopazOtgDxe/*.{c,h,inf} Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe/
 
 A=Silicium-ACPI/Platforms/Xiaomi/tapas
 [ -f $A/DSDT.aml.orig ] || cp $A/DSDT.aml $A/DSDT.aml.orig
