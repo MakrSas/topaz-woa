@@ -669,7 +669,8 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
       Out ("  t=2.000 modem did not open IPCRTR, opening it\r\n");
       SendOpen ();
     }
-    busy = mRxMsgs != rx0 || mTxMsgs != tx0;
+    busy = CePoll ();                           /* WLAN copy engines (no-op until CeStart) */
+    busy = busy || mRxMsgs != rx0 || mTxMsgs != tx0;
     ModemIdle (busy);
   }
   LogSetLazy (FALSE);
@@ -694,6 +695,8 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
          mTxqHead != mTxqTail ? mTxqLen[mTxqHead % TXQ_LEN] : 0, mRx != NULL ? RxAvail () : 0, mDesc[1], mDesc[0]);
   }
   SvcSummary ();
+  HtcSummary ();
+  CeSummary ();
   Out ("  qrtr: modem node %x, hello rx %u, %u services, %u RESUME_TX\r\n", mModemNode, mHelloRx,
        (UINT32)mSrvCount, (UINT32)mResumes);
   for (i = 0; i < mSrvCount; i++) {

@@ -499,6 +499,9 @@ VOID WlfwRx(CONST UINT8 *D, UINT32 Len)
       Step ("WLAN ON (mission)");
       gBS->Stall (100 * 1000);
       CeProbe ();                               /* the WLAN block should be powered now */
+      if (CeStart ()) {                         /* rings + RX buffers: HTC READY should follow */
+        Step ("CE up, waiting HTC READY");
+      }
     }
     break;
   default:
@@ -510,6 +513,11 @@ VOID WlfwRx(CONST UINT8 *D, UINT32 Len)
 VOID WlfwSummary(VOID)
 {
   Out ("  WLFW: %a%a\r\n", mStep, mFwReady ? " (firmware ready)" : "");
+}
+
+VOID WlfwSetStep(CONST CHAR8 *S)
+{
+  Step (S);
 }
 
 CONST CHAR8 *WlfwStep(VOID)

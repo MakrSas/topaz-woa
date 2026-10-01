@@ -67,3 +67,12 @@ extern volatile BOOLEAN gModemStop;
 VOID           SmmuProbe(BOOLEAN All);
 VOID           CeProbe(VOID);
 BOOLEAN        SmmuWlanMap(VOID);
+
+/* P4 data path: copy engines (ce.c) + HTC (htc.c), polled from the GLINK loop */
+BOOLEAN        CeStart(VOID);                     /* after WLAN_MODE mission */
+BOOLEAN        CePoll(VOID);                      /* TRUE if something was received */
+BOOLEAN        CeSend(UINT32 Ce, CONST VOID *Data, UINT32 Len, UINT32 TransferId);
+VOID           CeSummary(VOID);
+VOID           HtcRx(UINT32 Ce, CONST UINT8 *Data, UINT32 Len);
+VOID           HtcSummary(VOID);
+VOID           WlfwSetStep(CONST CHAR8 *S);

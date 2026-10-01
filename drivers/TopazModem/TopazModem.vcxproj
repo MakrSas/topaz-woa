@@ -62,8 +62,10 @@
     </DriverSign>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ce.c" />
     <ClCompile Include="driver.c" />
     <ClCompile Include="fileio.c" />
+    <ClCompile Include="htc.c" />
     <ClCompile Include="Glink.c" />
     <ClCompile Include="log.c" />
     <ClCompile Include="ModemPas.c" />
