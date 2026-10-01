@@ -21,6 +21,8 @@ jobs:
           if ($LASTEXITCODE) { throw "TopazTouch build failed" }
           msbuild drivers\TopazBattery\TopazBattery.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
           if ($LASTEXITCODE) { throw "TopazBattery build failed" }
+          msbuild drivers\TopazDisplay\TopazDisplay.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
+          if ($LASTEXITCODE) { throw "TopazDisplay build failed" }
 
       - name: Package, catalog and test-sign
         shell: pwsh
@@ -34,7 +36,7 @@ jobs:
           # Windows on the phone boots with its clock at 2022: keep the cert valid from 2015
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=topaz-woa test signing" -CertStoreLocation Cert:\CurrentUser\My -NotBefore (Get-Date "2015-01-01") -NotAfter (Get-Date "2045-01-01")
 
-          foreach ($name in @("TopazTouch", "TopazBattery")) {
+          foreach ($name in @("TopazTouch", "TopazBattery", "TopazDisplay")) {
             $out = "out\$name"
             New-Item -ItemType Directory -Force $out | Out-Null
             Copy-Item "drivers\$name\ARM64\Release\$name.sys" $out
@@ -62,3 +64,8 @@ jobs:
         with:
           name: TopazBattery-arm64
           path: out/TopazBattery
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TopazDisplay-arm64
+          path: out/TopazDisplay

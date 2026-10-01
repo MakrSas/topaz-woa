@@ -1,0 +1,62 @@
+;
+; TopazDisplay.inf - display-only WDDM driver for Redmi Note 12 4G (topaz) on the UEFI
+; framebuffer (0x5C000000, 1080x2400). Based on the Microsoft KMDOD sample (MS-PL).
+; Root-enumerated; takes the POST framebuffer over from BasicDisplay through
+; DxgkCbAcquirePostDisplayOwnership (if that fails the driver does not start and
+; BasicDisplay keeps the screen).
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Display
+ClassGuid   = {4d36e968-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = TopazDisplay.cat
+DriverVer   = ; set by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TopazDisplay.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = TopazDisplay_Inst, Root\TopazDisplay
+
+[TopazDisplay_Inst]
+FeatureScore = F9
+CopyFiles = TopazDisplay_Files
+
+[TopazDisplay_Files]
+TopazDisplay.sys
+
+[TopazDisplay_Inst.Services]
+AddService = TopazDisplay, 0x00000002, TopazDisplay_Service, TopazDisplay_EventLog
+
+[TopazDisplay_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 0               ; SERVICE_ERROR_IGNORE
+ServiceBinary = %12%\TopazDisplay.sys
+
+[TopazDisplay_EventLog]
+AddReg = TopazDisplay_EventLog_AddReg
+
+[TopazDisplay_EventLog_AddReg]
+HKR,,EventMessageFile,0x00020000,"%%SystemRoot%%\System32\IoLogMsg.dll"
+HKR,,TypesSupported,0x00010001,7
+
+[Strings]
+ProviderName     = "topaz-woa"
+ManufacturerName = "topaz-woa"
+DiskName         = "TopazDisplay Installation Disk"
+DeviceDesc       = "Redmi Note 12 Display (topaz)"
+ServiceName      = "TopazDisplay"
