@@ -50,7 +50,10 @@ animations need the GPU.
 - Firmware: SQE `a630_sqe.fw` (linux-firmware, 34 188 B; s8build `~/work/gpu/a630_sqe.fw`); zap
   `a610_zap.mdt/.bNN` from the vendor partition (`/firmware` or `/firmware-mbn`): ColorOS repack
   `images/super.img`, vendor_a at offset 6343884800, length 691810304 (LP metadata parser
-  `~/work/gpu/lp.py`); extracted image `~/work/gpu/vendor_a.img`.
+  `~/work/gpu/lp.py`); extracted image `~/work/gpu/vendor_a.img` (EROFS; old erofs-utils on s8build:
+  `fsck.erofs --extract=DIR`). **Extracted to s8build `~/work/gpu/vfw/`:** `a610_zap.mdt` 6860 B,
+  `.b00` 148, `.b01` 6712, `.b02` 2096, `a610_zap.elf` 14384, vendor `a630_sqe.fw` 32504 B (md5
+  b0f92bf1…; differs from linux-firmware's 34188 B — use the vendor one first, it is what KGSL ran).
 
 ## Linux reference (s8build `~/work/topaz/linux/drivers/gpu/drm/msm/adreno/`)
 - `a6xx_catalog.c:683` A610 entry: SQE a630_sqe.fw, zap a610_zap.mdt, gmem 128K+4K, quirk 4GB_VA,
