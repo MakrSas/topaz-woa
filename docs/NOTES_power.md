@@ -13,40 +13,28 @@ All on QUP0 SE1 I2C (0x4A84000, GPIO 4/5):
 - **sm5602 @ 0x71**: fuel gauge.
 - **sc8551 / ln8000**: charge pumps (direct charging, the high-power path Xiaomi uses for 33 W).
 
-### What runs today (verified, `drivers/TopazBattery/gauge.c`)
-- Reads the sm5602 gauge (capacity, voltage, temperature, cycles).
-- Charger policy: when VBUS is present, sets bq2589x REG03 CHG_CONFIG = 1 and clears OTG_CONFIG
-  (adapter -> charge, never boost into a charger). Charging state comes from REG0B CHRG_STAT.
-- Nothing else: **no input current limit (IINLIM) or charge current (ICHG) writes, no USB-PD, no
-  charge-pump driver.** So fast charging is not implemented.
+### What runs today (verified 2026-10-01, TopazBattery v0.7, log `docs/logs/TopazBattery-v0.7.log`)
+- **Type-C roles (DRP, no PD)** on rt1711h: toggling -> hub (partner Rd) = source + OTG boost,
+  charger (partner Rp) = sink + charging, back to toggling on detach. Verified on the phone:
+  hub -> charger -> charger -> hub, each re-plug detected in 1-2 s.
+- **rt1711h was in shipping mode after UEFI/Android**: RTCTRL8 (0x9B) read 0x80 (ship_off=0),
+  CC_STATUS stayed 00 even with a charger. Writing what Linux `rt1711h_init()` writes
+  (RTCTRL8=0x2A, RTCTRL11=0x8F, RTCTRL14=0x0F) made CC work.
+- **Charging through bq2589x at 5 V**: ICHG 1984 mA, VREG 4.40 V (nopmi fv-max), IINLIM 2000 mA
+  when the source advertises Rp 3.0 A / DCP (65 W USB-C adapter: Rp 3.0 A, BC1.2 VBUS_STAT=5
+  "unknown" because D+/D- are routed to the SoC via GPIO66). Measured: VBUS 4.9 V, ICHG ADC
+  1.5-1.6 A, ~6 W into the battery, input-limited (IDPM_STAT=1). Before (chip defaults left by
+  Android: ICHG 448 mA) it was ~1.7 W.
+- Software JEITA from `qcom,nopmi-chg` on the sm5602 NTC (zones in `gauge.c`).
+- Charger is a clone: REG14 PN=001 (SY6970 per Linux bq25890 driver), bq25890 register map.
+- Every D0 exit sets rt1711h back to Rd/Rd so a charger always gives VBUS with no driver running;
+  shutdown/restart also drops OTG.
 
-### What the phone probably does now (hypothesis, not measured)
-- bq2589x runs on its power-on defaults plus its own BC1.2 input detection:
-  5 V from the adapter, input limit chosen by the detected port type (a PC port ~0.5 A, a DCP
-  ~1.5-2 A), charge current at the chip default. Expected **roughly 2.5-10 W**, not 33 W.
-- bq25890-class chips can do HVDCP/MaxCharge (QC2-style 9/12 V) on their own if enabled by default;
-  Xiaomi's own adapters negotiate PD/PPS or a proprietary protocol, so with them the phone most
-  likely stays at 5 V. Unverified.
-- Exact defaults must be checked against the bq2589x datasheet, not assumed.
-
-### How to verify
-Add a bq2589x ADC readout to the TopazBattery log: start a conversion (REG02 CONV_START / CONV_RATE),
-then read battery voltage, VBUS voltage, charge current and the effective input limit (REG0E..REG13
-area; take the exact bits from the datasheet). One log line every 5 s while charging from (a) the PC
-and (b) the stock adapter answers "how fast does it charge now".
-
-### Path to fast charging (largest to smallest risk last)
-1. **Tune bq2589x** (ICHG / IINLIM to sane values within the battery profile): quickest, still 5 V,
-   about 10 W at best.
-2. **USB-PD sink**: rt1711h TCPC driver + a minimal PD policy engine requesting a 9 V fixed PDO,
-   then raise IINLIM: about 18 W through bq2589x. A sizeable piece of work (TCPCI registers, PD
-   message layer, timers).
-3. **Charge pump + PPS** (sc8551 / ln8000 direct charging): the 33 W path. Biggest and riskiest:
-   needs PPS voltage tracking, thermal limits and JEITA handling like Xiaomi's stack.
-
-**Safety:** any change to charge parameters must stay within the battery limits of the stock DT
-(sm5602 battery profile, temperature table already used by TopazBattery). Never raise currents
-blindly.
+### Next steps for more power
+1. IINLIM above 2 A: the adapter offers 3 A, but the DTB `input-current` is 2000 mA; keep.
+2. **9 V via USB-PD sink** (PD message layer on rt1711h, request a 9 V fixed PDO) -> ~18 W through
+   bq2589x (VINDPM / input limit must be re-set for 9 V).
+3. Charge pump sc8551/ln8000 + PPS (33 W path).
 
 ## 2. Sleep (Modern Standby)
 

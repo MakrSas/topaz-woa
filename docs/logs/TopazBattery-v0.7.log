@@ -1,0 +1,89 @@
+==== TopazBattery v0.7 (2 A charge, JEITA, Type-C DRP roles) ====
+WdfDriverCreate: 00000000
+WdfDeviceCreate: 00000000
+CreateDeviceInterface(GUID_DEVICE_BATTERY): 00000000
+TLMM before: sda ctl=00000004 scl ctl=00000004
+GCC: vote=00005be0 s1 cbcr=00004220 (on) dfs level=0
+GENI 4a84000: fw_rev=00000303 proto=3 tx_depth=16 status=00000000
+GeniI2cInit: 00000000
+sm5602: id=0012 (00000000) status=0204 op_status=0010
+charger: reg03=2a reg0b=e2
+rt1711h: vid=29cf pid=1711 (00000000)
+rt1711h before: alert=0002 mask=0fff tcpc_ctrl=00 role=0a power_ctrl=00 cc_status=00 power_status=08 fault=00 rtctrl8=80 rtctrl11=08 rtctrl14=01
+rt1711h after: alert=0000 mask=0fff tcpc_ctrl=00 role=0a power_ctrl=00 cc_status=00 power_status=0c fault=00 rtctrl8=2a rtctrl11=8f rtctrl14=0f
+rt1711h: init writes 00000000 role=0a -> ok
+BattHwInit: 00000000
+charger regs (vbus_stat -1->7) 00..14: 26 06 11 2a 1f 21 8e 8d 03 44 73 e2 00 13 47 47 3e 98 20 26 0c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+jeita: 34.3C zone -1 -> 5 (ichg 2000mA vreg 4400mV)
+chg adc: vbus=5000mV(gd=1) vbat=3724mV vsys=3724mV ichg=1600mA pbat=5958mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=47 r11=98 r12=20 r13=26
+poll: err=00000000 st=0204 soc=1324(19.1%) v=2ad2(3705mV) i=857d(-686mA) tex=e63e(34.3C) cap=26cc(4849mAh) cyc=1 chg r03=2a r0b=e2 online=0 charging=0 done=0 cc=ff tc=toggling
+BattClassInit: 00000000
+otg off (D0 entry): reg03 2a -> 0a (00000000)
+type-c: toggling -> toggling (D0 entry)
+thread started
+type-c: [toggling] cc_status ff -> 08 (looking=0 term=Rp cc1=0 cc2=2) vbus_stat=0
+charger regs (vbus_stat 7->0) 00..14: 26 06 11 0a 1f 21 8e 8d 03 44 73 02 00 13 47 47 3e 00 20 26 0c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+otg on (hub attached): reg03 0a -> 2a (00000000)
+type-c: toggling -> source(hub) (partner Rd)
+charger regs (vbus_stat 0->7) 00..14: 26 06 11 2a 1f 21 8e 8d 03 44 73 e2 00 13 46 46 3e 80 20 26 0c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+chg adc: vbus=5000mV(gd=1) vbat=3724mV vsys=3724mV ichg=1600mA pbat=5958mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=47 r11=98 r12=20 r13=26
+poll: err=00000000 st=0204 soc=130b(19.0%) v=2b27(3713mV) i=83fa(-498mA) tex=e65d(34.2C) cap=26cc(4849mAh) cyc=1 chg r03=2a r0b=e2 online=0 charging=0 done=0 cc=08 tc=source(hub)
+poll: err=00000000 st=0204 soc=12f2(18.9%) v=2ada(3706mV) i=8480(-562mA) tex=e654(34.2C) cap=26cc(4849mAh) cyc=1 chg r03=2a r0b=e2 online=0 charging=0 done=0 cc=08 tc=source(hub)
+type-c: [source(hub)] cc_status 08 -> 00 (looking=0 term=Rp cc1=0 cc2=0) vbus_stat=7
+otg off (hub removed): reg03 2a -> 0a (00000000)
+type-c: source(hub) -> toggling (hub removed)
+charger regs (vbus_stat 7->0) 00..14: 26 06 11 0a 1f 21 8e 8d 03 44 73 02 00 13 47 47 3e 98 20 26 0c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+type-c: [toggling] cc_status 00 -> 20 (looking=1 term=Rp cc1=0 cc2=0) vbus_stat=0
+type-c: [toggling] cc_status 20 -> 30 (looking=1 term=Rd cc1=0 cc2=0) vbus_stat=0
+type-c: [toggling] cc_status 30 -> 20 (looking=1 term=Rp cc1=0 cc2=0) vbus_stat=0
+type-c: [toggling] cc_status 20 -> 30 (looking=1 term=Rd cc1=0 cc2=0) vbus_stat=0
+type-c: [toggling] cc_status 30 -> 13 (looking=0 term=Rd cc1=3 cc2=0) vbus_stat=0
+type-c: toggling -> sink(charger) (partner Rp)
+charger regs (vbus_stat 0->5) 00..14: 08 06 11 0a 1f 21 8e 8d 03 44 73 a6 00 13 48 47 3e 80 20 08 0c
+charger cfg: iinlim=500mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+charger policy: [sink(charger)] vbus_stat=5 reg03 0a -> 1a (00000000)
+charger limits: zone 5 vbus_stat=5 cc=13 | r00 08->26 (iinlim 2000mA) r04 1f->1f (ichg 1984mA) r06 8e->8e (vreg 4400mV) (00000000 00000000 00000000)
+chg adc: vbus=0mV(gd=1) vbat=3744mV vsys=3724mV ichg=1600mA pbat=5990mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=48 r11=80 r12=20 r13=26
+poll: err=00000000 st=0204 soc=12f2(18.9%) v=2ccd(3752mV) i=8001(0mA) tex=e6b1(34.1C) cap=26cc(4849mAh) cyc=1 chg r03=0a r0b=a6 online=1 charging=0 done=0 cc=13 tc=sink(charger)
+chg adc: vbus=5000mV(gd=1) vbat=3884mV vsys=3884mV ichg=1550mA pbat=6020mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=4f r11=98 r12=1f r13=66
+poll: err=00000000 st=0204 soc=12f2(18.9%) v=330c(3898mV) i=0ed6(1858mA) tex=e787(33.6C) cap=26cc(4849mAh) cyc=1 chg r03=1a r0b=b6 online=1 charging=1 done=0 cc=13 tc=sink(charger)
+chg adc: vbus=4900mV(gd=1) vbat=3904mV vsys=3924mV ichg=1500mA pbat=5856mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=50 r11=97 r12=1e r13=66
+poll: err=00000000 st=0304 soc=130b(19.0%) v=3358(3905mV) i=0eda(1860mA) tex=e797(33.6C) cap=26cc(4849mAh) cyc=1 chg r03=1a r0b=b6 online=1 charging=1 done=0 cc=13 tc=sink(charger)
+chg adc: vbus=4900mV(gd=1) vbat=3924mV vsys=3944mV ichg=1600mA pbat=6278mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=51 r11=97 r12=20 r13=66
+chg adc: vbus=4900mV(gd=1) vbat=3944mV vsys=3964mV ichg=1600mA pbat=6310mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=52 r11=97 r12=20 r13=66
+poll: err=00000000 st=0204 soc=1324(19.1%) v=33aa(3913mV) i=0ed1(1854mA) tex=e76a(33.7C) cap=26cc(4849mAh) cyc=1 chg r03=1a r0b=b6 online=1 charging=1 done=0 cc=13 tc=sink(charger)
+chg adc: vbus=4900mV(gd=1) vbat=3944mV vsys=3964mV ichg=1600mA pbat=6310mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=52 r11=97 r12=20 r13=66
+chg adc: vbus=4900mV(gd=1) vbat=3944mV vsys=3964mV ichg=1600mA pbat=6310mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=52 r11=97 r12=20 r13=66
+chg adc: vbus=4900mV(gd=1) vbat=3944mV vsys=3964mV ichg=1600mA pbat=6310mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=52 r11=97 r12=20 r13=66
+type-c: [sink(charger)] cc_status 13 -> 10 (looking=0 term=Rd cc1=0 cc2=0) vbus_stat=0
+type-c: sink(charger) -> toggling (charger removed)
+charger regs (vbus_stat 5->0) 00..14: 26 06 11 1a 1f 21 8e 8d 03 44 73 02 00 13 53 53 3e 00 20 00 0c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+poll: err=00000000 st=0204 soc=1356(19.3%) v=2d03(3757mV) i=82a5(-330mA) tex=e60a(34.4C) cap=26cc(4849mAh) cyc=1 chg r03=1a r0b=02 online=0 charging=0 done=0 cc=10 tc=toggling
+type-c: [toggling] cc_status 10 -> 30 (looking=1 term=Rd cc1=0 cc2=0) vbus_stat=0
+type-c: [toggling] cc_status 30 -> 04 (looking=0 term=Rp cc1=0 cc2=1) vbus_stat=0
+type-c: [toggling] cc_status 04 -> 13 (looking=0 term=Rd cc1=3 cc2=0) vbus_stat=0
+type-c: toggling -> sink(charger) (partner Rp)
+charger regs (vbus_stat 0->5) 00..14: 08 06 11 1a 1f 21 8e 8d 03 44 73 b6 00 13 4a 48 3e 80 00 48 0c
+charger cfg: iinlim=500mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+charger limits: zone 5 vbus_stat=5 cc=13 | r00 08->26 (iinlim 2000mA) r04 1f->1f (ichg 1984mA) r06 8e->8e (vreg 4400mV) (00000000 00000000 00000000)
+chg adc: vbus=0mV(gd=1) vbat=3784mV vsys=3744mV ichg=0mA pbat=0mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=4a r11=80 r12=00 r13=66
+poll: err=00000000 st=0204 soc=1356(19.3%) v=2d12(3758mV) i=0233(274mA) tex=e5ec(34.5C) cap=26cc(4849mAh) cyc=1 chg r03=1a r0b=b6 online=1 charging=1 done=0 cc=13 tc=sink(charger)
+chg adc: vbus=4700mV(gd=1) vbat=3924mV vsys=3924mV ichg=1500mA pbat=5886mW | lim: iinlim=2000mA idpm_lim=2000mA vdpm=0 idpm=1 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=51 r11=95 r12=1e r13=66
+type-c: [sink(charger)] cc_status 13 -> 10 (looking=0 term=Rd cc1=0 cc2=0) vbus_stat=0
+type-c: sink(charger) -> toggling (charger removed)
+charger regs (vbus_stat 5->0) 00..14: 26 06 11 1a 1f 21 8e 8d 03 44 73 02 00 13 52 53 3e 00 20 00 0c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+poll: err=00000000 st=0204 soc=1356(19.3%) v=2cd0(3752mV) i=827c(-310mA) tex=e5ed(34.5C) cap=26cc(4849mAh) cyc=1 chg r03=1a r0b=02 online=0 charging=0 done=0 cc=10 tc=toggling
+type-c: [toggling] cc_status 10 -> 30 (looking=1 term=Rd cc1=0 cc2=0) vbus_stat=0
+type-c: [toggling] cc_status 30 -> 08 (looking=0 term=Rp cc1=0 cc2=2) vbus_stat=0
+otg on (hub attached): reg03 1a -> 3a (00000000)
+type-c: toggling -> source(hub) (partner Rd)
+charger regs (vbus_stat 0->7) 00..14: 26 06 11 2a 1f 21 8e 8d 03 44 73 e2 00 13 48 48 3e 80 20 00 0c
+charger cfg: iinlim=2000mA en_ilim=0 hiz=0 ichg=1984mA vreg=4400mV vindpm=4500mV(force=0) reg02=11(ico=1 hvdcp=0 maxc=0 auto_dpdm=1) wdog=0 timer=1 pn=1 rev=0 ico_done=0
+chg adc: vbus=5000mV(gd=1) vbat=3724mV vsys=3724mV ichg=1600mA pbat=5958mW | lim: iinlim=2000mA idpm_lim=100mA vdpm=0 idpm=0 ichg_set=1984mA therm=0 | r00=26 r02=11 r04=1f r0e=47 r11=98 r12=20 r13=00
+poll: err=00000000 st=0204 soc=1356(19.3%) v=2b78(3720mV) i=85d1(-728mA) tex=e5e8(34.5C) cap=26cc(4849mAh) cyc=1 chg r03=2a r0b=e2 online=0 charging=0 done=0 cc=08 tc=source(hub)
