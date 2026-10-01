@@ -1,7 +1,9 @@
 name: Probe WDK (WiFiCx)
 
 on:
-  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/probe-wdk.yml"
 
 jobs:
   probe:
