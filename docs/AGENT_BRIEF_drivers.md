@@ -166,4 +166,4 @@ The phone is reached **only through the laptop**: `ssh s8build` (then `adb`/`fas
    flashed UEFI once the lead flashes it. Original notes: enable bq2589x OTG boost, rt1711h source role, DWC3 host mode so
    Windows' inbox XHCI works (hub + keyboard). Coordinate with the lead: may end up in UEFI.
 4. **Battery** — sm5602 fuel gauge → battery miniclass (percentage in taskbar).
-5. **Wi-Fi/BT** (WCN3990 behind MPSS) — research only.
+5. **Wi-Fi/BT** (WCN3990 behind MPSS) — research in progress: `docs/RESEARCH_wifi.md`.
