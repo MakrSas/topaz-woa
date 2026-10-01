@@ -29,8 +29,10 @@ STATIC VOID DumpCb(UINT8 *S, UINT32 PageSize, UINT32 NumPage, UINT32 Cb)
 {
   UINT8 *gr1 = S + PageSize, *cb = S + (UINTN)NumPage * PageSize + (UINTN)Cb * PageSize;
 
-  Out ("    CB%u: CBAR %08x SCTLR %08x TCR %08x TTBR0 %08x%08x FSR %08x FAR %08x%08x\r\n", Cb,
-       R32 (gr1, Cb * 4), R32 (cb, 0x0), R32 (cb, 0x30), R32 (cb, 0x24), R32 (cb, 0x20), R32 (cb, 0x58),
+  Out ("    CB%u: CBAR %08x CBA2R %08x SCTLR %08x TCR %08x TCR2 %08x\r\n", Cb,
+       R32 (gr1, Cb * 4), R32 (gr1, 0x800 + Cb * 4), R32 (cb, 0x0), R32 (cb, 0x30), R32 (cb, 0x10));
+  Out ("        TTBR0 %08x%08x MAIR %08x %08x FSR %08x FAR %08x%08x\r\n",
+       R32 (cb, 0x24), R32 (cb, 0x20), R32 (cb, 0x3C), R32 (cb, 0x38), R32 (cb, 0x58),
        R32 (cb, 0x64), R32 (cb, 0x60));
 }
 
@@ -63,9 +65,10 @@ VOID SmmuProbe(BOOLEAN All)
          (smr >> 16) & 0x7FFF, s2cr, (s2cr >> 16) & 3, s2cr & 0xFF, wlan ? "  <== WLAN" : "");
     if (wlan) {
       hits++;
-      if (((s2cr >> 16) & 3) == 0 && (UINTN)npage * psize * 2 <= SMMU_SIZE) {
-        DumpCb (s, psize, npage, s2cr & 0xFF);
-      }
+    }
+    /* dump the context bank behind any translating stream (UEFI's cb 0..3 are our template) */
+    if (((s2cr >> 16) & 3) == 0 && (UINTN)(npage + (s2cr & 0xFF) + 1) * psize <= SMMU_SIZE) {
+      DumpCb (s, psize, npage, s2cr & 0xFF);
     }
   }
   Out ("  smmu: WLAN stream %x: %a\r\n", WLAN_SID, hits != 0 ? "has a stream match (see above)" :
