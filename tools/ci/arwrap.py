@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 args = sys.argv[1:]
-if args and not args[0].startswith('/') and not args[0].startswith('@') and not args[0].lower().endswith(('.obj', '.a', '.lib')):
+if len(args) >= 2 and args[0].isalpha() and set(args[0]) <= set('crsuqTD'):
     # GNU ar: <ops> <archive> <members...>
     out, members = args[1], args[2:]
     args = ['/OUT:' + out] + members
