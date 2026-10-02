@@ -49,10 +49,18 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-int main(void)
+// usage: d3dtest [clear|copy] [FD_MESA_DEBUG flags, e.g. sysmem,noubwc]
+//   clear: ClearRenderTargetView (freedreno: 3D draw or blit) -> copy to staging -> read
+//   copy:  texture created with initial data (CPU upload) -> CopyResource (2D blitter) -> read
+int main(int argc, char **argv)
 {
+    bool copy = argc > 1 && strcmp(argv[1], "copy") == 0;
     setvbuf(stdout, nullptr, _IONBF, 0);
     SetEnvironmentVariableA("TOPAZGPU_ENABLE", "1");  // the UMD refuses other processes
+    if (argc > 2) {
+        SetEnvironmentVariableA("FD_MESA_DEBUG", argv[2]);
+    }
+    printf("mode %s, FD_MESA_DEBUG=%s\n", copy ? "copy" : "clear", argc > 2 ? argv[2] : "");
     AddVectoredExceptionHandler(1, crash_handler);
     IDXGIFactory1 *factory = nullptr;
     IDXGIAdapter1 *adapter = nullptr, *pick = nullptr;
@@ -98,7 +106,12 @@ int main(void)
     td.BindFlags = D3D11_BIND_RENDER_TARGET;
     ID3D11Texture2D *rt = nullptr, *staging = nullptr;
     ID3D11RenderTargetView *rtv = nullptr;
-    hr = dev->CreateTexture2D(&td, nullptr, &rt);
+    static unsigned init[64 * 64];
+    for (unsigned i = 0; i < 64 * 64; i++) {
+        init[i] = 0xff4080ff;                          // same color the clear would write
+    }
+    D3D11_SUBRESOURCE_DATA sd = { init, 64 * 4, 0 };
+    hr = dev->CreateTexture2D(&td, copy ? &sd : nullptr, &rt);
     printf("CreateTexture2D(RT): %08lx\n", (unsigned long)hr);
     if (FAILED(hr) || FAILED(dev->CreateRenderTargetView(rt, nullptr, &rtv))) {
         return 4;
@@ -112,7 +125,9 @@ int main(void)
     }
 
     const float color[4] = { 1.0f, 0.5f, 0.25f, 1.0f };    // expect R=ff G=80 B=40 A=ff
-    ctx->ClearRenderTargetView(rtv, color);
+    if (!copy) {
+        ctx->ClearRenderTargetView(rtv, color);
+    }
     ctx->CopyResource(staging, rt);
     ctx->Flush();
 
