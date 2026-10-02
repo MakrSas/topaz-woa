@@ -59,3 +59,16 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   DXGK_BRIGHTNESS_INTERFACE that sends DCS 0x51 through the DSI DMA path (code from
   TopazBacklight), then disable BasicDisplay → native slider. Risk: a broken TopazDisplay with
   BasicDisplay disabled = black screen until `devcon enable` over SSH or a reboot.
+
+## State when stopped (2026-10-02 ~21:45)
+- **Working:** TopazBacklight v0.3 installed on the phone; `C:\topaz\dsi.dma` present (DMA path on);
+  `C:\topaz\brightness` = 100. Changing the file (0..100) changes the panel within ~0.3 s.
+  `C:\topaz\dsicmd` sends raw packets (05 28 / 05 29 = display off/on, verified).
+- **Built, NOT installed:** TopazDisplay v0.3 (CI run 37047724611): DxgkDdiQueryInterface →
+  DXGK_BRIGHTNESS_INTERFACE (GetPossible 0..100, Set → DCS 0x51 via the DSI DMA path, Get), target
+  reported as D3DKMDT_VOT_INTERNAL, logs for failing PresentDisplayOnly / unknown QueryAdapterInfo.
+- **Next:** install TopazDisplay v0.3 (device ROOT\DISPLAY\0000 is not started → update is safe),
+  read C:\TopazDisplay.log to see why PresentDisplayOnly fails (0xC0000001), fix, then disable
+  BasicDisplay so TopazDisplay owns the panel and the Windows slider appears; afterwards remove
+  TopazBacklight (two drivers must not drive DSI0 at the same time) or make TopazBacklight v0.4
+  DMA-only for the file control. TODO TopazBacklight v0.4: DMA path by default (flag file not needed).

@@ -72,6 +72,13 @@ Debug: FD_RD_DUMP=enable|full → C:\tmp\*.rd → cffdump on s8build (~/work/gpu
 Rules learned: never `devcon restart/update` TopazGpuW while DWM holds it (PnP lock → explorer,
 network, sshd hang); install a new KMD via guard file + normal reboot (see P8 notes).
 
+
+## Side work 2026-10-02 evening: brightness (see docs/NOTES_brightness.md)
+TopazBacklight (DCS 0x51 over DSI0, DMA path) works via C:\topaz\brightness; TopazDisplay v0.3 with
+the Windows brightness interface is built but not installed. GPU step C state: ACPI GPU0 in
+`Mu-topaz-v4-GPU0-RELEASE.img` (RAM boot only), the ACPI adapter needs full display (C2) — see the
+end of P8_gpu.md; phone currently booted from the flashed UEFI (no GPU0, no TopazGpuW instance).
+
 ## Still open (older)
 - Wi-Fi P6 HT/VHT (`docs/HANDOFF_p6_htvht.md`), then P7 (CE interrupts, real MAC, stats).
 - Archive TopazWifi v0.3/v0.4 logs (redact SSIDs). Roadmap: `docs/ROADMAP.md`.
