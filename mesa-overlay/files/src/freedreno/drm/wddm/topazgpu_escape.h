@@ -38,4 +38,30 @@ struct topazgpu_escape {
    unsigned char data[TOPAZGPU_ESC_MAX_DATA];
 };
 
+/* Allocation private driver data (D3DDDI_ALLOCATIONINFO.pPrivateDriverData), step C2: every
+   allocation the UMD creates through pfnAllocateCb (swapchain/shared/primary resources) names the
+   BO that holds its pixels; standard allocations created by Dxgkrnl (shared primary, shadow,
+   staging, GDI) get the same struct from DxgkDdiGetStandardAllocationDriverData with bo = 0 and
+   live in VidMM's aperture backing. */
+#define TOPAZGPU_ALLOC_MAGIC    0x41475054u     /* 'TPGA' */
+#define TOPAZGPU_ALLOC_UMD      0               /* kind: resource of the UMD */
+#define TOPAZGPU_ALLOC_SHAREDPRIMARY 1          /* = D3DKMDT_STANDARDALLOCATION_* */
+#define TOPAZGPU_ALLOC_SHADOW   2
+#define TOPAZGPU_ALLOC_STAGING  3
+#define TOPAZGPU_ALLOC_GDI      4
+#define TOPAZGPU_ALLOC_F_PRIMARY 0x1
+
+struct topazgpu_alloc {
+   unsigned magic;
+   unsigned kind;
+   unsigned width, height, pitch;               /* pixels / bytes */
+   unsigned format;                             /* D3DDDIFORMAT (21 = A8R8G8B8, 22 = X8R8G8B8) */
+   unsigned bo;                                 /* BO name with the pixels, 0 = VidMM memory */
+   unsigned bo_offset;
+   unsigned size;                               /* bytes */
+   unsigned vidpn;                              /* primary: VidPnSourceId */
+   unsigned flags;                              /* TOPAZGPU_ALLOC_F_* */
+   unsigned reserved[5];
+};
+
 #endif
