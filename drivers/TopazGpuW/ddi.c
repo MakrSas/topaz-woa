@@ -106,6 +106,7 @@ static NTSTATUS TgRemoveDevice(const PVOID Ctx)
 
 static NTSTATUS TgDispatchIoRequest(const PVOID Ctx, ULONG Src, PVIDEO_REQUEST_PACKET Vrp)
 {
+    LogPrint("%s\n", "TgDispatchIoRequest");
     UNREFERENCED_PARAMETER(Ctx);
     UNREFERENCED_PARAMETER(Src);
     UNREFERENCED_PARAMETER(Vrp);
@@ -127,6 +128,7 @@ static VOID TgDpcRoutine(const PVOID Ctx)
 
 static NTSTATUS TgQueryChildRelations(const PVOID Ctx, PDXGK_CHILD_DESCRIPTOR Rel, ULONG Size)
 {
+    LogPrint("%s\n", "TgQueryChildRelations");
     UNREFERENCED_PARAMETER(Ctx);
     UNREFERENCED_PARAMETER(Rel);
     UNREFERENCED_PARAMETER(Size);
@@ -135,6 +137,7 @@ static NTSTATUS TgQueryChildRelations(const PVOID Ctx, PDXGK_CHILD_DESCRIPTOR Re
 
 static NTSTATUS TgQueryChildStatus(const PVOID Ctx, PDXGK_CHILD_STATUS St, BOOLEAN NonDestructive)
 {
+    LogPrint("%s\n", "TgQueryChildStatus");
     UNREFERENCED_PARAMETER(Ctx);
     UNREFERENCED_PARAMETER(St);
     UNREFERENCED_PARAMETER(NonDestructive);
@@ -143,6 +146,7 @@ static NTSTATUS TgQueryChildStatus(const PVOID Ctx, PDXGK_CHILD_STATUS St, BOOLE
 
 static NTSTATUS TgQueryDeviceDescriptor(const PVOID Ctx, ULONG Uid, PDXGK_DEVICE_DESCRIPTOR Desc)
 {
+    LogPrint("%s\n", "TgQueryDeviceDescriptor");
     UNREFERENCED_PARAMETER(Ctx);
     UNREFERENCED_PARAMETER(Uid);
     UNREFERENCED_PARAMETER(Desc);
@@ -151,6 +155,7 @@ static NTSTATUS TgQueryDeviceDescriptor(const PVOID Ctx, ULONG Uid, PDXGK_DEVICE
 
 static NTSTATUS TgSetPowerState(const PVOID Ctx, ULONG Uid, DEVICE_POWER_STATE Ps, POWER_ACTION Action)
 {
+    LogPrint("%s\n", "TgSetPowerState");
     UNREFERENCED_PARAMETER(Ctx);
     UNREFERENCED_PARAMETER(Uid);
     UNREFERENCED_PARAMETER(Ps);
@@ -170,14 +175,25 @@ static VOID TgUnload(VOID)
 
 static NTSTATUS TgQueryInterface(const PVOID Ctx, PQUERY_INTERFACE Qi)
 {
+    LogPrint("%s\n", "TgQueryInterface");
     UNREFERENCED_PARAMETER(Ctx);
     UNREFERENCED_PARAMETER(Qi);
     return STATUS_NOT_SUPPORTED;
 }
 
+static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q);
+
 static NTSTATUS APIENTRY TgQueryAdapterInfo(const HANDLE hAdapter, const DXGKARG_QUERYADAPTERINFO *Q)
 {
+    NTSTATUS st;
     UNREFERENCED_PARAMETER(hAdapter);
+    st = QueryAdapterInfoInner(Q);
+    LogPrint("QueryAdapterInfo type %u in %u out %u -> %08x\n", Q->Type, Q->InputDataSize, Q->OutputDataSize, st);
+    return st;
+}
+
+static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
+{
     switch (Q->Type) {
     case DXGKQAITYPE_DRIVERCAPS: {
         DXGK_DRIVERCAPS *c = (DXGK_DRIVERCAPS *)Q->pOutputData;
@@ -243,6 +259,7 @@ static NTSTATUS APIENTRY TgEscape(const HANDLE hAdapter, const DXGKARG_ESCAPE *E
 
 static NTSTATUS APIENTRY TgCreateDevice(const HANDLE hAdapter, DXGKARG_CREATEDEVICE *A)
 {
+    LogPrint("%s\n", "TgCreateDevice");
     TGPU_DEVICE *d = (TGPU_DEVICE *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*d), TGPU_POOL_TAG);
     if (d == NULL) {
         return STATUS_NO_MEMORY;
@@ -261,6 +278,7 @@ static NTSTATUS APIENTRY TgDestroyDevice(const HANDLE hDevice)
 
 static NTSTATUS APIENTRY TgCreateContext(const HANDLE hDevice, DXGKARG_CREATECONTEXT *A)
 {
+    LogPrint("%s\n", "TgCreateContext");
     TGPU_CONTEXT *c = (TGPU_CONTEXT *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*c), TGPU_POOL_TAG);
     if (c == NULL) {
         return STATUS_NO_MEMORY;
@@ -282,6 +300,7 @@ static NTSTATUS APIENTRY TgDestroyContext(const HANDLE hContext)
 
 static NTSTATUS APIENTRY TgCreateAllocation(const HANDLE hAdapter, DXGKARG_CREATEALLOCATION *A)
 {
+    LogPrint("%s\n", "TgCreateAllocation");
     ULONG i;
     UNREFERENCED_PARAMETER(hAdapter);
     for (i = 0; i < A->NumAllocations; i++) {
@@ -379,6 +398,7 @@ static NTSTATUS APIENTRY TgPatch(const HANDLE hAdapter, const DXGKARG_PATCH *A)
 
 static NTSTATUS APIENTRY TgSubmitCommand(const HANDLE hAdapter, const DXGKARG_SUBMITCOMMAND *A)
 {
+    LogPrint("%s\n", "TgSubmitCommand");
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)hAdapter;
     a->LastSubmittedFence = A->SubmissionFenceId;
     CompleteFence(a, A->SubmissionFenceId);              /* nothing to execute: done at once */
@@ -394,6 +414,7 @@ static NTSTATUS APIENTRY TgPreemptCommand(const HANDLE hAdapter, const DXGKARG_P
 
 static NTSTATUS APIENTRY TgBuildPagingBuffer(const HANDLE hAdapter, DXGKARG_BUILDPAGINGBUFFER *A)
 {
+    LogPrint("%s\n", "TgBuildPagingBuffer");
     UNREFERENCED_PARAMETER(hAdapter);
     UNREFERENCED_PARAMETER(A);
     return STATUS_SUCCESS;                               /* VidMM placement is a bookkeeping fiction */
@@ -401,6 +422,7 @@ static NTSTATUS APIENTRY TgBuildPagingBuffer(const HANDLE hAdapter, DXGKARG_BUIL
 
 static NTSTATUS APIENTRY TgResetFromTimeout(const HANDLE hAdapter)
 {
+    LogPrint("%s\n", "TgResetFromTimeout");
     UNREFERENCED_PARAMETER(hAdapter);
     return STATUS_SUCCESS;
 }
@@ -413,6 +435,7 @@ static NTSTATUS APIENTRY TgRestartFromTimeout(const HANDLE hAdapter)
 
 static NTSTATUS APIENTRY TgCollectDbgInfo(const HANDLE hAdapter, const DXGKARG_COLLECTDBGINFO *A)
 {
+    LogPrint("%s\n", "TgCollectDbgInfo");
     UNREFERENCED_PARAMETER(hAdapter);
     UNREFERENCED_PARAMETER(A);
     return STATUS_SUCCESS;
@@ -427,6 +450,7 @@ static NTSTATUS APIENTRY TgQueryCurrentFence(const HANDLE hAdapter, DXGKARG_QUER
 
 static NTSTATUS APIENTRY TgControlInterrupt(const HANDLE hAdapter, const DXGK_INTERRUPT_TYPE Type, BOOLEAN Enable)
 {
+    LogPrint("%s\n", "TgControlInterrupt");
     UNREFERENCED_PARAMETER(hAdapter);
     UNREFERENCED_PARAMETER(Type);
     UNREFERENCED_PARAMETER(Enable);
@@ -435,6 +459,7 @@ static NTSTATUS APIENTRY TgControlInterrupt(const HANDLE hAdapter, const DXGK_IN
 
 static NTSTATUS APIENTRY TgGetNodeMetadata(const HANDLE hAdapter, UINT NodeOrdinal, DXGKARG_GETNODEMETADATA *A)
 {
+    LogPrint("%s\n", "TgGetNodeMetadata");
     UNREFERENCED_PARAMETER(hAdapter);
     UNREFERENCED_PARAMETER(NodeOrdinal);
     RtlZeroMemory(A, sizeof(*A));
@@ -452,6 +477,7 @@ static NTSTATUS APIENTRY TgCancelCommand(const HANDLE hAdapter, const DXGKARG_CA
 
 static NTSTATUS APIENTRY TgQueryEngineStatus(const HANDLE hAdapter, DXGKARG_QUERYENGINESTATUS *A)
 {
+    LogPrint("%s\n", "TgQueryEngineStatus");
     UNREFERENCED_PARAMETER(hAdapter);
     A->EngineStatus.Responsive = 1;
     return STATUS_SUCCESS;
