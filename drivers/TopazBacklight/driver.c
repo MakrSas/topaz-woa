@@ -25,7 +25,7 @@
  */
 #include "driver.h"
 
-#define TOPAZ_BL_VERSION    "v0.3"
+#define TOPAZ_BL_VERSION    "v0.4"
 
 #define DSI0_PA             0x05E94000ULL
 #define DSI0_SIZE           0x400
@@ -306,8 +306,11 @@ static NTSTATUS HwInit(PDEVICE_CONTEXT Ctx)
             Ctx->DmaPa = MmGetPhysicalAddress(Ctx->DmaVa);
         }
     }
+    /* v0.4: the DMA path is the default (it is the only one that reaches the panel); C:\topaz\dsi.fifo forces the
+     * old TPG FIFO path for experiments. */
+    Ctx->UseDma = (Ctx->DmaVa != NULL);
     {
-        UNICODE_STRING fn = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\dsi.dma");
+        UNICODE_STRING fn = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\dsi.fifo");
         OBJECT_ATTRIBUTES oa;
         IO_STATUS_BLOCK iosb;
         HANDLE h;
@@ -315,12 +318,12 @@ static NTSTATUS HwInit(PDEVICE_CONTEXT Ctx)
         if (NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, 0, FILE_SHARE_READ,
                                     FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0))) {
             ZwClose(h);
-            Ctx->UseDma = TRUE;
+            Ctx->UseDma = FALSE;
         }
     }
     LogPrint("DMA buffer %p pa %llx, smmu gfsr %08x, path %s\n", Ctx->DmaVa, Ctx->DmaPa.QuadPart,
              Ctx->Smmu ? READ_REGISTER_ULONG((volatile ULONG *)(Ctx->Smmu + SMMU_GFSR)) : 0,
-             Ctx->UseDma ? "DMA (C:\\topaz\\dsi.dma)" : "TPG FIFO");
+             Ctx->UseDma ? "DMA (default)" : "TPG FIFO (C:\\topaz\\dsi.fifo)");
     if (!(Rd(Ctx, DSI_CTRL) & CTRL_ENABLE)) {
         LogPrint("DSI0 not enabled: leaving the panel alone\n");
         return STATUS_DEVICE_NOT_READY;

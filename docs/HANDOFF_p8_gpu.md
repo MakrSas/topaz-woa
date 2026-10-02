@@ -73,11 +73,13 @@ Rules learned: never `devcon restart/update` TopazGpuW while DWM holds it (PnP l
 network, sshd hang); install a new KMD via guard file + normal reboot (see P8 notes).
 
 
-## Side work 2026-10-02 evening: brightness (see docs/NOTES_brightness.md)
-TopazBacklight (DCS 0x51 over DSI0, DMA path) works via C:\topaz\brightness; TopazDisplay v0.3 with
-the Windows brightness interface is built but not installed. GPU step C state: ACPI GPU0 in
-`Mu-topaz-v4-GPU0-RELEASE.img` (RAM boot only), the ACPI adapter needs full display (C2) — see the
-end of P8_gpu.md; phone currently booted from the flashed UEFI (no GPU0, no TopazGpuW instance).
+## Side work 2026-10-02: brightness — DONE (see docs/NOTES_brightness.md, SUMMARY at the top)
+The Windows brightness slider controls the panel. **The phone now runs TopazDisplay v0.6 as the only display adapter
+(BasicDisplay disabled via registry), TopazBacklight disabled.** TopazDisplay is a root KMDOD that DWM holds: never
+`devcon update/restart` it (PnP hang), and a GPU change must not enable BasicDisplay again without removing the
+`ConfigFlags=1` first. A render-only GPU adapter (TopazGpuW) sits next to it; the ACPI GPU adapter (C2) would be a POST
+device (dxgkrnl auto-POSTs any ACPI-enumerated adapter), which would also allow INTERNAL connectors. Recovery for a
+logo-frozen screen is in the NOTES summary.
 
 ## Still open (older)
 - Wi-Fi P6 HT/VHT (`docs/HANDOFF_p6_htvht.md`), then P7 (CE interrupts, real MAC, stats).

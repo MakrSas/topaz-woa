@@ -1,3 +1,31 @@
+# Panel brightness under Windows — SUMMARY (2026-10-02, DONE: the Windows slider controls the panel)
+
+How it works now:
+- **TopazDisplay** (`drivers/TopazDisplay`, root KMDOD `Root\TopazDisplay`) owns the panel; **Microsoft Basic Display is
+  disabled** (`ConfigFlags=1` on `HKLM\SYSTEM\CurrentControlSet\Enum\ROOT\BASICDISPLAY\0000`, applied at boot — a hot
+  disable of an adapter DWM holds can hang PnP; leaving both enabled = two monitors on one framebuffer, artifacts).
+- DxgKrnl asks TopazDisplay for `GUID_DEVINTERFACE_BRIGHTNESS`; `SetBrightness(0..100)` sends DCS 0x51 (level
+  1..0x7FF) through DSI0 `0x5E94000` with the DMA command path (`topaz_bl.cxx`).
+- The slider only exists because the monitor `DISPLAY\TPZ6225` has `BrightnessControl=1` (REG_DWORD) in its driver key
+  `Class\{4d36e96e-e325-11ce-bfc1-08002be10318}\<n>`: **`tools/deploy/topaz-brightness.ps1`** sets it (needs a reboot).
+  An INTERNAL/LVDS child type is impossible (dxgkrnl rejects it for a non-POST root adapter), the child type is OTHER.
+- TopazBacklight is disabled (`devcon disable Root\TopazBacklight`) so only one driver writes DSI0; v0.4 makes the
+  DMA path its default (`C:\topaz\dsi.fifo` forces the old FIFO path) in case it is used as a fallback.
+- `C:\topaz\td.cfg` = `-1 4` is on the phone (child technology/HPD override, read at each QueryChildRelations); code
+  default is now OTHER too (v0.7), so the file is no longer needed.
+- Phone state at the end: TopazDisplay **v0.6** running (v0.7 built by CI but NOT installed — never `devcon
+  update/restart` the display adapter while DWM holds it; install via normal reboot), BasicDisplay disabled,
+  TopazBacklight disabled, `BrightnessControl=1` set, boot ETW autologger `Autologger\TopazDxg` → `C:\topaz\boot.etl.001`
+  (remove with `reg delete HKLM\SYSTEM\CurrentControlSet\Control\WMI\Autologger\TopazDxg /f` when no longer needed).
+- Recovery if the screen stays on the boot logo: over SSH `reg add ...ROOT\BASICDISPLAY\0000 /v ConfigFlags /t
+  REG_DWORD /d 0 /f; devcon enable "@ROOT\BASICDISPLAY\0000"` (works without a reboot), then fix TopazDisplay.
+- Tools: DxgKrnl ETW recipe + manifest event names in the section "TopazDisplay v0.3 on the phone"; the research report
+  section explains the dxgkrnl/monitor.sys logic (PDB-based disassembly lives on s8build `~/work/dxgre`).
+- Remaining nice-to-have: monitor INF for `MONITOR\TPZ6225` with `HKR,,BrightnessControl,0x00010001,1` instead of the
+  script; persist/restore the brightness level across boots is done by Windows itself (it calls SetBrightness).
+
+---
+
 # Panel brightness under Windows (TopazBacklight) — running notes
 
 Started 2026-10-02 evening. Driver: `drivers/TopazBacklight` (root KMDF, `Root\TopazBacklight`),

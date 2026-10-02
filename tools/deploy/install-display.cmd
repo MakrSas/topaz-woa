@@ -18,11 +18,13 @@ findstr /c:"Driver is running" "%TEMP%\tdstat.txt" >nul
 if errorlevel 1 (
   echo TopazDisplay is NOT running - BasicDisplay left enabled >> "%L%"
 ) else (
-  devcon.exe disable ROOT\BasicDisplay >> "%L%" 2>&1
-  echo BasicDisplay disabled >> "%L%"
+  rem hot "devcon disable" of the adapter DWM holds can hang PnP: mark it disabled in the registry, takes effect after a reboot
+  reg add "HKLM\SYSTEM\CurrentControlSet\Enum\ROOT\BASICDISPLAY\0000" /v ConfigFlags /t REG_DWORD /d 1 /f >> "%L%" 2>&1
+  echo BasicDisplay marked disabled (ConfigFlags=1), reboot to apply >> "%L%"
+  if exist "%~dp0topaz-brightness.ps1" powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0topaz-brightness.ps1" >> "%L%" 2>&1
 )
 copy /y C:\TopazDisplay.log "%~dp0TopazDisplay.log" >nul 2>&1
 type "%L%"
 echo.
-echo If the screen goes black: Win+R  %~dp0uninstall.cmd  Enter, then Alt+Y
+echo Reboot to switch to TopazDisplay. If the screen stays on the logo: ssh in and run  reg add ...Enum\ROOT\BASICDISPLAY\0000 /v ConfigFlags /t REG_DWORD /d 0 /f  + devcon enable ROOT\BasicDisplay, or Win+R %~dp0uninstall.cmd
 pause

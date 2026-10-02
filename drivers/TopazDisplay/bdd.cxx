@@ -205,10 +205,14 @@ NTSTATUS BASIC_DISPLAY_DRIVER::QueryChildRelations(_Out_writes_bytes_(ChildRelat
     ULONG ChildRelationsCount = (ChildRelationsSize / sizeof(DXGK_CHILD_DESCRIPTOR)) - 1;
     BDD_ASSERT(ChildRelationsCount <= MAX_CHILDREN);
 
-    // topaz: DSI panel -> D3DKMDT_VOT_LVDS ("LVDS or MIPI DSI"); C:\topaz\td.cfg "<vot> <hpd>" overrides for experiments
+    // topaz: always D3DKMDT_VOT_OTHER. dxgkrnl (22621, DpiFdoEnumChildDevices) fails StartDevice with
+    // STATUS_NOT_SUPPORTED for INTERNAL/LVDS/eDP/UDI children of an adapter that is not the POST device (a
+    // root-enumerated KMDOD is not). The slider comes from BrightnessControl=1 in the monitor's driver key
+    // (tools/deploy/topaz-brightness.ps1), not from an internal connector. C:\topaz\td.cfg "<vot> <hpd>"
+    // still overrides for experiments.
     LONG CfgVot, CfgHpd;
     TopazReadCfg(&CfgVot, &CfgHpd);
-    LONG Vot = m_CurrentModes[0].Flags.IsInternal ? (LONG)D3DKMDT_VOT_LVDS : (LONG)D3DKMDT_VOT_OTHER;
+    LONG Vot = (LONG)D3DKMDT_VOT_OTHER;
     LONG Hpd = (LONG)HpdAwarenessInterruptible;
     if (CfgVot != 0x7FFFFFFF) Vot = CfgVot;
     if (CfgHpd != 0x7FFFFFFF) Hpd = CfgHpd;
