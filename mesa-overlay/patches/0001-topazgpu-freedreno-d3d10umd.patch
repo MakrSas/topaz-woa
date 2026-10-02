@@ -68,6 +68,26 @@ index ffaf6c9..edd8412 100644
    build_by_default : false,
  )
  
+diff --git a/src/freedreno/ir3/instr-a3xx.h b/src/freedreno/ir3/instr-a3xx.h
+index 39471c1..4a9dfb4 100644
+--- a/src/freedreno/ir3/instr-a3xx.h
++++ b/src/freedreno/ir3/instr-a3xx.h
+@@ -32,8 +32,15 @@
+ #include <stdio.h>
+ 
+ /* clang-format off */
++#ifdef FD_WDDM
++/* COFF weak externals with different defaults per object conflict at link time (LNK1227);
++   disasm-a3xx.c always defines it, so a plain declaration is enough on Windows. */
++void ir3_assert_handler(const char *expr, const char *file, int line,
++                        const char *func) __attribute__((__noreturn__));
++#else
+ void ir3_assert_handler(const char *expr, const char *file, int line,
+                         const char *func) __attribute__((weak)) __attribute__((__noreturn__));
++#endif
+ /* clang-format on */
+ 
+ /* A wrapper for assert() that allows overriding handling of a failed
 diff --git a/src/freedreno/ir3/ir3_disk_cache.c b/src/freedreno/ir3/ir3_disk_cache.c
 index a7c3955..c098b7e 100644
 --- a/src/freedreno/ir3/ir3_disk_cache.c
