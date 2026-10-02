@@ -705,6 +705,16 @@ static VOID HwInitRegs(VOID)
     GpuWr(0x1f, (1u << 30) | 0x3ffff);
     GpuWr(0xe19, 0x81);
     GpuWr(0x500, 1);                                     /* RBBM_PERFCTR_CNTL */
+    /* v0.17: rest of Linux a6xx hw_init for a610 (freedreno renders assuming it) */
+    GpuWr(0x90E, 47);                                    /* CP_MEM_POOL_DBG_ADDR */
+    GpuWr(0x50B, 0xffffffff);                            /* RBBM_PERFCTR_GPU_BUSY_MASKED */
+    GpuWr(0x8D0, 0);                                     /* CP_PERFCTR_CP_SEL0 = ALWAYS_COUNT */
+    /* UBWC (a6xx_calc_ubwc_config a610: highest bank bit 13, min_acc_len 1, swizzle 7) */
+    GpuWr(0x8e08, 0x9);                                  /* RB_NC_MODE_CNTL */
+    GpuWr(0xb604, 0x9);                                  /* TPL1_NC_MODE_CNTL */
+    GpuWr(0xae02, 0x9);                                  /* SP_NC_MODE_CNTL */
+    GpuWr(0xE01, 1u << 23);                              /* UCHE_MODE_CNTL */
+    GpuWr(0x534, 0);                                     /* RBBM_NC_MODE_CNTL */
 }
 
 static BOOLEAN CpStart(VOID)
