@@ -69,7 +69,7 @@ index ffaf6c9..edd8412 100644
  )
  
 diff --git a/src/freedreno/ir3/ir3_disk_cache.c b/src/freedreno/ir3/ir3_disk_cache.c
-index a7c3955..71a5108 100644
+index a7c3955..c098b7e 100644
 --- a/src/freedreno/ir3/ir3_disk_cache.c
 +++ b/src/freedreno/ir3/ir3_disk_cache.c
 @@ -50,6 +50,9 @@ ir3_disk_cache_init(struct ir3_compiler *compiler)
@@ -78,10 +78,18 @@ index a7c3955..71a5108 100644
        return;
 +#ifdef FD_WDDM
 +   return;   /* no ELF build-id on Windows: no on-disk shader cache */
-+#endif
++#else
  
     const char *renderer = fd_dev_name(compiler->dev_id);
     const struct build_id_note *note =
+@@ -66,6 +69,7 @@ ir3_disk_cache_init(struct ir3_compiler *compiler)
+    if (compiler->options.robust_buffer_access2)
+       driver_flags |= IR3_DBG_ROBUST_UBO_ACCESS;
+    compiler->disk_cache = disk_cache_create(renderer, timestamp, driver_flags);
++#endif
+ }
+ 
+ void
 diff --git a/src/freedreno/meson.build b/src/freedreno/meson.build
 index b455cd6..8cfeb57 100644
 --- a/src/freedreno/meson.build
@@ -95,17 +103,47 @@ index b455cd6..8cfeb57 100644
    subdir('drm')
  endif
  
+diff --git a/src/gallium/auxiliary/renderonly/renderonly.h b/src/gallium/auxiliary/renderonly/renderonly.h
+index de22b37..ae787e2 100644
+--- a/src/gallium/auxiliary/renderonly/renderonly.h
++++ b/src/gallium/auxiliary/renderonly/renderonly.h
+@@ -105,7 +105,11 @@ renderonly_get_handle(struct renderonly_scanout *scanout,
+       return false;
+ 
+    assert(handle->type == WINSYS_HANDLE_TYPE_KMS);
++#ifdef _WIN32
++   handle->handle = (HANDLE)(uintptr_t)scanout->handle;
++#else
+    handle->handle = scanout->handle;
++#endif
+    handle->stride = scanout->stride;
+ 
+    return true;
+diff --git a/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc b/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc
+index ad3374c..329a4b1 100644
+--- a/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc
++++ b/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc
+@@ -68,7 +68,7 @@ prim_count(const struct pipe_draw_info *info,
+ {
+    /* MESA_PRIM_COUNT used internally for RECTLIST blits on 3d pipe: */
+    unsigned vtx_per_prim =
+-      (info->mode == MESA_PRIM_COUNT) ? 2 : mesa_vertices_per_prim(info->mode);
++      (info->mode == MESA_PRIM_COUNT) ? 2 : mesa_vertices_per_prim((enum mesa_prim)info->mode);
+    return MAX2(1, (draw->count * info->instance_count) / vtx_per_prim);
+ }
+ 
 diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
-index b8ab9f5..a7d1491 100644
+index b8ab9f5..1f6f771 100644
 --- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
 +++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
-@@ -34,6 +34,28 @@
+@@ -34,6 +34,29 @@
  #include "softpipe/sp_public.h"
  #include "sw/gdi/gdi_sw_winsys.h"
  #include "virgl/gdi/virgl_gdi_public.h"
 +#ifdef GALLIUM_FREEDRENO
 +#include "xf86drm.h"
 +#include "util/xmlconfig.h"
++#include "util/driconf.h"
 +#include "pipe/p_screen.h"
 +
 +struct pipe_screen *fd_screen_create(int fd, const struct pipe_screen_config *config, struct renderonly *ro);
@@ -128,7 +166,7 @@ index b8ab9f5..a7d1491 100644
  
  #include "winddk_compat.h"
  #include <d3dkmthk.h>
-@@ -66,6 +88,20 @@ d3d10_create_screen(struct gdikmt_device* device)
+@@ -66,6 +89,20 @@ d3d10_create_screen(struct gdikmt_device* device)
  #ifdef GALLIUM_VIRGL
     return virgl_gdi_screen_create(device);
  #endif

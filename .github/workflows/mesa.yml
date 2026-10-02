@@ -48,7 +48,7 @@ jobs:
           cpp = 'clang-cl'
           c_ld = 'link'
           cpp_ld = 'link'
-          ar = 'lib'
+          ar = 'llvm-lib'
           windres = 'rc'
           [built-in options]
           c_args = ['--target=aarch64-pc-windows-msvc', '-Wno-error=int-conversion', '-Wno-error=incompatible-pointer-types']
@@ -63,7 +63,7 @@ jobs:
           "@ | Set-Content cross-arm64.txt
           meson setup build mesa --cross-file cross-arm64.txt --buildtype=release `
             -Dgallium-drivers=freedreno -Dgallium-d3d10umd=true -Dgallium-d3d10-dll-name=topazgpu_d3d10 `
-            -Dvulkan-drivers= -Dplatforms=windows -Db_vscrt=mt -Dllvm=disabled -Dzstd=disabled -Dshader-cache=disabled -Dzlib=disabled `
+            -Dvulkan-drivers= -Dplatforms=windows -Db_vscrt=mt -Dllvm=disabled -Dzstd=disabled -Dshader-cache=disabled `
             -Dshared-glapi=enabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dbuild-tests=false 2>&1 | Tee-Object configure.log
           if ($LASTEXITCODE) { throw "meson setup failed" }
           ninja -C build -k 0 src/gallium/targets/d3d10umd/topazgpu_d3d10.dll 2>&1 | Tee-Object build.log

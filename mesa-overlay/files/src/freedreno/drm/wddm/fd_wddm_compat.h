@@ -25,6 +25,19 @@ FILE *fd_wddm_open_memstream(char **ptr, size_t *size);
 #define _PID_T_DEFINED
 typedef int pid_t;
 #endif
+#ifndef O_SYNC
+#define O_SYNC 0
+#endif
+#define _SC_NPROCESSORS_ONLN 84
+#ifdef __cplusplus
+extern "C" {
+#endif
+long fd_wddm_sysconf(int name);
+#ifdef __cplusplus
+}
+#endif
+#define sysconf fd_wddm_sysconf
+#define strtok_r strtok_s
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
 #endif

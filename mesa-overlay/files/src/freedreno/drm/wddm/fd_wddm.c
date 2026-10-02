@@ -273,3 +273,11 @@ int fd_wddm_ftruncate(int fd, long long len) { return _chsize_s(fd, len) == 0 ? 
 
 /* only used for shader disassembly dumps (debug options): not supported */
 FILE *fd_wddm_open_memstream(char **ptr, size_t *size) { *ptr = NULL; *size = 0; return NULL; }
+
+long fd_wddm_sysconf(int name)
+{
+   SYSTEM_INFO si;
+   (void)name;
+   GetSystemInfo(&si);
+   return (long)si.dwNumberOfProcessors;
+}
