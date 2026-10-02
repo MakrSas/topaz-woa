@@ -431,3 +431,11 @@ TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11
   unchanged. `C:\topaz\td.keep` disables the check. Verified: the flashed DSDT does not contain it.
 - Expected first result with the UMD still opt-in (TOPAZGPU_ENABLE): DWM cannot open our UMD; we
   will see whether it falls back to WARP + our Present/Blt path (staging surfaces) or fails.
+- Installed 23:34 (CI run 37061218051) by file swap: `C:\Windows\System32\drivers\TopazGpuW.sys` (v0.28)
+  and `TopazDisplay.sys` (v0.8), old files kept as `*.sys.old-233432` (both services load from
+  System32\drivers; the .sys files are embedded-signed, CI cert added to Root/TrustedPublisher).
+  `Enum\ACPI\TPZG0610\0` is enabled (ConfigFlags 0, service TopazGpuW). Rollback: rename the
+  .old files back (from Windows over SSH, or offline from TWRP) and reboot.
+- Test boot: `fastboot boot ~/work/win/uefi/Mu-topaz-v4-GPU0-RELEASE.img` on s8build (sha256
+  1da973fc...), never flash. Then read C:\TopazGpuW.log, C:\TopazDisplay.log, boot ETW
+  `C:\topaz\boot.etl.001` (autologger TopazDxg) over SSH.
