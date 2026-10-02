@@ -81,7 +81,7 @@ static NTSTATUS GemNew(struct drm_msm_gem_new *A)
     bo->Flags = A->flags;
     bo->Refs = 1;
     lo.QuadPart = 0;
-    hi.QuadPart = (LONGLONG)-1;
+    hi.QuadPart = 0xEFFFFFFF;                          /* v0.14: walks/fetches above 4 GB faulted */
     skip.QuadPart = 0;
     bo->Mdl = MmAllocatePagesForMdlEx(lo, hi, skip, bo->Size, MmWriteCombined, MM_ALLOCATE_FULLY_REQUIRED);
     if (bo->Mdl == NULL) {
