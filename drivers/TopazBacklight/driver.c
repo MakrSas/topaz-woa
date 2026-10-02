@@ -12,12 +12,15 @@
  * layout as in Linux dsi_cmd_dma_add: header bytes WC lo, WC hi, DT | VC << 6, flags (BIT7 last,
  * BIT6 long), payload padded with 0xff to 4 bytes.
  *
+ * v0.2 experiments: C:\topaz\dsicmd = hex bytes "<DT> <payload...>" (05 = DCS short write, 15 = short
+ * write + 1 parameter, 39 = DCS long write), sent once, then the file is deleted.
+ *
  * Control: C:\topaz\brightness = 0..100 (text). Polled 3x a second; nothing is sent while the
  * file is absent (v0.1 then only logs the DSI registers). Log: C:\TopazBacklight.log.
  */
 #include "driver.h"
 
-#define TOPAZ_BL_VERSION    "v0.1"
+#define TOPAZ_BL_VERSION    "v0.2"
 
 #define DSI0_PA             0x05E94000ULL
 #define DSI0_SIZE           0x400
@@ -106,23 +109,33 @@ static LONG ReadPercent(VOID)
     return v;
 }
 
-/* DCS long write through the TPG DMA FIFO. Returns TRUE when the controller reported CMD_DMA_DONE. */
-static BOOLEAN DcsLongWrite(PDEVICE_CONTEXT C, const UCHAR *Payload, ULONG Len)
+/* One DSI packet through the TPG DMA FIFO. Long (DT 0x39/0x29) or short (0x05/0x15/0x03/0x13/0x23).
+   Returns TRUE when the controller reported CMD_DMA_DONE. */
+static BOOLEAN DsiSend(PDEVICE_CONTEXT C, UCHAR Dt, const UCHAR *Payload, ULONG Len)
 {
+    BOOLEAN isLong = (Dt == 0x39 || Dt == 0x29);
     UCHAR pkt[16];
     ULONG size, i, ctrl, dmaCtrl, trig, waited;
     BOOLEAN done = FALSE;
 
-    if (Len > sizeof(pkt) - 4) {
+    if (Len > sizeof(pkt) - 4 || (!isLong && Len > 2)) {
         return FALSE;
     }
-    size = (4 + Len + 3) & ~3u;
     RtlFillMemory(pkt, sizeof(pkt), 0xFF);
-    pkt[0] = (UCHAR)Len;                            /* word count lo */
-    pkt[1] = (UCHAR)(Len >> 8);                     /* word count hi */
-    pkt[2] = 0x39;                                  /* DCS long write, VC 0 */
-    pkt[3] = 0x80 | 0x40;                           /* last packet, long packet */
-    RtlCopyMemory(pkt + 4, Payload, Len);
+    if (isLong) {
+        size = (4 + Len + 3) & ~3u;
+        pkt[0] = (UCHAR)Len;                        /* word count lo */
+        pkt[1] = (UCHAR)(Len >> 8);                 /* word count hi */
+        pkt[2] = Dt;                                /* VC 0 */
+        pkt[3] = 0x80 | 0x40;                       /* last packet, long packet */
+        RtlCopyMemory(pkt + 4, Payload, Len);
+    } else {
+        size = 4;
+        pkt[0] = Len > 0 ? Payload[0] : 0;          /* header data 0 */
+        pkt[1] = Len > 1 ? Payload[1] : 0;          /* header data 1 */
+        pkt[2] = Dt;
+        pkt[3] = 0x80;                              /* last packet */
+    }
 
     ctrl = Rd(C, DSI_CTRL);
     trig = Rd(C, DSI_TRIG_CTRL);
@@ -162,7 +175,7 @@ static BOOLEAN DcsLongWrite(PDEVICE_CONTEXT C, const UCHAR *Payload, ULONG Len)
     if (trig != Rd(C, DSI_TRIG_CTRL)) {
         Wr(C, DSI_TRIG_CTRL, trig);
     }
-    LogPrint("DCS %02x len %u: %s after %u ms (status %08x fifo %08x)\n", Payload[0], Len,
+    LogPrint("DSI dt %02x cmd %02x len %u: %s after %u ms (status %08x fifo %08x)\n", Dt, Len ? Payload[0] : 0, Len,
              done ? "done" : "NO DONE", waited, Rd(C, DSI_STATUS), Rd(C, DSI_TPG_FIFO_STATUS));
     return done;
 }
@@ -179,7 +192,48 @@ static VOID SetPercent(PDEVICE_CONTEXT C, LONG Pct)
     cmd[1] = (UCHAR)(level >> 8);                   /* bl-inverted-dbv: MSB first */
     cmd[2] = (UCHAR)level;
     LogPrint("brightness %d%% -> level %u (0x%03x)\n", Pct, level, level);
-    DcsLongWrite(C, cmd, sizeof(cmd));
+    DsiSend(C, 0x39, cmd, sizeof(cmd));
+}
+
+/* C:\topaz\dsicmd: "<DT> <bytes...>" in hex; sent once, then the file is deleted. */
+static VOID RawCommand(PDEVICE_CONTEXT C)
+{
+    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\dsicmd");
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+    CHAR buf[96];
+    UCHAR bytes[16];
+    ULONG n = 0, i, v = 0;
+    BOOLEAN inNum = FALSE;
+
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateFile(&h, GENERIC_READ | DELETE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE, NULL, 0))) {
+        return;
+    }
+    RtlZeroMemory(buf, sizeof(buf));
+    if (NT_SUCCESS(ZwReadFile(h, NULL, NULL, NULL, &iosb, buf, sizeof(buf) - 1, NULL, NULL))) {
+        for (i = 0; i <= iosb.Information && n < sizeof(bytes); i++) {
+            CHAR c = buf[i];
+            ULONG d = (c >= '0' && c <= '9') ? (ULONG)(c - '0') : (c >= 'a' && c <= 'f') ? (ULONG)(c - 'a' + 10) :
+                      (c >= 'A' && c <= 'F') ? (ULONG)(c - 'A' + 10) : 16;
+            if (d < 16) {
+                v = (v << 4) | d;
+                inNum = TRUE;
+            } else if (inNum) {
+                bytes[n++] = (UCHAR)v;
+                v = 0;
+                inNum = FALSE;
+            }
+        }
+    }
+    ZwClose(h);                                     /* deletes the file */
+    if (n >= 1) {
+        LogPrint("dsicmd: %u bytes\n", n);
+        DsiSend(C, bytes[0], bytes + 1, n - 1);
+    }
 }
 
 static KSTART_ROUTINE PollThread;
@@ -191,6 +245,7 @@ static VOID PollThread(PVOID Context)
 
     period.QuadPart = -10000LL * POLL_MS;
     do {
+        RawCommand(ctx);
         pct = ReadPercent();
         if (pct >= 0 && pct != ctx->LastPct) {
             SetPercent(ctx, pct);
