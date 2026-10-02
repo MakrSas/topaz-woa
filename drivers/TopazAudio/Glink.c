@@ -33,7 +33,7 @@
 #define MAX_CHANS          8
 #define OUR_INTENTS        8
 #define OUR_INTENT_SIZE    0x4400
-#define MAX_RINTENTS       64
+#define MAX_RINTENTS       256
 #define TXQ_LEN            32
 
 #pragma pack(1)
@@ -57,7 +57,7 @@ typedef struct {
   VOID         *Txq[TXQ_LEN];
   UINT32        TxqLen[TXQ_LEN];
   UINTN         TxqHead, TxqTail, TxqDrops;
-  UINTN         RxPkts, TxPkts;
+  UINTN         RxPkts, TxPkts, RiLost, IntentReqs;
 } CHAN;
 
 STATIC volatile UINT32 *mDesc;               /* [0] tx tail [1] tx head [2] rx tail [3] rx head */
@@ -269,6 +269,7 @@ STATIC BOOLEAN TrySend(CHAN *C, CONST VOID *Data, UINT32 Len)
     if (!C->IntentReqSent) {
       SendCmd (CMD_RX_INTENT_REQ, C->Lcid, Len);
       C->IntentReqSent = TRUE;
+      C->IntentReqs++;
     }
     return FALSE;
   }
@@ -396,6 +397,8 @@ STATIC BOOLEAN RxOne(VOID)
         c->Ri[c->RiCount].Id   = pair[1];
         c->Ri[c->RiCount].Used = FALSE;
         c->RiCount++;
+      } else {
+        c->RiLost++;                            /* table full: an intent we can never use */
       }
     }
     RxAdvance (n);
@@ -556,8 +559,16 @@ VOID GlinkSummary(VOID)
   Out ("  glink: rx %u msgs, tx %u%a\r\n", (UINT32)mRxMsgs, (UINT32)mTxMsgs, mDead ? " (DEAD)" : "");
   for (i = 0; i < mChCount; i++) {
     CHAN *c = &mCh[i];
-    Out ("   chan \"%a\" lcid %u rcid %u %a%a rx %u tx %u, remote intents %u, txq %u drops %u\r\n", c->Name, c->Lcid,
-         c->Rcid, Up (c) ? "UP" : "down", c->Rx == NULL ? " (no client)" : "", (UINT32)c->RxPkts, (UINT32)c->TxPkts,
-         c->RiCount, (UINT32)(c->TxqTail - c->TxqHead), (UINT32)c->TxqDrops);
+    UINT32 j, used = 0, lo = MAX_UINT32, hi = 0;
+    for (j = 0; j < c->RiCount; j++) {
+      used += c->Ri[j].Used ? 1 : 0;
+      lo = MIN (lo, c->Ri[j].Size);
+      hi = MAX (hi, c->Ri[j].Size);
+    }
+    Out ("   chan \"%a\" lcid %u rcid %u %a%a rx %u tx %u, remote intents %u (%u used, %u..%u B, %u lost, %u req), txq %u (head %u B) drops %u\r\n",
+         c->Name, c->Lcid, c->Rcid, Up (c) ? "UP" : "down", c->Rx == NULL ? " (no client)" : "", (UINT32)c->RxPkts,
+         (UINT32)c->TxPkts, c->RiCount, used, c->RiCount ? lo : 0, hi, (UINT32)c->RiLost, (UINT32)c->IntentReqs,
+         (UINT32)(c->TxqTail - c->TxqHead), c->TxqHead != c->TxqTail ? c->TxqLen[c->TxqHead % TXQ_LEN] : 0,
+         (UINT32)c->TxqDrops);
   }
 }
