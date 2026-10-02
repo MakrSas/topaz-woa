@@ -113,3 +113,17 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   (provider {802EC45A-1E99-4B83-9920-87C98277BA9D}, level 5), to see why the first start returns 0xC00000E5.
 - ScanDisk at boot disabled by the user's request: `chkntfs /x C:` → BootExecute `autocheck autochk /k:C *`
   (C: is flagged dirty from the forced reboots; never ntfsfix it).
+
+## Boot ETW of TopazDisplay v0.4 (autologger, C:\topaz\boot.etl.001, 2026-10-02 ~22:00)
+- Our adapter: AddDevice early, StartDevice after BasicDisplay + BasicRender. DDI StartDevice returns OK, then
+  DxgKrnl: 148/149 QueryChildRelations (vot=6 hpd=4), 494 "StartDevice completed 0xC00000BB" (**also present in
+  the healthy manual-restart trace → benign log text**), QueryChildStatus (event 272, connected), then PnP
+  IRPs QUERY_DEVICE_RELATIONS and **IRP_MN_SURPRISE_REMOVAL (0x17)** → DxgKrnl StopDevice. PnP event 411 =
+  start failed with 0xC00000E5 (internal error) *after* the DDI start; the same sequence in a manual restart
+  does not end in surprise removal.
+- "Driver returned an invalid NTSTATUS code 0xC00000BB" right after is **BasicDisplay's own** EDID query
+  (event 152/153 on BasicDisplay's adapter, offset 128) — unrelated noise.
+- Boot-only difference to find: v0.2 (child tech OTHER, no QueryInterface DDI, no TopazBlInit) got through boot
+  start and failed later in Present (0xC0000001/4113); v0.3/v0.4 fail already at start. Suspects: child tech
+  INTERNAL/LVDS, DxgkDdiQueryInterface, TopazBlInit. Next experiment: `C:\topaz\td.cfg` = `-1 4` (OTHER, as
+  v0.2) and reboot — if the boot start succeeds, the technology value is the cause.
