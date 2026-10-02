@@ -842,6 +842,23 @@ static NTSTATUS APIENTRY TgPresent(const HANDLE hContext, DXGKARG_PRESENT *A)
                  A->SrcRect.right, A->SrcRect.bottom, A->DstRect.left, A->DstRect.top, A->DstRect.right,
                  A->DstRect.bottom, A->SubRectCnt);
     }
+    /* v0.31: patch locations for both operands, as viogpu3d: without them VidMM left CDD's shadow surface
+       in system memory (segment 0) and the blt had no source */
+    if (c->Op != TG_CMD_NOP && A->pPatchLocationListOut != NULL && A->PatchLocationListOutSize >= 2) {
+        D3DDDI_PATCHLOCATIONLIST *pl = A->pPatchLocationListOut;
+        RtlZeroMemory(pl, 2 * sizeof(*pl));
+        pl[0].AllocationIndex = DXGK_PRESENT_SOURCE_INDEX;
+        pl[0].SlotId = 1;
+        pl[0].DriverId = 1;
+        pl[1].AllocationIndex = DXGK_PRESENT_DESTINATION_INDEX;
+        pl[1].SlotId = 2;
+        pl[1].DriverId = 2;
+        A->pPatchLocationListOut = pl + 2;
+        if (c->Op == TG_CMD_FILL) {
+            pl[0] = pl[1];
+            A->pPatchLocationListOut = pl + 1;
+        }
+    }
     *(PULONG)A->pDmaBuffer = c->Op;
     A->pDmaBuffer = (PUCHAR)A->pDmaBuffer + 4;
     A->pDmaBufferPrivateData = c + 1;
@@ -870,7 +887,7 @@ static NTSTATUS APIENTRY TgPatch(const HANDLE hAdapter, const DXGKARG_PATCH *A)
             c->DstSeg = A->pAllocationList[DXGK_PRESENT_DESTINATION_INDEX].SegmentId;
             c->DstAddr = (ULONGLONG)A->pAllocationList[DXGK_PRESENT_DESTINATION_INDEX].PhysicalAddress.QuadPart;
         }
-        if (++count <= 10) {
+        if (++count <= 10 || (c->Op == TG_CMD_BLT && c->SrcSeg == 0 && count < 40)) {
             LogPrint("Patch: op %u src seg %u %llx dst seg %u %llx (list %u)\n", c->Op, c->SrcSeg, c->SrcAddr, c->DstSeg,
                      c->DstAddr, A->AllocationListSize);
         }
@@ -1179,7 +1196,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, aperture GART) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, aperture GART, present patch list) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;

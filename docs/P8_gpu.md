@@ -468,3 +468,11 @@ TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11
   v0.30: own aperture page table (PFN per aperture page from every MAP/UNMAP), DxgkDdiPatch writes the
   final segment/address of the present source/destination into the TG_CMD, the engine maps
   aperture ranges on demand (GartMapVa).
+
+### v0.30 result (00:00, after a fastboot RAM boot - a hot restart of the adapter no longer completes
+once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via reboot)
+- Patch works (dst seg 1 0xC0000000), but CDD's shadow surface (standard type 2) stays in segment 0
+  (system memory, never mapped into the aperture): source seg 0 address 0 -> nothing to copy. CDD
+  presents small dirty rects (e.g. (519,1485)-(562,1530) = the spinner).
+- v0.31: Present writes patch locations for source and destination (viogpu3d does), expecting VidMM
+  to make both resident in the aperture.
