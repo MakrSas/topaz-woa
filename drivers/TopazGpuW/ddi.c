@@ -124,14 +124,16 @@ static BOOLEAN NotifyRoutine(PVOID Ctx)
     n->Adapter->Dxgk.DxgkCbNotifyInterrupt(n->Adapter->Dxgk.DeviceHandle, &d);
     n->Adapter->LastCompletedFence = n->Fence;
     n->Adapter->Dxgk.DxgkCbQueueDpc(n->Adapter->Dxgk.DeviceHandle);
+    LogPrint("  notify: DMA_COMPLETED fence %u (irql %u)\n", n->Fence, KeGetCurrentIrql());
     return TRUE;
 }
 
 static VOID CompleteFence(TGPU_ADAPTER *A, ULONG Fence)
 {
     NOTIFY_CTX n = { A, Fence };
-    BOOLEAN ret;
-    A->Dxgk.DxgkCbSynchronizeExecution(A->Dxgk.DeviceHandle, NotifyRoutine, &n, 0, &ret);
+    BOOLEAN ret = FALSE;
+    NTSTATUS st = A->Dxgk.DxgkCbSynchronizeExecution(A->Dxgk.DeviceHandle, NotifyRoutine, &n, 0, &ret);
+    LogPrint("  CompleteFence %u: SynchronizeExecution %08x ret %u\n", Fence, st, ret);
 }
 
 /* ---------------------------------------------------------------- adapter */
@@ -274,7 +276,7 @@ static BOOLEAN TgInterruptRoutine(const PVOID Ctx, ULONG Msg)
 
 static VOID TgDpcRoutine(const PVOID Ctx)
 {
-    LogPrint("Dpc\n");
+    LogPrint("Dpc (isr count %ld)\n", g_Isr);
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)Ctx;
     a->Dxgk.DxgkCbNotifyDpc(a->Dxgk.DeviceHandle);
 }
@@ -527,9 +529,9 @@ static NTSTATUS APIENTRY TgPatch(const HANDLE hAdapter, const DXGKARG_PATCH *A)
 
 static NTSTATUS APIENTRY TgSubmitCommand(const HANDLE hAdapter, const DXGKARG_SUBMITCOMMAND *A)
 {
-    LogPrint("%s\n", "TgSubmitCommand");
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)hAdapter;
-    LogPrint("SubmitCommand: fence %u node %u flags %x\n", A->SubmissionFenceId, A->NodeOrdinal, A->Flags.Value);
+    LogPrint("SubmitCommand: fence %u node %u flags %x len %u (irql %u)\n", A->SubmissionFenceId, A->NodeOrdinal,
+             A->Flags.Value, (ULONG)(A->DmaBufferSubmissionEndOffset - A->DmaBufferSubmissionStartOffset), KeGetCurrentIrql());
     a->LastSubmittedFence = A->SubmissionFenceId;
     CompleteFence(a, A->SubmissionFenceId);              /* nothing to execute: done at once */
     return STATUS_SUCCESS;
@@ -545,7 +547,7 @@ static NTSTATUS APIENTRY TgPreemptCommand(const HANDLE hAdapter, const DXGKARG_P
 
 static NTSTATUS APIENTRY TgBuildPagingBuffer(const HANDLE hAdapter, DXGKARG_BUILDPAGINGBUFFER *A)
 {
-    LogPrint("%s\n", "TgBuildPagingBuffer");
+    LogPrint("TgBuildPagingBuffer: op %u\n", A->Operation);
     UNREFERENCED_PARAMETER(hAdapter);
     UNREFERENCED_PARAMETER(A);
     return STATUS_SUCCESS;                               /* VidMM placement is a bookkeeping fiction */
