@@ -151,3 +151,12 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
 - `WmiMonitorBrightness` still "not supported": monitor.sys only creates it for an internal connector → next:
   retry child technology LVDS (delete `td.cfg`) now that Present works (the earlier LVDS boot failure may have been
   the same async-Present path; unproven).
+
+## BasicDisplay disabled, TopazDisplay v0.6 owns the panel (2026-10-02 ~22:30) — WORKS
+- Two displays (BasicDisplay + TopazDisplay) both scanned the same framebuffer → artifacts and scale flipping
+  (100 % / 175 %); dragging a window past the edge came back on the same screen.
+- `ConfigFlags=1` on `Enum\ROOT\BASICDISPLAY\0000` + reboot: ROOT\DISPLAY\0000 OK at boot, only monitor
+  "Generic Monitor (Topaz Panel)" left, 1080x2400. The user set 175 % and rotated the screen — picture is fine.
+  Undo (if the screen ever stays on the logo): over SSH `Set-ItemProperty ...Enum\ROOT\BASICDISPLAY\0000
+  ConfigFlags 0 -Type DWord` + `devcon enable "@ROOT\BASICDISPLAY\0000"`.
+- Still open: slider (WmiMonitorBrightness needs an internal connector type) → retry LVDS (td.cfg removed).
