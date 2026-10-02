@@ -398,3 +398,13 @@ TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11
   SynchronizeExecution(NotifyInterrupt CRTC_VSYNC), StopDeviceAndReleasePostDisplayOwnership /
   takeover from BasicDisplay. The ACPI adapter is left disabled (`devcon disable @ACPI\TPZG0610\0`)
   until then; RAM-boot `Mu-topaz-v4-GPU0-RELEASE.img` for every test.
+
+- **C2 update after the brightness work (2026-10-02 23:10):** the phone now boots with TopazDisplay v0.6 (root KMDOD)
+  as the only display adapter, BasicDisplay disabled by `ConfigFlags=1`, monitor `DISPLAY\TPZ6225` with
+  `BrightnessControl=1`. Consequences for C2: (1) the takeover is from TopazDisplay, not BasicDisplay — the ACPI
+  GPU adapter is a POST device, so dxgkrnl should prefer it, but TopazDisplay must not keep scanning out the same
+  framebuffer: disable it by registry (`ConfigFlags=1` on `ROOT\DISPLAY\0000`) for C2 boots, never hot; (2) the
+  brightness interface (`topaz_bl.cxx`) must move into TopazGpuW (QueryInterface GUID_DEVINTERFACE_BRIGHTNESS), and
+  as a POST adapter it may report the panel as D3DKMDT_VOT_INTERNAL; (3) recovery for a dead C2 boot = boot the
+  flashed UEFI (no GPU0 device) → TopazDisplay comes back on its own; if the logo freezes there, the recovery in
+  NOTES_brightness.md SUMMARY.
