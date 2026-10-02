@@ -364,6 +364,16 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
         }
         return STATUS_SUCCESS;
     }
+    case DXGKQAITYPE_HISTORYBUFFERPRECISION: {
+        /* v0.27: Dxgkrnl asks this of every adapter; STATUS_NOT_SUPPORTED is an "invalid NTSTATUS"
+           for it and the adapter got reset at start (ADAPTER_WAS_RESET c01e0004, ETW) */
+        DXGKARG_HISTORYBUFFERPRECISION *h = (DXGKARG_HISTORYBUFFERPRECISION *)Q->pOutputData;
+        if (Q->OutputDataSize < sizeof(*h)) {
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+        h->PrecisionBits = 64;
+        return STATUS_SUCCESS;
+    }
     case DXGKQAITYPE_UMDRIVERPRIVATE: {
         if (Q->OutputDataSize < sizeof(ULONG)) {
             return STATUS_BUFFER_TOO_SMALL;
