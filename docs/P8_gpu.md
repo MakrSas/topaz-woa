@@ -284,3 +284,17 @@ process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
   contiguous WC buffers below 4 GB, GPU VA = PA. The LPAE page-table path still faults on the first
   CP fetch (FSR 0x402 TF, FSYNR0 0x40 level 0, tables verified correct, also below 4 GB) — open item.
 - Next: Step B = Mesa UMD (topazgpu_d3d10.dll) on this adapter.
+
+## STEP B progress (2026-10-02, Mesa UMD on the phone)
+- CI `mesa.yml` builds `topazgpu_d3d10.dll` (+ PDB, `-Ddebug=true`) since run 37006106960. Fixes:
+  renderonly stubs in d3d10_gdi.c (renderonly.c needs libdrm, we pass ro=NULL), non-inline
+  `trace_framebuffer_state` (clang-cl emitted no body for the `inline` definition), static zlib
+  (`-Dzlib:default_library=static`; with z-1.dll the UMD failed LoadLibrary with error 126).
+- Install: scp the DLL to `C:\Windows\System32\topazgpu_d3d10.dll` (INF already names it), run
+  `C:\topaz\stage\TopazGpuW\d3dtest.exe` (60 s timeout script `C:\topaz\run.ps1`).
+- d3dtest prints the crash stack (module+offset, unwound from the exception context). Symbolize:
+  `/opt/homebrew/opt/llvm/bin/llvm-symbolizer --obj=topazgpu_d3d10.dll --relative-address --inlines <off-4>`
+  with the PDB from the same CI run next to the DLL.
+- First run: the UMD loads, freedreno talks to the KMD through escapes, then AV in
+  `glsl_array_type` (fd6_context_create → fd_prog_init → tgsi_to_nir): the GLSL type singleton is
+  created by the GL frontend on Linux; d3d10umd must call `glsl_type_singleton_init_or_ref()`.
