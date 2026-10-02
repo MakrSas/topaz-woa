@@ -59,20 +59,49 @@ static BOOLEAN GuardFile(BOOLEAN Create, BOOLEAN Delete)
     return TRUE;
 }
 
+/* v0.19: the thread must never outlive the driver image. v0.17/v0.18 slept 60 s blindly; a driver
+   update within that minute unloaded the image under the sleeping thread -> bugcheck 0xCE. Now it
+   waits on g_GuardStop, and StopDevice/Unload signal it and wait for the thread to exit. */
+static KEVENT g_GuardStop;
+static PKTHREAD g_GuardThread;
+
 static KSTART_ROUTINE GuardThread;
 static VOID GuardThread(PVOID Ctx)
 {
     LARGE_INTEGER d;
+    NTSTATUS st;
     UNREFERENCED_PARAMETER(Ctx);
     d.QuadPart = -10000000LL * 60;
-    KeDelayExecutionThread(KernelMode, FALSE, &d);
-    /* v0.17: surviving 60 s is what the guard checks. Dxgkrnl never sends DMA buffers to this
-       render-only adapter (all GPU work goes through escapes), so waiting for a completed fence kept
-       the guard forever and the adapter refused to start after every reboot. */
+    st = KeWaitForSingleObject(&g_GuardStop, Executive, KernelMode, FALSE, &d);
+    /* alive 60 s, or stopped cleanly before that: either way the start did not hang the system */
     GuardFile(FALSE, TRUE);
-    LogPrint("guard: alive 60 s (Dxgkrnl fence %u), guard file removed\n",
+    LogPrint("guard: %s (Dxgkrnl fence %u), guard file removed\n", st == STATUS_TIMEOUT ? "alive 60 s" : "stopped",
              g_Adapter != NULL ? g_Adapter->LastCompletedFence : 0);
     PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
+static VOID GuardStart(VOID)
+{
+    HANDLE th;
+
+    KeInitializeEvent(&g_GuardStop, NotificationEvent, FALSE);
+    if (NT_SUCCESS(PsCreateSystemThread(&th, THREAD_ALL_ACCESS, NULL, NULL, NULL, GuardThread, NULL))) {
+        if (!NT_SUCCESS(ObReferenceObjectByHandle(th, SYNCHRONIZE, *PsThreadType, KernelMode,
+                                                  (PVOID *)&g_GuardThread, NULL))) {
+            g_GuardThread = NULL;
+        }
+        ZwClose(th);
+    }
+}
+
+static VOID GuardStop(VOID)
+{
+    if (g_GuardThread != NULL) {
+        KeSetEvent(&g_GuardStop, IO_NO_INCREMENT, FALSE);
+        KeWaitForSingleObject(g_GuardThread, Executive, KernelMode, FALSE, NULL);
+        ObDereferenceObject(g_GuardThread);
+        g_GuardThread = NULL;
+    }
 }
 
 /* ---------------------------------------------------------------- completion of Dxgkrnl DMA buffers */
@@ -185,12 +214,7 @@ static NTSTATUS TgStartDevice(const PVOID Ctx, PDXGK_START_INFO StartInfo, PDXGK
         return STATUS_UNSUCCESSFUL;
     }
     GuardFile(TRUE, FALSE);
-    {
-        HANDLE th;
-        if (NT_SUCCESS(PsCreateSystemThread(&th, THREAD_ALL_ACCESS, NULL, NULL, NULL, GuardThread, NULL))) {
-            ZwClose(th);
-        }
-    }
+    GuardStart();
     RtlCopyMemory(&a->Dxgk, Dxgk, sizeof(a->Dxgk));
     {
         DXGK_DEVICE_INFO di;
@@ -217,6 +241,7 @@ static NTSTATUS TgStopDevice(const PVOID Ctx)
 {
     UNREFERENCED_PARAMETER(Ctx);
     LogPrint("StopDevice\n");
+    GuardStop();
     MsmCleanup();
     HwStop();
     return STATUS_SUCCESS;
@@ -271,6 +296,7 @@ static VOID TgResetDevice(const PVOID Ctx)
 
 static VOID TgUnload(VOID)
 {
+    GuardStop();
     LogClose();
 }
 
