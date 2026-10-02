@@ -58,7 +58,7 @@ typedef struct _KBUF {
 } KBUF;
 
 static volatile UCHAR *g_Gcc, *g_GpuCc, *g_Gpu, *g_Smmu;
-static BOOLEAN g_Ready, g_Failed;
+static BOOLEAN g_Ready, g_Failed, g_SmmuOn;
 static KMUTEX g_HwLock;          /* not FAST_MUTEX: file I/O (zap, SQE) at APC_LEVEL deadlocks */
 static KBUF g_Ring, g_Sqe, g_Mem;               /* g_Mem: fence at +0 */
 static ULONG g_Wptr, g_Seqno;
@@ -378,7 +378,7 @@ NTSTATUS MmuMap(ULONGLONG Va, PMDL Mdl, SIZE_T Size)
         }
         l3[((Va >> PAGE_SHIFT) + i) & 511] = ((ULONGLONG)pfn[i] << PAGE_SHIFT) | PTE_PAGE;
     }
-    if (g_Ready) {
+    if (g_SmmuOn) {
         TlbFlush();
     }
     return STATUS_SUCCESS;
@@ -395,7 +395,7 @@ VOID MmuUnmap(ULONGLONG Va, SIZE_T Size)
             l3[((Va >> PAGE_SHIFT) + i) & 511] = 0;
         }
     }
-    if (g_Ready) {
+    if (g_SmmuOn) {
         TlbFlush();
     }
 }
@@ -412,16 +412,23 @@ static BOOLEAN SmmuSetup(VOID)
     Wr(g_Smmu, 0x1000, 0x0001f000);                      /* CBAR0: S1 translate, S2 bypass */
     Wr(g_Smmu, SMMU_CB0 + 0x020, (ULONG)g_L1Pa.QuadPart);
     Wr(g_Smmu, SMMU_CB0 + 0x024, (ULONG)(g_L1Pa.QuadPart >> 32));   /* TTBR0, ASID 0 */
-    Wr(g_Smmu, SMMU_CB0 + 0x030, 25 | (1u << 23));       /* TCR: T0SZ 25 (39-bit), 4 KB, non-cacheable walks, EPD1 */
-    Wr(g_Smmu, SMMU_CB0 + 0x010, 2);                     /* TCR2: PASize 40-bit */
+    /* TCR: T0SZ 32 = exactly the 4 GB the A610 uses (walk starts at level 1, 4 entries), 4 KB granule,
+       non-cacheable walks, EPD1. TCR2: PASize 36-bit = this SMMU's OAS (IDR2 0x5511); v0.12 had 39-bit
+       VA + 40-bit PA and got a translation fault at level 0 on the first CP fetch. */
+    Wr(g_Smmu, SMMU_CB0 + 0x030, 32 | (1u << 23));
+    Wr(g_Smmu, SMMU_CB0 + 0x010, 1);
     Wr(g_Smmu, SMMU_CB0 + 0x038, 0x44);                  /* MAIR0: attr0 = Normal non-cacheable */
     Wr(g_Smmu, SMMU_CB0 + 0x03C, 0);
     __dsb(_ARM64_BARRIER_SY);
     Wr(g_Smmu, SMMU_CB0 + 0x000, 0x67);                  /* SCTLR: CFIE CFRE AFE TRE M */
     Wr(g_Smmu, 0xC00, 0);                                /* S2CR0 -> CB0 */
     Wr(g_Smmu, 0x800, (1u << 31) | (1u << 16));          /* SMR0: SID 0 mask 1 */
+    g_SmmuOn = TRUE;
     TlbFlush();
-    LogPrint("  SMMU: TTBR0 %llx SCTLR %08x TCR %08x\n", g_L1Pa.QuadPart, Rd(g_Smmu, SMMU_CB0), Rd(g_Smmu, SMMU_CB0 + 0x30));
+    LogPrint("  SMMU: TTBR0 %08x%08x SCTLR %08x TCR %08x TCR2 %08x CBA2R %08x CBAR %08x MAIR0 %08x IDR2 %08x\n",
+             Rd(g_Smmu, SMMU_CB0 + 0x24), Rd(g_Smmu, SMMU_CB0 + 0x20), Rd(g_Smmu, SMMU_CB0), Rd(g_Smmu, SMMU_CB0 + 0x30),
+             Rd(g_Smmu, SMMU_CB0 + 0x10), Rd(g_Smmu, 0x1800), Rd(g_Smmu, 0x1000), Rd(g_Smmu, SMMU_CB0 + 0x38),
+             Rd(g_Smmu, 0x28));
     return TRUE;
 }
 
@@ -545,6 +552,18 @@ static BOOLEAN RingIdle(ULONG Ms)
     LogPrint("  ring stuck: rptr %u wptr %u RBBM_STATUS %08x CP_HW_FAULT %08x\n", GpuRd(0x806), g_Wptr % RB_DWORDS,
              GpuRd(0x210), GpuRd(0x821));
     SmmuFault("ring");
+    {
+        ULONGLONG va = g_Sqe.Iova;
+        ULONG i1 = (ULONG)(va >> 30);
+        LogPrint("  walk %llx: L1[%u] %llx", va, i1, g_L1[i1]);
+        if (g_L2[i1] != NULL) {
+            LogPrint(" L2[%u] %llx", (ULONG)((va >> 21) & 511), g_L2[i1][(va >> 21) & 511]);
+        }
+        if (g_L3[va >> 21] != NULL) {
+            LogPrint(" L3[%u] %llx", (ULONG)((va >> 12) & 511), g_L3[va >> 21][(va >> 12) & 511]);
+        }
+        LogPrint("\n");
+    }
     return FALSE;
 }
 
