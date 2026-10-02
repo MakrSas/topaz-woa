@@ -1,0 +1,112 @@
+diff --git a/meson.build b/meson.build
+index 1b1f5b8..45145cc 100644
+--- a/meson.build
++++ b/meson.build
+@@ -783,13 +783,21 @@ if with_gallium_st_nine
+   endif
+ endif
+ 
++# TopazGpu: freedreno on Windows talks to the WDDM KMD through a libdrm shim (src/freedreno/drm/wddm)
++if with_gallium_freedreno and host_machine.system() == 'windows'
++  pre_args += ['-I' + (meson.current_source_dir() / 'src' / 'freedreno' / 'drm' / 'wddm' / 'include'),
++               '-I' + (meson.current_source_dir() / 'src' / 'freedreno' / 'drm' / 'wddm'),
++               '-DFD_WDDM']
++endif
++
+ with_gallium_st_d3d10umd =  get_option('gallium-d3d10umd')
+ if with_gallium_st_d3d10umd
+   if not [
+            with_gallium_swrast,
+            with_gallium_virgl,
++           with_gallium_freedreno,
+          ].contains(true)
+-    error('The d3d10umd state tracker requires gallium softpipe/llvmpipe or virgl.')
++    error('The d3d10umd state tracker requires gallium softpipe/llvmpipe, virgl or freedreno.')
+   endif
+   if with_gallium_softpipe and with_gallium_virgl
+     warning('The d3d10umd state trackes is built with both softpipe/llvmpipe and virgl, only virgl will be used.')
+diff --git a/src/freedreno/drm/freedreno_device.c b/src/freedreno/drm/freedreno_device.c
+index ce95c9f..06222a2 100644
+--- a/src/freedreno/drm/freedreno_device.c
++++ b/src/freedreno/drm/freedreno_device.c
+@@ -147,6 +147,13 @@ fail:
+ struct fd_device *
+ fd_device_new_dup(int fd)
+ {
++#ifdef FD_WDDM
++   /* fake DRM fds of the TopazGpu shim cannot be dup()ed: share it */
++   struct fd_device *wdev = fd_device_new(fd);
++   if (wdev)
++      wdev->closefd = 0;
++   return wdev;
++#endif
+    int dup_fd = os_dupfd_cloexec(fd);
+    struct fd_device *dev = fd_device_new(dup_fd);
+    if (dev)
+diff --git a/src/freedreno/drm/meson.build b/src/freedreno/drm/meson.build
+index ffaf6c9..5ceacb9 100644
+--- a/src/freedreno/drm/meson.build
++++ b/src/freedreno/drm/meson.build
+@@ -46,6 +46,10 @@ libfreedreno_drm_msm_files = files(
+ )
+ libfreedreno_drm_files += libfreedreno_drm_msm_files
+ 
++if host_machine.system() == 'windows'
++  libfreedreno_drm_files += files('wddm/fd_wddm.c')
++endif
++
+ libfreedreno_drm_virtio_files = files(
+   'virtio/virtio_bo.c',
+   'virtio/virtio_device.c',
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index b8ab9f5..db17fa6 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -34,6 +34,18 @@
+ #include "softpipe/sp_public.h"
+ #include "sw/gdi/gdi_sw_winsys.h"
+ #include "virgl/gdi/virgl_gdi_public.h"
++#ifdef GALLIUM_FREEDRENO
++#include "freedreno/freedreno_screen.h"
++#include "xf86drm.h"
++
++/* TopazGpu: DRM ioctls of freedreno travel as escapes through the D3D10 device callbacks */
++static int
++d3d10_fd_escape(void *ctx, void *data, unsigned size)
++{
++   struct gdikmt_device *device = (struct gdikmt_device *)ctx;
++   return device->escape(device, data, size) >= 0 ? 0 : -1;
++}
++#endif
+ 
+ #include "winddk_compat.h"
+ #include <d3dkmthk.h>
+@@ -66,6 +78,15 @@ d3d10_create_screen(struct gdikmt_device* device)
+ #ifdef GALLIUM_VIRGL
+    return virgl_gdi_screen_create(device);
+ #endif
++#ifdef GALLIUM_FREEDRENO
++   {
++      int fd = fd_wddm_open(d3d10_fd_escape, device);
++      if (fd < 0)
++         return NULL;
++      screen = fd_screen_create(fd, NULL, NULL);
++      return screen ? debug_screen_wrap(screen) : NULL;
++   }
++#endif
+ 
+ 
+    winsys = gdi_create_sw_winsys(d3d10_gdi_acquire_hdc, d3d10_gdi_release_hdc);
+diff --git a/src/gallium/targets/d3d10umd/meson.build b/src/gallium/targets/d3d10umd/meson.build
+index 686e5f9..d5dce2e 100644
+--- a/src/gallium/targets/d3d10umd/meson.build
++++ b/src/gallium/targets/d3d10umd/meson.build
+@@ -22,7 +22,7 @@ libgallium_d3d10 = shared_library(
+     libgallium, libgalliumvl, libwsgdi
+   ],
+   dependencies : [
+-    dep_ws2_32, idep_nir, driver_swrast, driver_virgl, idep_mesautil
++    dep_ws2_32, idep_nir, driver_swrast, driver_virgl, driver_freedreno, idep_mesautil
+   ],
+   name_prefix: '',
+   install : true,
