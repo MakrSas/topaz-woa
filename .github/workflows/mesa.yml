@@ -62,7 +62,7 @@ jobs:
           cpu = 'aarch64'
           endian = 'little'
           "@ | Set-Content cross-arm64.txt
-          meson setup build mesa --cross-file cross-arm64.txt --buildtype=release `
+          meson setup build mesa --cross-file cross-arm64.txt --buildtype=release -Ddebug=true `
             -Dgallium-drivers=freedreno -Dgallium-d3d10umd=true -Dgallium-d3d10-dll-name=topazgpu_d3d10 `
             -Dvulkan-drivers= -Dplatforms=windows -Db_vscrt=mt -Dzlib:default_library=static -Dllvm=disabled -Dzstd=disabled -Dshader-cache=disabled `
             -Dshared-glapi=enabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dbuild-tests=false 2>&1 | Tee-Object configure.log
@@ -84,4 +84,5 @@ jobs:
           name: topazgpu-umd-arm64
           path: |
             build/src/gallium/targets/d3d10umd/*.dll
+            build/src/gallium/targets/d3d10umd/*.pdb
             build/subprojects/**/*.dll
