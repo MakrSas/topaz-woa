@@ -233,3 +233,12 @@ BO name (KMD fills it in DxgkDdiGetStandardAllocationDriverData for runtime-crea
 - **Step C** — make TopazGpuW the display adapter too (VidPN: one 1080×2400 mode, primary scanout
   by copying the primary allocation into the framebuffer 0x5C000000, later a GPU blit) and let DWM
   move onto the GPU (viogpu3d proved DWM works on d3d10umd).
+
+### TopazGpuW install notes (2026-10-02)
+- TopazDisplay is TDR-disabled (System event 4113 "stopped responding and was disabled") on **every
+  boot** since its first install (events back to the 2022 clock) — pre-existing, not caused by
+  TopazGpuW; the screen keeps working. Hot-adding a display-class device also triggers it.
+- v0.1/v0.2 (child DDIs set, no VidPN DDIs): Dxgkrnl calls StartDevice then StopDevice at once, no
+  QueryAdapterInfo. v0.3 (all display DDIs NULL): DxgkInitialize → c0000059. v0.4: the full DDI set
+  with 0 sources (docs: "implement all DDIs ... but report 0 VidPN sources/targets").
+- A driver update of a WDDM KMD needs a reboot (CM_PROB_NEED_RESTART), ask the user first.

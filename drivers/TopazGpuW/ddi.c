@@ -463,6 +463,73 @@ static NTSTATUS APIENTRY TgResetEngine(const HANDLE hAdapter, DXGKARG_RESETENGIN
     return STATUS_SUCCESS;
 }
 
+
+/* ---------------------------------------------------------------- display DDIs: present but inert (0 sources) */
+
+static NTSTATUS TgQueryChildRelations(const PVOID Ctx, PDXGK_CHILD_DESCRIPTOR Rel, ULONG Size)
+{
+    UNREFERENCED_PARAMETER(Ctx);
+    UNREFERENCED_PARAMETER(Rel);
+    UNREFERENCED_PARAMETER(Size);
+    LogPrint("QueryChildRelations\n");
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS TgQueryChildStatus(const PVOID Ctx, PDXGK_CHILD_STATUS St, BOOLEAN NonDestructive)
+{
+    UNREFERENCED_PARAMETER(Ctx);
+    UNREFERENCED_PARAMETER(St);
+    UNREFERENCED_PARAMETER(NonDestructive);
+    return STATUS_INVALID_PARAMETER;
+}
+
+static NTSTATUS TgQueryDeviceDescriptor(const PVOID Ctx, ULONG Uid, PDXGK_DEVICE_DESCRIPTOR Desc)
+{
+    UNREFERENCED_PARAMETER(Ctx);
+    UNREFERENCED_PARAMETER(Uid);
+    UNREFERENCED_PARAMETER(Desc);
+    return STATUS_MONITOR_NO_MORE_DESCRIPTOR_DATA;
+}
+
+#define VIDPN_STUB(Name, ArgType) \
+    static NTSTATUS APIENTRY Name(const HANDLE hAdapter, ArgType A) \
+    { UNREFERENCED_PARAMETER(hAdapter); UNREFERENCED_PARAMETER(A); LogPrint(#Name "\n"); return STATUS_SUCCESS; }
+
+VIDPN_STUB(TgRecommendFunctionalVidPn, const DXGKARG_RECOMMENDFUNCTIONALVIDPN *const)
+VIDPN_STUB(TgEnumVidPnCofuncModality, const DXGKARG_ENUMVIDPNCOFUNCMODALITY *const)
+VIDPN_STUB(TgSetVidPnSourceAddress, const DXGKARG_SETVIDPNSOURCEADDRESS *)
+VIDPN_STUB(TgSetVidPnSourceVisibility, const DXGKARG_SETVIDPNSOURCEVISIBILITY *)
+VIDPN_STUB(TgCommitVidPn, const DXGKARG_COMMITVIDPN *const)
+VIDPN_STUB(TgUpdateActiveVidPnPresentPath, const DXGKARG_UPDATEACTIVEVIDPNPRESENTPATH *const)
+VIDPN_STUB(TgRecommendMonitorModes, const DXGKARG_RECOMMENDMONITORMODES *const)
+VIDPN_STUB(TgRecommendVidPnTopology, const DXGKARG_RECOMMENDVIDPNTOPOLOGY *const)
+VIDPN_STUB(TgStopCapture, const DXGKARG_STOPCAPTURE *)
+VIDPN_STUB(TgSetPalette, const DXGKARG_SETPALETTE *)
+VIDPN_STUB(TgSetPointerPosition, const DXGKARG_SETPOINTERPOSITION *)
+VIDPN_STUB(TgSetPointerShape, const DXGKARG_SETPOINTERSHAPE *)
+
+static NTSTATUS APIENTRY TgIsSupportedVidPn(const HANDLE hAdapter, DXGKARG_ISSUPPORTEDVIDPN *A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    A->IsVidPnSupported = TRUE;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS APIENTRY TgGetScanLine(const HANDLE hAdapter, DXGKARG_GETSCANLINE *A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    A->InVerticalBlank = TRUE;
+    A->ScanLine = 0;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS APIENTRY TgQueryVidPnHWCapability(const HANDLE hAdapter, DXGKARG_QUERYVIDPNHWCAPABILITY *A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    RtlZeroMemory(&A->VidPnHWCaps, sizeof(A->VidPnHWCaps));
+    return STATUS_SUCCESS;
+}
+
 /* ---------------------------------------------------------------- entry */
 
 DRIVER_INITIALIZE DriverEntry;
@@ -484,8 +551,27 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     d.DxgkDdiDispatchIoRequest = TgDispatchIoRequest;
     d.DxgkDdiInterruptRoutine = TgInterruptRoutine;
     d.DxgkDdiDpcRoutine = TgDpcRoutine;
-    /* render-only: every display DDI must stay NULL (v0.2: with the child DDIs set, Dxgkrnl stopped
-       the adapter right after StartDevice) */
+    /* render-only, variant 2 of the docs: the full DDI set, but 0 VidPN sources/targets (v0.2 with only
+       the child DDIs was stopped after StartDevice, v0.3 with all display DDIs NULL failed
+       DxgkInitialize with c0000059) */
+    d.DxgkDdiQueryChildRelations = TgQueryChildRelations;
+    d.DxgkDdiQueryChildStatus = TgQueryChildStatus;
+    d.DxgkDdiQueryDeviceDescriptor = TgQueryDeviceDescriptor;
+    d.DxgkDdiIsSupportedVidPn = TgIsSupportedVidPn;
+    d.DxgkDdiRecommendFunctionalVidPn = TgRecommendFunctionalVidPn;
+    d.DxgkDdiEnumVidPnCofuncModality = TgEnumVidPnCofuncModality;
+    d.DxgkDdiSetVidPnSourceAddress = TgSetVidPnSourceAddress;
+    d.DxgkDdiSetVidPnSourceVisibility = TgSetVidPnSourceVisibility;
+    d.DxgkDdiCommitVidPn = TgCommitVidPn;
+    d.DxgkDdiUpdateActiveVidPnPresentPath = TgUpdateActiveVidPnPresentPath;
+    d.DxgkDdiRecommendMonitorModes = TgRecommendMonitorModes;
+    d.DxgkDdiRecommendVidPnTopology = TgRecommendVidPnTopology;
+    d.DxgkDdiGetScanLine = TgGetScanLine;
+    d.DxgkDdiStopCapture = TgStopCapture;
+    d.DxgkDdiSetPalette = TgSetPalette;
+    d.DxgkDdiSetPointerPosition = TgSetPointerPosition;
+    d.DxgkDdiSetPointerShape = TgSetPointerShape;
+    d.DxgkDdiQueryVidPnHWCapability = TgQueryVidPnHWCapability;
     d.DxgkDdiSetPowerState = TgSetPowerState;
     d.DxgkDdiResetDevice = TgResetDevice;
     d.DxgkDdiUnload = TgUnload;
