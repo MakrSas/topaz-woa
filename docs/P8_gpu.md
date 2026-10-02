@@ -242,3 +242,12 @@ BO name (KMD fills it in DxgkDdiGetStandardAllocationDriverData for runtime-crea
   QueryAdapterInfo. v0.3 (all display DDIs NULL): DxgkInitialize → c0000059. v0.4: the full DDI set
   with 0 sources (docs: "implement all DDIs ... but report 0 VidPN sources/targets").
 - A driver update of a WDDM KMD needs a reboot (CM_PROB_NEED_RESTART), ask the user first.
+
+### TopazGpuW install notes (2026-10-02)
+- TopazDisplay is TDR-disabled (System event 4113 "stopped responding and was disabled") on **every
+  boot** since its first install (events also exist from before internet time sync, when the clock
+  said 2022) — pre-existing, not caused by TopazGpuW; the screen keeps working.
+- v0.1/v0.2 (child DDIs set, no VidPN DDIs): Dxgkrnl calls StartDevice then StopDevice at once, no
+  QueryAdapterInfo. v0.3 (all display DDIs NULL): DxgkInitialize → c0000059. v0.4: the full DDI set
+  with 0 sources (docs: "implement all DDIs ... but report 0 VidPN sources/targets").
+- A driver update of a WDDM KMD needs a reboot (CM_PROB_NEED_RESTART).
