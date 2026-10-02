@@ -1354,6 +1354,23 @@ DefinitionBlock ("", "DSDT", 2, "QCOMM ", "SM6225 ", 0x00000003)
                 Return (0x0F)
             }
         }
+        Device (GPU0)
+        {
+            // topaz-woa: Adreno 610 for the TopazGpuW WDDM driver. A real interrupt resource lets
+            // Dxgkrnl's GPU scheduler (VidSch) drive the adapter; the root-enumerated device never got
+            // SubmitCommand (docs/P8_gpu.md step C1).
+            Name (_HID, "TPZG0610")
+            Name (_UID, Zero)
+            Name (_CCA, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x05900000, 0x00090000, )
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive, ,, ) { 0x000000D1 }  // GIC SPI 177
+            })
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
     }
 }
-

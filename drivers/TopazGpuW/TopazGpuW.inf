@@ -27,19 +27,13 @@ TopazGpuW.sys = 1,,
 
 [Standard.NT$ARCH$.10.0...16299]
 %DeviceDesc% = TopazGpuW_Inst, Root\TopazGpuW
+; step C: ACPI device GPU0 from our UEFI DSDT (uefi/acpi), with the GPU interrupt (GSIV 209)
+%DeviceDesc% = TopazGpuW_Inst, ACPI\TPZG0610
 
 [TopazGpuW_Inst]
 FeatureScore = F8
 CopyFiles = TopazGpuW_Files
 AddReg = TopazGpuW_UmdReg
-
-[TopazGpuW_Inst.LogConfigOverride]
-LogConfig = TopazGpuW_LC
-
-; GPU interrupt: GIC SPI 177 (kgsl_3d0_irq) = GSIV 209, level triggered
-[TopazGpuW_LC]
-ConfigPriority = HARDRECONFIG
-IRQConfig = L:209
 
 ; Dxgkrnl reads these for every adapter that renders (v0.5 failed start with c0000034 without them).
 ; The UMD is Mesa freedreno + d3d10umd (mesa-overlay), installed to System32 as topazgpu_d3d10.dll.
