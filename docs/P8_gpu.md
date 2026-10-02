@@ -476,3 +476,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   presents small dirty rects (e.g. (519,1485)-(562,1530) = the spinner).
 - v0.31: Present writes patch locations for source and destination (viogpu3d does), expecting VidMM
   to make both resident in the aperture.
+
+### v0.31 result (00:04 boot): presents reach the panel
+- With the patch locations VidMM maps CDD's shadow surface into the aperture (MAP_APERTURE_SEGMENT
+  with its hAllocation, 0x9e4 pages at aperture page 0x9f4); Patch: src seg 1 0xC09F4000, dst seg 1
+  0xC0000000; blts copy the dirty rects (boot spinner) into the primary and to the panel.
