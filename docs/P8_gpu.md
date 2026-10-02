@@ -536,3 +536,14 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   so the fd_wddm slot of a destroyed D3D device kept a dangling escape context and munmap (which tries
   every open slot) called into it. Fix: fd_wddm_detach(ctx) in DestroyDevice after the screen is gone,
   slot table under an SRW lock (DWM creates devices from several threads).
+
+### 01:24 boot: DWM alive on the UMD, black screen, then BSOD 0x14F
+- With the fd fix DWM stays up (no more dumps) but the screen stays black: DWM loops ~350 times
+  through "create devices -> visibility 1 -> create primaries (1080x2400 BGRA, MISC 0x20000) -> visibility
+  0 -> primary destroyed while scanned out -> devices destroyed" without any SetError: it treats the
+  device as lost. Suspect: DXGI Present with hDstResource (blt to DWM's primary) went to pfnPresentCb
+  without hDstAllocation (gdikmt's present() never passes one). Mesa 0002 now calls pfnPresentCb
+  itself with src+dst allocations and logs Present/SetDisplayMode/Rotate/Blt results.
+- After the user left the phone, BSOD 0x14F PDC_WATCHDOG_TIMEOUT (1, 1, ...) at the screen-off ->
+  Modern Standby transition (never tested on this port). Monitor/standby timeouts set to 0 on the phone
+  (powercfg) for the tests; real fix later (TgSetPowerState / monitor power do nothing yet).
