@@ -439,3 +439,21 @@ TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11
 - Test boot: `fastboot boot ~/work/win/uefi/Mu-topaz-v4-GPU0-RELEASE.img` on s8build (sha256
   1da973fc...), never flash. Then read C:\TopazGpuW.log, C:\TopazDisplay.log, boot ETW
   `C:\topaz\boot.etl.001` (autologger TopazDxg) over SSH.
+
+### First C2 boot (2026-10-02 23:39, GPU0 image RAM-booted)
+- ACPI\TPZG0610\0 came up with problem 22 (disabled in an earlier session; ConfigFlags 0 in Enum did
+  not reflect it) -> `pnputil /enable-device "ACPI\TPZG0610\0"` started it hot without trouble.
+- v0.28: DxgkCbAcquirePostDisplayOwnership returned the real GOP info (1080x2400 pitch 4320 fmt 22 pa
+  0x5C000000); StartDevice OK; INTERNAL child accepted -> monitor "Integrated Monitor (Topaz Panel)";
+  brightness interface queried and SetBrightness(100) done.
+- TopazDisplay v0.8 detected GPU0 and reported its monitor disconnected -> no desktop on it (good) but
+  also none on ours: the panel kept the boot logo.
+- Dxgkrnl looped "create shared primary 1080x2400 -> CommitVidPn with 0 paths -> visibility 0" and
+  never paged the primary in (no MAP_APERTURE_SEGMENT for it). CCD from the user session
+  (QueryDisplayConfig ALL_PATHS: our target tech 0x80000000 available 1; SetDisplayConfig
+  TOPOLOGY_INTERNAL -> 1610, EXTEND -> 31) without any DDI reaching the driver.
+- Suspect: viogpu3d sets `MemoryManagementCaps.SectionBackedPrimary` - a primary in an aperture
+  segment needs it. v0.29 sets it and logs IsSupportedVidPn/EnumCofunc/RecommendMonitorModes.
+- Tools on the phone: `C:\topaz\ccd.ps1` (QueryDisplayConfig/SetDisplayConfig, run as the console
+  user via the scheduled task TopazCcd, output C:\topaz\ccd.txt). DxgKrnl ETW gave no events in
+  this boot (session started fine, 0 events) - to check.

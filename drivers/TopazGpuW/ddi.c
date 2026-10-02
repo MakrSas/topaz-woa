@@ -349,6 +349,9 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
         /* C2: SetVidPnSourceAddress = MMIO flip latched at the next (timer) vsync, like viogpu3d */
         c->FlipCaps.FlipOnVSyncMmIo = 1;
         c->MaxQueuedFlipOnVSync = 1;
+        /* v0.29: as viogpu3d - without it no primary could be placed in the aperture segment and every
+           mode set ended in CommitVidPn with 0 paths (SetDisplayConfig 1610/31, driver never asked) */
+        c->MemoryManagementCaps.SectionBackedPrimary = 1;
         c->PresentationCaps.NoScreenToScreenBlt = 1;
         c->PresentationCaps.NoOverlapScreenBlt = 1;
         c->PresentationCaps.AlignmentShift = 2;
@@ -947,6 +950,7 @@ static NTSTATUS APIENTRY TgIsSupportedVidPn(const HANDLE hAdapter, DXGKARG_ISSUP
 {
     UNREFERENCED_PARAMETER(hAdapter);
     A->IsVidPnSupported = TRUE;                          /* one source, one target: any topology of them */
+    LogPrint("IsSupportedVidPn %p -> yes\n", A->hDesiredVidPn);
     return STATUS_SUCCESS;
 }
 
@@ -954,6 +958,7 @@ static NTSTATUS APIENTRY TgRecommendFunctionalVidPn(const HANDLE hAdapter, const
 {
     UNREFERENCED_PARAMETER(hAdapter);
     UNREFERENCED_PARAMETER(A);
+    LogPrint("RecommendFunctionalVidPn -> none\n");
     return STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;
 }
 
@@ -967,11 +972,13 @@ static NTSTATUS APIENTRY TgRecommendVidPnTopology(const HANDLE hAdapter, const D
 static NTSTATUS APIENTRY TgRecommendMonitorModes(const HANDLE hAdapter, const DXGKARG_RECOMMENDMONITORMODES *const A)
 {
     UNREFERENCED_PARAMETER(hAdapter);
+    LogPrint("RecommendMonitorModes target %u\n", A->VideoPresentTargetId);
     return DispRecommendMonitorModes(A);
 }
 
 static NTSTATUS APIENTRY TgEnumVidPnCofuncModality(const HANDLE hAdapter, const DXGKARG_ENUMVIDPNCOFUNCMODALITY *const A)
 {
+    LogPrint("EnumVidPnCofuncModality pivot %u\n", A->EnumPivotType);
     return DispEnumCofuncModality(&((TGPU_ADAPTER *)hAdapter)->Dxgk, A);
 }
 
@@ -1065,7 +1072,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, section-backed primary) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;
