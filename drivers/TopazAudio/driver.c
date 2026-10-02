@@ -10,7 +10,7 @@
 #include <wdf.h>
 #include "Audio.h"
 
-#define TOPAZ_AUDIO_VERSION "v0.2"
+#define TOPAZ_AUDIO_VERSION "v0.3"
 
 DRIVER_INITIALIZE DriverEntry;
 static EVT_WDF_DRIVER_DEVICE_ADD TopazEvtDeviceAdd;

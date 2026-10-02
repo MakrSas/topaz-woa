@@ -3,7 +3,7 @@
  * Infrastructure (compat.h, port.c, log.c, fileio.c, Smem.c, smc.asm) is copied from
  * drivers/TopazModem and keeps its names (ModemOut, ModemMapInit, gModemStop, ...).
  * Facts (stock DT): remoteproc-adsp PAS id 1, carveout 0x53800000+0x2300000 (inside the UEFI
- * "PIL Reserved" range), SMP2P adsp items out 443 / in 429 with APCS IPC bit 10, GLINK edge
+ * "PIL Reserved" range), SMP2P adsp items in 443 / out 429 with APCS IPC bit 10, GLINK edge
  * "lpass" remote pid 2 with APCS IPC bit 8, channels IPCRTR (QRTR) and adsp_apps (GPR).
  */
 #pragma once
@@ -20,8 +20,10 @@ extern UINTN gSmemVa, gApcsVa, gGicdVa;
 
 #define ADSP_PID           2                  /* SMEM host / SMP2P / GLINK remote pid */
 #define ADSP_PAS_ID        1
-#define ADSP_SMP2P_OUT     443                /* apps -> adsp */
-#define ADSP_SMP2P_IN      429                /* adsp -> apps */
+/* DT qcom,smem = <443 429> is <inbound outbound> (Linux SMP2P_INBOUND = 0); v0.1/v0.2 had them
+   swapped and the ADSP took over item 443 as its own */
+#define ADSP_SMP2P_OUT     429                /* apps -> adsp */
+#define ADSP_SMP2P_IN      443                /* adsp -> apps */
 #define ADSP_SMP2P_BIT     10                 /* smp2p-adsp mboxes = <&apcs_glb 10> */
 #define ADSP_GLINK_BIT     8                  /* glink-edge mboxes = <&apcs_glb 8> */
 #define ADSP_WDOG_INTID    (32 + 0x11A)       /* remoteproc-adsp "wdog" SPI */

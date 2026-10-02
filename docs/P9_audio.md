@@ -67,3 +67,12 @@ lose SSH (ask the user before).
   at start = its code ran). PAS shutdown 0/0, phone fine. Suspect: no RPM votes for LPI CX/MX
   (Linux sm6115 adsp votes proxy power domains "lcx"/"lmx" until handover). v0.2: dumps the
   0↔2 SMEM partition + 423 before boot, waits without timeout with status every 5 s.
+- 2026-10-02 v0.2 on the phone: **the whole phone reset** (Kernel-Power 41, no bugcheck/dump)
+  < 5 s after the second auth_and_reset. Its log shows why v0.1 "failed": before the boot the
+  0↔2 partition already had items 478/479/480 (GLINK), 606, 611 and item 443 rewritten as
+  "pid 2->0" = **the ADSP booted in v0.1 and reached GLINK**, we watched the wrong item.
+  `qcom,smem = <443 429>` is <inbound outbound>: apps writes 429, the ADSP writes 443.
+  v0.2 restarted the ADSP (PAS shutdown without stop handshake, then boot over the stale SMEM
+  state) → SoC reset. **Never restart the ADSP over stale SMEM state.**
+- v0.3: items fixed (out 429 / in 443); refuses to boot if item 443 or 480 already exists
+  (= the ADSP ran since SMEM init → full power-off needed).

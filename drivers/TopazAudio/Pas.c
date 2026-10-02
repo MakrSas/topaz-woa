@@ -1,8 +1,8 @@
 /*
  * Boot the ADSP through TrustZone PAS (Linux qcom_mdt_load() + qcom_q6v5_pas), like
  * drivers/TopazModem/ModemPas.c does for the modem: init_image with the .mdt metadata, copy the
- * adsp.bNN segments into the carveout, auth_and_reset. Then the SMP2P handshake (apps item 443,
- * adsp item 429 in the apps<->adsp SMEM partition) and the GLINK/QRTR/GPR loop.
+ * adsp.bNN segments into the carveout, auth_and_reset. Then the SMP2P handshake (apps item 429,
+ * adsp item 443 in the apps<->adsp SMEM partition) and the GLINK/QRTR/GPR loop.
  * Firmware: C:\topaz\fw\image\adsp.* (NON-HLOS of modem_a, already copied for Wi-Fi).
  */
 #include "Audio.h"
@@ -170,7 +170,7 @@ STATIC VOID Smp2pDump(CONST CHAR8 *Tag, SMP2P_HDR *H)
   }
 }
 
-/* Our apps -> adsp item 443 with the entries the stock kernel creates at probe. */
+/* Our apps -> adsp item 429 with the entries the stock kernel creates at probe. */
 STATIC BOOLEAN Smp2pOutInit(SMEM_PART_HDR *P)
 {
   mOut = SmemPrivAlloc (P, ADSP_SMP2P_OUT, sizeof (SMP2P_HDR) + SMP2P_MAX_ENTRY * sizeof (SMP2P_ENTRY));
@@ -191,7 +191,7 @@ STATIC BOOLEAN Smp2pOutInit(SMEM_PART_HDR *P)
   Smp2pAdd (mOut, "sleepstate", 1);                   /* bit0 = apps awake (smp2p_sleepstate) */
   MemoryFence ();
   ApcsKick (ADSP_SMP2P_BIT);
-  Smp2pDump ("apps->adsp (443)", mOut);
+  Smp2pDump ("apps->adsp (429)", mOut);
   return TRUE;
 }
 
@@ -369,7 +369,7 @@ STATIC VOID CrashReason(VOID)
   }
 }
 
-/* Wait for "slave-kernel" ready (bit1) or fatal (bit0) in the adsp's item 429. */
+/* Wait for "slave-kernel" ready (bit1) or fatal (bit0) in the adsp's item 443. */
 STATIC UINT32 WaitReady(SMEM_PART_HDR *Part, UINTN Ms, UINT32 Stale)
 {
   UINT32 last = 0xFFFFFFFF, sz = 0, wd = 2;
@@ -465,21 +465,19 @@ EFI_STATUS AdspBoot(VOID)
   }
   PartDump ("before boot", part, TRUE);
   CrashReason ();
-  mIn = SmemPrivGet (part, ADSP_SMP2P_IN, NULL);
-  if (mIn != NULL) {
-    /* an earlier TopazAudio run (driver reinstall) started it: stop it and boot again */
-    Smp2pDump ("adsp->apps (429) before boot", mIn);
-    gAdspState = Smp2pFind (mIn, "slave-kernel");
-    stale = (gAdspState != NULL) ? *gAdspState : 0xFFFFFFFF;
-    Out ("  ADSP item %u exists: restarting the ADSP\r\n", ADSP_SMP2P_IN);
+  /*
+   * Any ADSP item in the partition means the ADSP already ran since SMEM was set up (earlier
+   * driver run). v0.2 restarted it with PAS shutdown + boot over that state and the whole SoC
+   * reset a few seconds later, so never do that: a cold boot is needed to try again.
+   */
+  if (SmemPrivGet (part, ADSP_SMP2P_IN, NULL) != NULL || SmemPrivGet (part, 480, NULL) != NULL) {
+    Out ("  ADSP state from an earlier run is in SMEM (item %u or 480): refusing to boot it again.\r\n"
+         "  Power the phone off fully (not restart) and boot Windows again.\r\n", ADSP_SMP2P_IN);
+    return EFI_ALREADY_STARTED;
   }
   if (!Smp2pOutInit (part) || mStopEntry == NULL) {
     Out ("  SMP2P item %u alloc failed\r\n", ADSP_SMP2P_OUT);
     return EFI_OUT_OF_RESOURCES;
-  }
-  if (mIn != NULL) {
-    AdspStop ();
-    stale = (gAdspState != NULL) ? *gAdspState : stale;
   }
   *mStopEntry = 0;
   ApcsKick (ADSP_SMP2P_BIT);
@@ -490,7 +488,7 @@ EFI_STATUS AdspBoot(VOID)
   }
   st = WaitReady (part, 0, stale);         /* until READY/FATAL or driver stop */
   if (mIn != NULL) {
-    Smp2pDump ("adsp->apps (429)", mIn);
+    Smp2pDump ("adsp->apps (443)", mIn);
   }
   if ((st & 3) != 2) {
     Out ("  ADSP did not report READY (slave-kernel %08x)\r\n", st);
