@@ -45,14 +45,18 @@ x 0..1349, y 0..2999 (y saturates at 2999) on 1080x2400 -> v0.4 uses HID logical
 Edge contacts sometimes come with id 9. The fw repeats an "up" slot for many
 frames -> report the lift once. v0.1 log path `\SystemRoot\..` never worked (use `\??\C:\`).
 
-## 2d. Battery — WORKS (TopazBattery v0.1, 2026-10-01)
-Root-enumerated battc miniclass (`drivers/TopazBattery`, simbatt structure), 5 s poll on QUP0 SE1.
-Windows shows percent/icon/time; battery saver available. Verified log (discharging on the hub):
-sm5602 id 0x0012, status 0x0204, soc 0x2c88 = 44.5 %, 3.77 V, current 0x8518 = -636 mA
-(bit15 set = discharge, rsns factor 2 correct), NTC 0xe8f0 = 32.8 C, BAT_CAP 0x26cc = 4849 mAh.
-Charger after UEFI: reg03=0x2a (OTG on, **CHG_CONFIG=0**: the boost needed it off), reg0b=0xe2
-(VBUS_STAT 7). The driver sets CHG_CONFIG=1/OTG off when an adapter appears and OTG on when
-VBUS is free (hub hot-plug). Charging path still to be verified with a real charger.
+## 2d. Battery + charging — WORKS (TopazBattery v0.12 on the phone, 2026-10-02)
+Root-enumerated battc miniclass (`drivers/TopazBattery`), sm5602 gauge, QUP0 SE1 I2C. Full notes:
+`docs/NOTES_power.md` section 1, logs `docs/logs/TopazBattery-v0.{7,8,12}*.log`.
+- Type-C roles on rt1711h (DRP toggling): hub -> source + bq2589x OTG boost, charger -> sink.
+  rt1711h needed Linux's init (RTCTRL8 shipping off) before CC worked.
+- bq2589x: ICHG 1984 mA, VREG 4.40 V, IINLIM from Rp/PD (max 2 A, DTB), software JEITA (sm5602 NTC).
+- USB-PD sink (`pd.c`, polled, PD 3.0): fixed 9 V contract -> ~8.2 W into the battery.
+- 33 W path (`ln8000.c`): PPS + ln8000 2:1 pump. Verified only as a 120 s test at IBUS 1 A
+  (battery 2 A), run once per charger attach when battery < 42 C, SoC 30-80 %, VBAT < 4.30 V.
+  Next: 2 A / 2.9 A IBUS and continuous mode with taper (needs SoC < ~60 % to test).
+- Deploy: `ssh topaz-win` (scp to C:\topaz\stage\TopazBattery, devcon remove/install, no reboot)
+  or the flash drive (`tools/deploy/install-battery.cmd` copies to C: first).
 
 ## 2e. Power off — cause found (2026-10-01)
 PSCI SYSTEM_OFF (Mu `ArmPsciResetSystemLib`) does power the phone off. It came straight back
