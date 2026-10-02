@@ -847,7 +847,7 @@ static NTSTATUS APIENTRY TgPresent(const HANDLE hContext, DXGKARG_PRESENT *A)
             c->Op = TG_CMD_NOP;
         }
     }
-    if (++count <= 30) {
+    if (++count <= 30 || (A->Flags.Value != 1 && count < 400)) {   /* v0.34: every flip/non-blt present */
         LogPrint("Present: flags %x src %p dst %p src (%d,%d)-(%d,%d) dst (%d,%d)-(%d,%d) rects %u\n", A->Flags.Value,
                  src->hDeviceSpecificAllocation, dst->hDeviceSpecificAllocation, A->SrcRect.left, A->SrcRect.top,
                  A->SrcRect.right, A->SrcRect.bottom, A->DstRect.left, A->DstRect.top, A->DstRect.right,
@@ -1207,7 +1207,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, BO ownership per device) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, flip logging) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;

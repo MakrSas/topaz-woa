@@ -181,7 +181,7 @@ NTSTATUS DispSetSourceAddress(const DXGKARG_SETVIDPNSOURCEADDRESS *A)
     g_ScanPa = A->PrimaryAddress;
     InterlockedExchange(&g_ScanDirty, 1);
     InterlockedExchange(&g_FlipPending, 1);
-    if (++count <= 20) {
+    if (++count <= 400) {
         LogPrint("SetVidPnSourceAddress: src %u alloc %p seg %u pa %llx flags %x\n", A->VidPnSourceId, A->hAllocation,
                  A->PrimarySegment, A->PrimaryAddress.QuadPart, A->Flags.Value);
     }
