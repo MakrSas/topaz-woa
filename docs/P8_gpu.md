@@ -267,3 +267,9 @@ BO name (KMD fills it in DxgkDdiGetStandardAllocationDriverData for runtime-crea
   stuck). PnP assigned it ("Resources" tab), but then Dxgkrnl failed the start with c0000034 *before*
   calling DxgkDdiStartDevice → dropped in v0.11 (LogConf deleted). Without an IRQ the adapter starts
   but the scheduler never submits the 2 paging buffers.
+- **The escape hang was my bug (found 2026-10-02):** "Escape: size 1040" reached TgEscape, then
+  HwStart took a FAST_MUTEX (IRQL → APC_LEVEL; the logger silently skips writes there) and did
+  synchronous file I/O (zap/SQE reads) at APC_LEVEL → the I/O completion APC can never run →
+  deadlock, unkillable process, later system stalls. The DxgKrnl trace also shows the adapter is
+  fine (StartDevice status 0; the 2 "paging buffers" are just Dxgkrnl mapping its paging-buffer
+  allocations; processes try to open the missing UMD DLL). v0.12: KMUTEX instead of FAST_MUTEX.

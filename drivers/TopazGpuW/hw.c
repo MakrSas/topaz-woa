@@ -59,7 +59,7 @@ typedef struct _KBUF {
 
 static volatile UCHAR *g_Gcc, *g_GpuCc, *g_Gpu, *g_Smmu;
 static BOOLEAN g_Ready, g_Failed;
-static FAST_MUTEX g_HwLock;
+static KMUTEX g_HwLock;          /* not FAST_MUTEX: file I/O (zap, SQE) at APC_LEVEL deadlocks */
 static KBUF g_Ring, g_Sqe, g_Mem;               /* g_Mem: fence at +0 */
 static ULONG g_Wptr, g_Seqno;
 
@@ -639,7 +639,7 @@ BOOLEAN HwStart(VOID)
 {
     BOOLEAN ok = FALSE;
 
-    ExAcquireFastMutex(&g_HwLock);
+    KeWaitForSingleObject(&g_HwLock, Executive, KernelMode, FALSE, NULL);
     if (g_Ready || g_Failed) {
         ok = g_Ready;
         goto out;
@@ -669,7 +669,7 @@ fail:
     g_Failed = TRUE;                                     /* never retried until reboot */
     LogPrint("--- GPU start FAILED\n");
 out:
-    ExReleaseFastMutex(&g_HwLock);
+    KeReleaseMutex(&g_HwLock, FALSE);
     return ok;
 }
 
@@ -689,7 +689,7 @@ BOOLEAN HwReady(VOID)
 VOID HwInit(VOID);
 VOID HwInit(VOID)
 {
-    ExInitializeFastMutex(&g_HwLock);
+    KeInitializeMutex(&g_HwLock, 0);
 }
 
 /* IBs + fence: CP_INDIRECT_BUFFER per cmd, then CACHE_FLUSH_TS writes the seqno to g_Mem+0 */
@@ -700,12 +700,12 @@ NTSTATUS HwSubmit(const ULONGLONG *IbIova, const ULONG *IbDwords, ULONG Count, P
     if (!g_Ready) {
         return STATUS_DEVICE_NOT_READY;
     }
-    ExAcquireFastMutex(&g_HwLock);
+    KeWaitForSingleObject(&g_HwLock, Executive, KernelMode, FALSE, NULL);
     for (spin = 0; RingFree() < need && spin < 100000; spin++) {
         KeStallExecutionProcessor(10);
     }
     if (RingFree() < need) {
-        ExReleaseFastMutex(&g_HwLock);
+        KeReleaseMutex(&g_HwLock, FALSE);
         LogPrint("submit: ring full\n");
         return STATUS_DEVICE_BUSY;
     }
@@ -722,7 +722,7 @@ NTSTATUS HwSubmit(const ULONGLONG *IbIova, const ULONG *IbDwords, ULONG Count, P
     Emit((ULONG)(g_Mem.Iova >> 32));
     Emit(*Fence);
     Kick();
-    ExReleaseFastMutex(&g_HwLock);
+    KeReleaseMutex(&g_HwLock, FALSE);
     return STATUS_SUCCESS;
 }
 

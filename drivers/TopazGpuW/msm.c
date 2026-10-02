@@ -9,7 +9,7 @@
 #define MSM_VERSION_MINOR   9                   /* FD_VERSION_VA_SIZE */
 #define BO_MAX              65536
 
-static FAST_MUTEX g_BoLock;
+static KMUTEX g_BoLock;          /* keeps IRQL at PASSIVE (logging, user mappings) */
 static LIST_ENTRY g_Bos;
 static TGPU_BO *g_BoTable[BO_MAX];
 static ULONG g_NextHandle = 1;
@@ -18,7 +18,7 @@ VOID HwInit(VOID);
 
 VOID MsmInit(VOID)
 {
-    ExInitializeFastMutex(&g_BoLock);
+    KeInitializeMutex(&g_BoLock, 0);
     InitializeListHead(&g_Bos);
     HwInit();
 }
@@ -312,7 +312,7 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
         E->ret = -19;                                    /* ENODEV */
         return STATUS_SUCCESS;
     }
-    ExAcquireFastMutex(&g_BoLock);
+    KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
     switch (E->nr) {
     case TOPAZGPU_NR_VERSION: {
         struct topazgpu_version *v = (struct topazgpu_version *)d;
@@ -341,9 +341,9 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
         } else if (p->op & MSM_PREP_NOSYNC) {
             st = ((LONG)(HwCompletedFence() - bo->LastFence) >= 0) ? STATUS_SUCCESS : STATUS_DEVICE_BUSY;
         } else {
-            ExReleaseFastMutex(&g_BoLock);
+            KeReleaseMutex(&g_BoLock, FALSE);
             st = HwWaitFence(bo->LastFence, 5000) ? STATUS_SUCCESS : STATUS_TIMEOUT;
-            ExAcquireFastMutex(&g_BoLock);
+            KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
         }
         break;
     }
@@ -357,9 +357,9 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
         break;
     case DRM_COMMAND_BASE + DRM_MSM_WAIT_FENCE: {
         ULONG f = ((struct drm_msm_wait_fence *)d)->fence;
-        ExReleaseFastMutex(&g_BoLock);
+        KeReleaseMutex(&g_BoLock, FALSE);
         st = HwWaitFence(f, 5000) ? STATUS_SUCCESS : STATUS_TIMEOUT;
-        ExAcquireFastMutex(&g_BoLock);
+        KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
         break;
     }
     case DRM_COMMAND_BASE + DRM_MSM_SUBMITQUEUE_NEW:
@@ -411,7 +411,7 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
         st = STATUS_NOT_SUPPORTED;
         break;
     }
-    ExReleaseFastMutex(&g_BoLock);
+    KeReleaseMutex(&g_BoLock, FALSE);
     E->ret = Errno(st);
     return STATUS_SUCCESS;
 }
