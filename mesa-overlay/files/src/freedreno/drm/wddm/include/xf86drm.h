@@ -7,6 +7,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define DRM_NODE_PRIMARY 0
+#define DRM_NODE_CONTROL 1
+#define DRM_NODE_RENDER 2
 typedef struct _drmVersion {
    int version_major;
    int version_minor;

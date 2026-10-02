@@ -2,6 +2,7 @@
 #ifndef _SYS_MMAN_H_
 #define _SYS_MMAN_H_
 #include <stddef.h>
+#include <sys/types.h>
 #include <stdint.h>
 #define PROT_NONE 0
 #define PROT_READ 1

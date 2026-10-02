@@ -161,3 +161,19 @@ index 1567ee7..de7a1a4 100644
  #  include <sys/mman.h>
  #else
  #  error Unsupported OS
+diff --git a/src/util/u_atomic.h b/src/util/u_atomic.h
+index 6d604a6..97d2a51 100644
+--- a/src/util/u_atomic.h
++++ b/src/util/u_atomic.h
+@@ -22,9 +22,9 @@
+  */
+ #if defined(__sun)
+ #define PIPE_ATOMIC_OS_SOLARIS
+-#elif defined(_MSC_VER)
++#elif defined(_MSC_VER) && !defined(__clang__)
+ #define PIPE_ATOMIC_MSVC_INTRINSIC
+-#elif defined(__GNUC__)
++#elif defined(__GNUC__) || defined(__clang__)
+ #define PIPE_ATOMIC_GCC_INTRINSIC
+ #else
+ #error "Unsupported platform"

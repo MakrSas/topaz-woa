@@ -228,3 +228,47 @@ int fd_wddm_clock_gettime(int clk, struct timespec *ts)
    ts->tv_nsec = (long)((now.QuadPart % freq.QuadPart) * 1000000000ll / freq.QuadPart);
    return 0;
 }
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <io.h>
+
+int fd_wddm_ioctl(int fd, unsigned long request, ...) { (void)fd; (void)request; errno = ENOTTY; return -1; }
+
+int fd_wddm_vasprintf(char **out, const char *fmt, va_list ap)
+{
+   va_list ap2;
+   int n;
+   va_copy(ap2, ap);
+   n = _vscprintf(fmt, ap2);
+   va_end(ap2);
+   if (n < 0 || !(*out = malloc((size_t)n + 1)))
+      return -1;
+   return vsnprintf(*out, (size_t)n + 1, fmt, ap);
+}
+
+int fd_wddm_asprintf(char **out, const char *fmt, ...)
+{
+   va_list ap;
+   int n;
+   va_start(ap, fmt);
+   n = fd_wddm_vasprintf(out, fmt, ap);
+   va_end(ap);
+   return n;
+}
+
+char *fd_wddm_strndup(const char *s, size_t n)
+{
+   size_t l = strnlen(s, n);
+   char *r = malloc(l + 1);
+   if (r) {
+      memcpy(r, s, l);
+      r[l] = 0;
+   }
+   return r;
+}
+
+int fd_wddm_ftruncate(int fd, long long len) { return _chsize_s(fd, len) == 0 ? 0 : -1; }
+
+/* only used for shader disassembly dumps (debug options): not supported */
+FILE *fd_wddm_open_memstream(char **ptr, size_t *size) { *ptr = NULL; *size = 0; return NULL; }
