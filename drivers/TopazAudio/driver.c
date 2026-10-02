@@ -10,7 +10,7 @@
 #include <wdf.h>
 #include "Audio.h"
 
-#define TOPAZ_AUDIO_VERSION "v0.5"
+#define TOPAZ_AUDIO_VERSION "v0.5.1"
 
 DRIVER_INITIALIZE DriverEntry;
 static EVT_WDF_DRIVER_DEVICE_ADD TopazEvtDeviceAdd;
@@ -19,8 +19,6 @@ static EVT_WDF_DEVICE_D0_ENTRY TopazEvtD0Entry;
 static EVT_WDF_DEVICE_D0_EXIT TopazEvtD0Exit;
 static EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL TopazEvtIoctl;
 
-/* admin + SYSTEM only: the lab interface pokes hardware */
-DECLARE_CONST_UNICODE_STRING(g_Sddl, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
 
 static PKTHREAD g_Thread;
 static BOOLEAN  g_Started;
@@ -106,7 +104,6 @@ static NTSTATUS TopazEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     NTSTATUS status;
 
     UNREFERENCED_PARAMETER(Driver);
-    WdfDeviceInitAssignSDDLString(DeviceInit, &g_Sddl);
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
     pnp.EvtDeviceD0Entry = TopazEvtD0Entry;
     pnp.EvtDeviceD0Exit = TopazEvtD0Exit;

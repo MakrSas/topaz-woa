@@ -33,6 +33,13 @@ CopyFiles = TopazAudio_CopyFiles
 [TopazAudio_CopyFiles]
 TopazAudio.sys
 
+; admin + SYSTEM only: the lab interface (\\.\TopazAudio) pokes hardware
+[TopazAudio_Device.NT.HW]
+AddReg = TopazAudio_Security
+
+[TopazAudio_Security]
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+
 [TopazAudio_Device.NT.Services]
 AddService = TopazAudio, 0x00000002, TopazAudio_Service
 
