@@ -47,6 +47,8 @@ jobs:
           New-Item -ItemType Directory -Force out\tgputest | Out-Null
           cl /nologo /O2 /W3 /I "$inc\km" tools\gputest\tgputest.c /Fe:out\tgputest\tgputest.exe gdi32.lib
           if ($LASTEXITCODE) { throw "tgputest build failed" }
+          cl /nologo /O2 /W3 /EHsc tools\gputest\d3dtest.cpp /Fe:out\tgputest\d3dtest.exe d3d11.lib dxgi.lib
+          if ($LASTEXITCODE) { throw "d3dtest build failed" }
 
       - name: Package, catalog and test-sign
         shell: pwsh
