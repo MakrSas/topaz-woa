@@ -7,6 +7,7 @@
 #include <dxgi.h>
 #include <stdio.h>
 #include <psapi.h>
+#include <d3dcompiler.h>
 
 // Crash report: exception code/PC and the call stack as module+offset (symbolize the UMD frames
 // with llvm-symbolizer and the CI PDB).
@@ -55,12 +56,16 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep)
 int main(int argc, char **argv)
 {
     bool copy = argc > 1 && strcmp(argv[1], "copy") == 0;
+    // vsonly: a draw whose triangle is completely off screen (VS runs, nothing rasterized)
+    // tri:    full-screen triangle, constant-color pixel shader, then read back
+    bool vsonly = argc > 1 && strcmp(argv[1], "vsonly") == 0;
+    bool tri = argc > 1 && strcmp(argv[1], "tri") == 0;
     setvbuf(stdout, nullptr, _IONBF, 0);
     SetEnvironmentVariableA("TOPAZGPU_ENABLE", "1");  // the UMD refuses other processes
     if (argc > 2) {
         SetEnvironmentVariableA("FD_MESA_DEBUG", argv[2]);
     }
-    printf("mode %s, FD_MESA_DEBUG=%s\n", copy ? "copy" : "clear", argc > 2 ? argv[2] : "");
+    printf("mode %s, FD_MESA_DEBUG=%s\n", argc > 1 ? argv[1] : "clear", argc > 2 ? argv[2] : "");
     AddVectoredExceptionHandler(1, crash_handler);
     IDXGIFactory1 *factory = nullptr;
     IDXGIAdapter1 *adapter = nullptr, *pick = nullptr;
@@ -125,7 +130,37 @@ int main(int argc, char **argv)
     }
 
     const float color[4] = { 1.0f, 0.5f, 0.25f, 1.0f };    // expect R=ff G=80 B=40 A=ff
-    if (!copy) {
+    if (vsonly || tri) {
+        // SV_VertexID only: no vertex buffers, no input layout
+        static const char hlsl[] =
+            "float4 vs(uint id : SV_VertexID) : SV_Position {\n"
+            "  float2 p = float2((id << 1) & 2, id & 2);\n"
+            "  return float4(p * float2(2, -2) + float2(-1, 1) + OFFSET, 0, 1);\n"
+            "}\n"
+            "float4 ps() : SV_Target { return float4(1.0, 0.5, 0.25, 1.0); }\n";
+        D3D_SHADER_MACRO defs[] = { { "OFFSET", vsonly ? "float2(10, 10)" : "float2(0, 0)" }, { nullptr, nullptr } };
+        ID3DBlob *vsb = nullptr, *psb = nullptr, *err = nullptr;
+        hr = D3DCompile(hlsl, sizeof(hlsl) - 1, "t", defs, nullptr, "vs", "vs_4_0", 0, 0, &vsb, &err);
+        if (SUCCEEDED(hr)) {
+            hr = D3DCompile(hlsl, sizeof(hlsl) - 1, "t", defs, nullptr, "ps", "ps_4_0", 0, 0, &psb, &err);
+        }
+        if (FAILED(hr)) {
+            printf("D3DCompile: %08lx %s\n", (unsigned long)hr, err ? (const char *)err->GetBufferPointer() : "");
+            return 8;
+        }
+        ID3D11VertexShader *vs = nullptr;
+        ID3D11PixelShader *ps = nullptr;
+        dev->CreateVertexShader(vsb->GetBufferPointer(), vsb->GetBufferSize(), nullptr, &vs);
+        dev->CreatePixelShader(psb->GetBufferPointer(), psb->GetBufferSize(), nullptr, &ps);
+        printf("shaders: vs %p ps %p\n", (void *)vs, (void *)ps);
+        D3D11_VIEWPORT vp = { 0, 0, 64, 64, 0, 1 };
+        ctx->RSSetViewports(1, &vp);
+        ctx->OMSetRenderTargets(1, &rtv, nullptr);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->VSSetShader(vs, nullptr, 0);
+        ctx->PSSetShader(ps, nullptr, 0);
+        ctx->Draw(3, 0);
+    } else if (!copy) {
         ctx->ClearRenderTargetView(rtv, color);
     }
     ctx->CopyResource(staging, rt);
