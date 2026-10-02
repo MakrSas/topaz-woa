@@ -10,7 +10,7 @@
 #include <wdf.h>
 #include "Audio.h"
 
-#define TOPAZ_AUDIO_VERSION "v0.3"
+#define TOPAZ_AUDIO_VERSION "v0.4"
 
 DRIVER_INITIALIZE DriverEntry;
 static EVT_WDF_DRIVER_DEVICE_ADD TopazEvtDeviceAdd;
@@ -21,14 +21,15 @@ static EVT_WDF_DEVICE_D0_EXIT TopazEvtD0Exit;
 static PKTHREAD g_Thread;
 static BOOLEAN  g_Started;
 
-/* Consume C:\topaz\audio.arm: TRUE if it existed (and is now deleted). */
-static BOOLEAN ArmConsume(VOID)
+/* Consume a one-shot file (C:\topaz\audio.arm, C:\topaz\amp.probe): TRUE if it existed. */
+static BOOLEAN ArmConsume(PCWSTR Path)
 {
-    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\audio.arm");
+    UNICODE_STRING name;
     OBJECT_ATTRIBUTES oa;
     IO_STATUS_BLOCK iosb;
     HANDLE h;
 
+    RtlInitUnicodeString(&name, Path);
     InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     if (!NT_SUCCESS(ZwCreateFile(&h, DELETE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN,
                                  FILE_DELETE_ON_CLOSE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
@@ -49,7 +50,11 @@ static VOID AudioThread(PVOID Context)
     KeSetSystemAffinityThreadEx((KAFFINITY)2);
     KeSetPriorityThread(KeGetCurrentThread(), LOW_REALTIME_PRIORITY);
 
-    if (!ArmConsume()) {
+    if (ArmConsume(L"\\??\\C:\\topaz\\amp.probe")) {
+        AmpProbe();
+        LogSetLazy(FALSE);
+    }
+    if (!ArmConsume(L"\\??\\C:\\topaz\\audio.arm")) {
         LogPrint("C:\\topaz\\audio.arm missing: ADSP not started\r\n");
         PsTerminateSystemThread(STATUS_SUCCESS);
     }

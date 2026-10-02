@@ -85,3 +85,14 @@ lose SSH (ask the user before).
   GPR_BASIC_RSP_RESULT status 1 (not ready yet), the 2nd → **APM SPF state = 1 READY** at
   t = 1.07 s. Stable at t = 30 s (wdog 0, no FATAL). Note: the ADSP keeps running with this
   driver; reinstalling TopazAudio needs a full power-off before the next ADSP boot (v0.3 refuses).
+- A4 (amp): the topaz dtbo overlay ("KHAJE IDP nopmi topaz", board-id 0x30022, read from the
+  phone's dtbo_a) keeps all three amps on `qupv3_se1_i2c`, chosen at probe time: `fs16xx@34`
+  (foursemi,fs16xx), `aw87xxx_pa_59@59` (awinic, aw-rx-port-id 0xb032), `sipa_i2c_L@2b`
+  (si,sia81xx-i2c) + `si_pa_L` (sia81x9, owi_mode 1 = one-wire). Shared reset GPIO 106 (0x6a).
+  Sound card "bengal-idp-snd-card": aux dev prefix "SpkrMonoL" = sia81xx, codecs stub + bolero +
+  wcd937x, routing IN3_AUX → AUX_OUT (analog amp fed by WCD937x AUX). adsp_loader overlay names
+  the firmware "adsp2" with adsp-fw-bit-values 1 (we load adsp.mdt and it works).
+- v0.4: `amp.c` one-shot read-only probe (`C:\topaz\amp.probe`): no SE init (TopazBattery owns
+  QUP0 SE1, no shared lock), waits for the end of a TopazBattery burst (active → 30 ms idle),
+  then three register reads at DISPATCH (< 2 ms): 0x34 reg 3, 0x59 reg 0, 0x2b reg 0.
+  Reset GPIO 106 is not touched yet (its TLMM tile is unknown; amps in reset may NACK).

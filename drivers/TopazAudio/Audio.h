@@ -75,3 +75,6 @@ VOID           QrtrSummary(VOID);
 VOID           GprInit(VOID);
 VOID           GprPoll(VOID);
 VOID           GprSummary(VOID);
+
+/* amp.c: read-only speaker amp detection on QUP0 SE1 I2C (shared with TopazBattery) */
+VOID           AmpProbe(VOID);

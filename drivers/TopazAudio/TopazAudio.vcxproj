@@ -62,6 +62,7 @@
     </DriverSign>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="amp.c" />
     <ClCompile Include="driver.c" />
     <ClCompile Include="fileio.c" />
     <ClCompile Include="Glink.c" />
