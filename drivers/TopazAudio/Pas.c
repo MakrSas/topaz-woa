@@ -326,6 +326,30 @@ STATIC UINTN PasShutdown(VOID)
 
 /* ---------------- flow ---------------- */
 
+/* List the items in a private SMEM partition (uncached entries grow up from the header). */
+STATIC UINT32 PartDump(CONST CHAR8 *Tag, SMEM_PART_HDR *P, BOOLEAN Print)
+{
+  UINT8 *e = (UINT8 *)(P + 1), *end = (UINT8 *)P + P->FreeUncached;
+  UINT32 n = 0;
+
+  if (Print) {
+    Out ("  %a: partition %u<->%u size %x free %x..%x\r\n", Tag, P->Host0, P->Host1, P->Size, P->FreeUncached, P->FreeCached);
+  }
+  while (e + sizeof (SMEM_PRIV_ENTRY) <= end && n < 64) {
+    SMEM_PRIV_ENTRY *h = (SMEM_PRIV_ENTRY *)e;
+    if (h->Canary != 0xA5A5) {
+      Out ("   bad canary %04x at +%x\r\n", h->Canary, (UINT32)(e - (UINT8 *)P));
+      break;
+    }
+    if (Print) {
+      Out ("   item %u size %x\r\n", h->Item, h->Size);
+    }
+    e += sizeof (*h) + h->PadHdr + h->Size;
+    n++;
+  }
+  return n;
+}
+
 STATIC UINT32 WdogPending(VOID)
 {
   return (MmioRead32 (gGicdVa + 0x200 + (ADSP_WDOG_INTID / 32) * 4) >> (ADSP_WDOG_INTID % 32)) & 1;
@@ -350,8 +374,22 @@ STATIC UINT32 WaitReady(SMEM_PART_HDR *Part, UINTN Ms, UINT32 Stale)
 {
   UINT32 last = 0xFFFFFFFF, sz = 0, wd = 2;
   BOOLEAN negotiated = FALSE;
+  UINTN lastDump = 0;
+  UINT32 items = PartDump (NULL, Part, FALSE);
 
-  for (mT0 = 0, mT0 = AudMs (); AudMs () < Ms && !gModemStop; gBS->Stall (10 * 1000)) {
+  for (mT0 = 0, mT0 = AudMs (); (Ms == 0 || AudMs () < Ms) && !gModemStop; gBS->Stall (10 * 1000)) {
+    if (PartDump (NULL, Part, FALSE) != items) {
+      items = PartDump (NULL, Part, FALSE);
+      Out ("  t=%lu ms partition now has %u items\r\n", (UINT64)AudMs (), items);
+      PartDump ("changed", Part, TRUE);
+    }
+    if (AudMs () - lastDump >= 5000) {
+      lastDump = AudMs ();
+      Out ("  t=%lu ms waiting: item %u %a, wdog %u\r\n", (UINT64)lastDump, ADSP_SMP2P_IN, mIn != NULL ? "present" : "absent", WdogPending ());
+      if (lastDump % 30000 < 5000) {
+        CrashReason ();
+      }
+    }
     if (WdogPending () != wd) {
       wd = WdogPending ();
       Out ("  t=%lu ms adsp wdog SPI pending=%u\r\n", (UINT64)AudMs (), wd);
@@ -425,6 +463,8 @@ EFI_STATUS AdspBoot(VOID)
   if (part == NULL) {
     return EFI_NOT_FOUND;
   }
+  PartDump ("before boot", part, TRUE);
+  CrashReason ();
   mIn = SmemPrivGet (part, ADSP_SMP2P_IN, NULL);
   if (mIn != NULL) {
     /* an earlier TopazAudio run (driver reinstall) started it: stop it and boot again */
@@ -448,13 +488,14 @@ EFI_STATUS AdspBoot(VOID)
   if (EFI_ERROR (s)) {
     return s;
   }
-  st = WaitReady (part, 20000, stale);
+  st = WaitReady (part, 0, stale);         /* until READY/FATAL or driver stop */
   if (mIn != NULL) {
     Smp2pDump ("adsp->apps (429)", mIn);
   }
   if ((st & 3) != 2) {
     Out ("  ADSP did not report READY (slave-kernel %08x)\r\n", st);
     CrashReason ();
+    PartDump ("after wait", part, TRUE);
     if (!(st & 1)) {
       AdspStop ();
     }

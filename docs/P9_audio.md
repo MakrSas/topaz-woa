@@ -61,3 +61,9 @@ lose SSH (ask the user before).
 
 ## Log
 - 2026-10-02: v0.1 written (commit on `audio`), CI build pending.
+- 2026-10-02 v0.1 on the phone: PAS init/mem_setup/auth_and_reset all 0/0 (TZ accepts the
+  firmware, no hang), but the ADSP never created SMP2P item 429 in 20 s, wdog SPI never pending,
+  SMEM 423 = "SFR Init: wdog or kernel error suspected." (the default text a Qualcomm DSP writes
+  at start = its code ran). PAS shutdown 0/0, phone fine. Suspect: no RPM votes for LPI CX/MX
+  (Linux sm6115 adsp votes proxy power domains "lcx"/"lmx" until handover). v0.2: dumps the
+  0↔2 SMEM partition + 423 before boot, waits without timeout with status every 5 s.
