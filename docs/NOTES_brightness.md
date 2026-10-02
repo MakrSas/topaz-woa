@@ -127,3 +127,16 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   start and failed later in Present (0xC0000001/4113); v0.3/v0.4 fail already at start. Suspects: child tech
   INTERNAL/LVDS, DxgkDdiQueryInterface, TopazBlInit. Next experiment: `C:\topaz\td.cfg` = `-1 4` (OTHER, as
   v0.2) and reboot — if the boot start succeeds, the technology value is the cause.
+
+## Present failure found (2026-10-02 ~22:10, TopazDisplay v0.5 log + boot ETW with td.cfg `-1 4`)
+- With child technology OTHER (`C:\topaz\td.cfg` = `-1 4`) the boot start succeeds (DxgKrnl asks QueryInterface
+  for the brightness GUID {fde5bba4-...}: "provided"), then the first **PresentDisplayOnly returns 0x103
+  (STATUS_PENDING)** and DxgKrnl stops the adapter (ETW "DdiPresentDisplayOnly return 0xC0000001", 4113).
+  Cause: the KMDOD sample alternates sync/async presents (`BDD_HWBLT::m_SynchExecution`); the async path starts a
+  worker thread and reports completion with a fake DXGK_INTERRUPT_DISPLAYONLY_PRESENT_PROGRESS via
+  DxgkCbSynchronizeExecution — not usable for a root-enumerated device without an interrupt. → v0.6: always sync.
+- Why nothing was in the log before: Present runs at IRQL != PASSIVE and `LogWrite` skipped those. v0.5 added a ring
+  buffer (`log.c`, `LogFlush()` on StopDevice).
+- With child technology LVDS/INTERNAL (the DSI-correct values) the boot start itself ends in surprise removal
+  (event 411 0xC00000E5); not understood yet — retest after the sync fix. Brightness interface is requested by
+  DxgkCbs even for technology OTHER, so the slider may not need an INTERNAL type.

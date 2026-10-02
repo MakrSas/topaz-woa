@@ -312,7 +312,11 @@ BDD_HWBLT::ExecutePresentDisplayOnly(
 
     // Alternate between synch and asynch execution, for demonstrating 
     // that a real hardware implementation can do either
-    m_SynchExecution = !m_SynchExecution;
+    // topaz: always synchronous. The sample alternates with an async path (worker thread + fake
+    // DXGK_INTERRUPT_DISPLAYONLY_PRESENT_PROGRESS through DxgkCbSynchronizeExecution), which a root-enumerated
+    // device without interrupt resources cannot do: the first (async) Present returned STATUS_PENDING and
+    // DxgKrnl then failed the adapter ("DdiPresentDisplayOnly return 0xC0000001").
+    m_SynchExecution = TRUE;
 
     ctx->SynchExecution   = m_SynchExecution;
 
