@@ -58,6 +58,19 @@ index ffaf6c9..5ceacb9 100644
  libfreedreno_drm_virtio_files = files(
    'virtio/virtio_bo.c',
    'virtio/virtio_device.c',
+diff --git a/src/freedreno/meson.build b/src/freedreno/meson.build
+index b455cd6..8cfeb57 100644
+--- a/src/freedreno/meson.build
++++ b/src/freedreno/meson.build
+@@ -28,7 +28,7 @@ subdir('ir2')
+ subdir('ir3')
+ subdir('fdl')
+ 
+-if system_has_kms_drm
++if system_has_kms_drm or host_machine.system() == 'windows'
+   subdir('drm')
+ endif
+ 
 diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
 index b8ab9f5..db17fa6 100644
 --- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
