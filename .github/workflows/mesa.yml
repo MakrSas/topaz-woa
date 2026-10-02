@@ -1,0 +1,77 @@
+name: Build Mesa UMD (freedreno + d3d10umd, Windows ARM64)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "mesa-overlay/**"
+      - ".github/workflows/mesa.yml"
+
+jobs:
+  mesa:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tools
+        shell: pwsh
+        run: |
+          pip install meson ninja mako pyyaml packaging
+          choco install winflexbison3 -y --no-progress
+
+      - name: Mesa source (max8rr8/mesa viogpu_win = d3d10umd + gdikmt WDDM helpers) + our overlay
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch viogpu_win https://gitlab.freedesktop.org/max8rr8/mesa.git mesa
+          git -C mesa log --oneline -1
+          if (Test-Path mesa-overlay/files) { Copy-Item -Recurse -Force mesa-overlay/files/* mesa/ }
+          Get-ChildItem mesa-overlay/patches/*.patch -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object {
+            Write-Host "apply $($_.Name)"
+            git -C mesa apply --whitespace=nowarn $_.FullName
+            if ($LASTEXITCODE) { throw "patch $($_.Name) failed" }
+          }
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
+      - name: Configure + build
+        shell: pwsh
+        run: |
+          @"
+          [binaries]
+          c = 'cl'
+          cpp = 'cl'
+          ar = 'lib'
+          windres = 'rc'
+          [host_machine]
+          system = 'windows'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+          "@ | Set-Content cross-arm64.txt
+          meson setup build mesa --cross-file cross-arm64.txt --buildtype=release `
+            -Dgallium-drivers=freedreno -Dgallium-d3d10umd=true -Dgallium-d3d10-dll-name=topazgpu_d3d10 `
+            -Dvulkan-drivers= -Dplatforms=windows -Db_vscrt=mt -Dllvm=disabled -Dzstd=disabled `
+            -Dshared-glapi=enabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dbuild-tests=false 2>&1 | Tee-Object configure.log
+          if ($LASTEXITCODE) { throw "meson setup failed" }
+          ninja -C build -k 0 2>&1 | Tee-Object build.log
+          if ($LASTEXITCODE) { throw "ninja failed" }
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesa-logs
+          path: |
+            configure.log
+            build.log
+            build/meson-logs/meson-log.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: topazgpu-umd-arm64
+          path: build/src/gallium/targets/d3d10umd/*.dll
