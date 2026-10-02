@@ -319,3 +319,6 @@ process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
   00f715a5 = CP, PC_DCALL, VPC, UCHE, SP, VSC, HLSQ, TSE, RB, CCU, LRZ busy; no CP/SMMU fault;
   IB1/IB2 fully fetched (rem 0). → the shader pipeline does not run. Test script `t.ps1 <clear|copy>
   [FD_MESA_DEBUG]` (restarts the adapter first: a wedged GPU stays wedged until restart).
+- v0.21: SPTPRAC through the GMU wrapper (0x596A000 + 4*0x50d0, as Linux does for A619 holi) →
+  **bugcheck 0x101**: reading that region hangs the bus on khaje. Never touch 0x596A000+ again.
+  v0.22 = v0.20 behaviour.

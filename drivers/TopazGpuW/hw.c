@@ -171,6 +171,7 @@ static VOID PowerCycleIfOn(VOID)
 #define GMU_SPTPRAC_PWR     (4 * 0x81)                   /* GMU_GX_SPTPRAC_POWER_CONTROL */
 #define GMU_SPTPRAC_STATUS  (4 * 0x50d0)                 /* GMU_SPTPRAC_PWR_CLK_STATUS */
 
+static VOID Sptprac(VOID);
 static VOID Sptprac(VOID)
 {
     ULONG st, i;
@@ -880,7 +881,9 @@ BOOLEAN HwStart(VOID)
         goto fail;
     }
     LogPrint("  powered: RBBM_STATUS %08x\n", GpuRd(0x210));
-    Sptprac();
+    /* v0.22: Sptprac() NOT called: on khaje reading the GMU wrapper (0x597E340) hangs the bus ->
+       bugcheck 0x101 CLOCK_WATCHDOG_TIMEOUT (v0.21). Kept for reference only. */
+    UNREFERENCED_PARAMETER(Sptprac);
     if (!ZapLoad() || !SmmuSetup() || !CpStart()) {
         goto fail;
     }
