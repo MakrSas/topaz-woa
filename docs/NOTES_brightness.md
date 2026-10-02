@@ -140,3 +140,14 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
 - With child technology LVDS/INTERNAL (the DSI-correct values) the boot start itself ends in surprise removal
   (event 411 0xC00000E5); not understood yet — retest after the sync fix. Brightness interface is requested by
   DxgkCbs even for technology OTHER, so the slider may not need an INTERNAL type.
+
+## TopazDisplay v0.6 boots and presents (2026-10-02 ~22:20)
+- v0.6 (sync Present) + `td.cfg` `-1 4`: after a reboot ROOT\DISPLAY\0000 is **OK**, 20+ Present calls return 0,
+  Win32_VideoController "Redmi Note 12 Display (topaz)" 1080x2400, DWM moved to the TPZ6225 monitor ("Generic
+  PnP Monitor", EDID size 7x16 cm) while BasicDisplay is still enabled (`Generic Monitor` also listed, OK).
+  DxgKrnl asked the adapter for the brightness interface: "QueryInterface brightness v1: provided".
+- User-visible: desktop is portrait now (BasicDisplay's desktop was configured differently), picture shows artifacts
+  and Windows seems to flip the scale between 100 % and 175 % (two monitor configs / EDID physical size 70x155 mm).
+- `WmiMonitorBrightness` still "not supported": monitor.sys only creates it for an internal connector → next:
+  retry child technology LVDS (delete `td.cfg`) now that Present works (the earlier LVDS boot failure may have been
+  the same async-Present path; unproven).
