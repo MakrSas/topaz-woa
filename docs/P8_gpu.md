@@ -380,3 +380,21 @@ TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11
 - Next: DxgKrnl ETW trace of the ACPI adapter start to see the post-start failure; make
   BuildPagingBuffer emit real (non-empty) DMA content; find out why VidSch never submits.
   Note: after the flashed-UEFI reboot neither TopazGpuW instance exists (root removed, no GPU0).
+- v0.26 ring logger (all IRQLs) + v0.27 HISTORYBUFFERPRECISION: still no SubmitCommand; the two
+  paging buffers (MAP_APERTURE_SEGMENT, op 5) are empty and VidSch completes them by itself (ETW
+  PacketType 2 completed, no timeout). Earlier "invalid NTSTATUS 0xC00000BB" came from QAI type 10.
+- **Why the ACPI adapter fails** (DxgKrnl ETW, 2026-10-02 21:06): during StartDevice Dxgkrnl looks
+  for the adapter's internal display ("Failed to get display config buffer sizes when looking for
+  internal target/priority", "Can't reference adapter by luid"), StartDevice completes with
+  **0xC01E0004 STATUS_GRAPHICS_ADAPTER_WAS_RESET**, then "The selected adapter is display only
+  adapter" + StopDevice. An ACPI-enumerated display adapter is treated as the platform's integrated
+  GPU that owns the panel; 0 VidPN sources is not accepted there (the root device was accepted as
+  render-only). The first black screen = Windows starting to hand the panel over to it.
+- **Plan C2 (needed now):** TopazGpuW = full WDDM display+render adapter on ACPI\TPZG0610: VidPN
+  from TopazDisplay (bdd_dmm.cxx, one 1080x2400 XRGB8888 source/target, panel at 0x5C000000),
+  standard allocations (shared primary / shadow / staging via GetStandardAllocationDriverData),
+  SetVidPnSourceAddress + Present/Blt (CPU copy to the framebuffer first), DMA completion through
+  DxgkCbSynchronizeExecution (works now: real interrupt object), VSync from a 60 Hz timer through
+  SynchronizeExecution(NotifyInterrupt CRTC_VSYNC), StopDeviceAndReleasePostDisplayOwnership /
+  takeover from BasicDisplay. The ACPI adapter is left disabled (`devcon disable @ACPI\TPZG0610\0`)
+  until then; RAM-boot `Mu-topaz-v4-GPU0-RELEASE.img` for every test.
