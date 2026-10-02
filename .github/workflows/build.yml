@@ -33,6 +33,20 @@ jobs:
           if ($LASTEXITCODE) { throw "TopazCpu build failed" }
           msbuild drivers\TopazGpu\TopazGpu.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
           if ($LASTEXITCODE) { throw "TopazGpu build failed" }
+          msbuild drivers\TopazGpuW\TopazGpuW.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
+          if ($LASTEXITCODE) { throw "TopazGpuW build failed" }
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
+      - name: Build tgputest (user-mode TopazGpuW check)
+        shell: pwsh
+        run: |
+          $inc = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0"
+          New-Item -ItemType Directory -Force out\tgputest | Out-Null
+          cl /nologo /O2 /W3 /I "$inc\km" tools\gputest\tgputest.c /Fe:out\tgputest\tgputest.exe gdi32.lib
+          if ($LASTEXITCODE) { throw "tgputest build failed" }
 
       - name: Package, catalog and test-sign
         shell: pwsh
@@ -46,7 +60,7 @@ jobs:
           # Windows on the phone boots with its clock at 2022: keep the cert valid from 2015
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=topaz-woa test signing" -CertStoreLocation Cert:\CurrentUser\My -NotBefore (Get-Date "2015-01-01") -NotAfter (Get-Date "2045-01-01")
 
-          foreach ($name in @("TopazTouch", "TopazBattery", "TopazDisplay", "TopazButtons", "TopazModem", "TopazWifi", "TopazCpu", "TopazGpu")) {
+          foreach ($name in @("TopazTouch", "TopazBattery", "TopazDisplay", "TopazButtons", "TopazModem", "TopazWifi", "TopazCpu", "TopazGpu", "TopazGpuW")) {
             $out = "out\$name"
             New-Item -ItemType Directory -Force $out | Out-Null
             Copy-Item "drivers\$name\ARM64\Release\$name.sys" $out
@@ -104,3 +118,10 @@ jobs:
         with:
           name: TopazGpu-arm64
           path: out/TopazGpu
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TopazGpuW-arm64
+          path: |
+            out/TopazGpuW
+            out/tgputest

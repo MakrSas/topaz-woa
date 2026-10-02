@@ -1,0 +1,60 @@
+;
+; TopazGpuW.inf - WDDM driver for the Adreno 610 of Redmi Note 12 4G (topaz, SM6225).
+; Step A (docs/P8_gpu.md): render-only adapter next to TopazDisplay; the freedreno UMD
+; talks to it through escapes carrying the Linux msm ioctls. Root-enumerated.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Display
+ClassGuid   = {4d36e968-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = TopazGpuW.cat
+DriverVer   = ; set by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TopazGpuW.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = TopazGpuW_Inst, Root\TopazGpuW
+
+[TopazGpuW_Inst]
+FeatureScore = F8
+CopyFiles = TopazGpuW_Files
+
+[TopazGpuW_Files]
+TopazGpuW.sys
+
+[TopazGpuW_Inst.Services]
+AddService = TopazGpuW, 0x00000002, TopazGpuW_Service, TopazGpuW_EventLog
+
+[TopazGpuW_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 0               ; SERVICE_ERROR_IGNORE
+ServiceBinary = %12%\TopazGpuW.sys
+
+[TopazGpuW_EventLog]
+AddReg = TopazGpuW_EventLog_AddReg
+
+[TopazGpuW_EventLog_AddReg]
+HKR,,EventMessageFile,0x00020000,"%%SystemRoot%%\System32\IoLogMsg.dll"
+HKR,,TypesSupported,0x00010001,7
+
+[Strings]
+ProviderName     = "topaz-woa"
+ManufacturerName = "topaz-woa"
+DiskName         = "TopazGpuW Installation Disk"
+DeviceDesc       = "Qualcomm Adreno 610 (topaz-woa)"
+ServiceName      = "TopazGpuW"
