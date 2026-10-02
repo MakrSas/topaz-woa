@@ -392,14 +392,15 @@ index 9078a80..837013e 100644
  
     if (SUCCEEDED(hr)) {
 diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
-index b22f602..e423259 100644
+index b22f602..8bb09ba 100644
 --- a/src/gallium/frontends/d3d10umd/Device.cpp
 +++ b/src/gallium/frontends/d3d10umd/Device.cpp
-@@ -155,6 +155,7 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+@@ -155,6 +155,8 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
     pDevice->cso = cso_create_context(pipe, CSO_NO_VBUF);
  
     pDevice->empty_vs = CreateEmptyShader(pDevice, PIPE_SHADER_VERTEX);
-+   pDevice->velems_changed = true;   /* TopazGpu: bind (empty) vertex elements before the first draw */
++   pDevice->velems_changed = true;
++   pDevice->dss = NULL;              /* TopazGpu: current depth-stencil state */   /* TopazGpu: bind (empty) vertex elements before the first draw */
     pDevice->empty_fs = CreateEmptyShader(pDevice, PIPE_SHADER_FRAGMENT);
  
     pipe->bind_vs_state(pipe, pDevice->empty_vs);
@@ -420,6 +421,101 @@ index 6f651f8..56c10b1 100644
     }
  
     pDevice->velems_changed = false;
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index dad1251..dbca5d0 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -40,6 +40,8 @@
+ #include "util/u_framebuffer.h"
+ #include "util/format/u_format.h"
+ 
++static void BindDepthStencil(Device *pDevice);   /* TopazGpu */
++
+ 
+ static inline struct pipe_surface *
+ GetPipeRenderTargetView(D3D10DDI_HRENDERTARGETVIEW hRenderTargetView)
+@@ -798,6 +800,7 @@ SetRenderTargets(D3D10DDI_HDEVICE hDevice,                              // IN
+    pDevice->fb.height = height;
+ 
+    pipe->set_framebuffer_state(pipe, &pDevice->fb);
++   BindDepthStencil(pDevice);   /* TopazGpu: DSV bound or not changes the depth state variant */
+ }
+ 
+ 
+@@ -964,6 +967,27 @@ CreateDepthStencilState(
+ 
+    pDepthStencilState->handle =
+       pipe->create_depth_stencil_alpha_state(pipe, &state);
++
++   /* D3D: with no depth-stencil view bound there is no depth or stencil test. Gallium drivers
++    * (freedreno) would still enable the RB depth test, so keep a variant with both off. */
++   state.depth_enabled = 0;
++   state.depth_writemask = 0;
++   state.stencil[0].enabled = 0;
++   state.stencil[1].enabled = 0;
++   pDepthStencilState->handle_nozs =
++      pipe->create_depth_stencil_alpha_state(pipe, &state);
++}
++
++/* TopazGpu: bind the depth-stencil state variant that matches the bound DSV */
++static void
++BindDepthStencil(Device *pDevice)
++{
++   struct pipe_context *pipe = pDevice->pipe;
++   DepthStencilState *dss = pDevice->dss;
++
++   if (!dss)
++      return;
++   pipe->bind_depth_stencil_alpha_state(pipe, pDevice->fb.zsbuf ? dss->handle : dss->handle_nozs);
+ }
+ 
+ 
+@@ -986,7 +1010,11 @@ DestroyDepthStencilState(D3D10DDI_HDEVICE hDevice,                         // IN
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    DepthStencilState *pDepthStencilState = CastDepthStencilState(hDepthStencilState);
+ 
++   Device *pDevice = CastDevice(hDevice);
++   if (pDevice->dss == pDepthStencilState)
++      pDevice->dss = NULL;
+    pipe->delete_depth_stencil_alpha_state(pipe, pDepthStencilState->handle);
++   pipe->delete_depth_stencil_alpha_state(pipe, pDepthStencilState->handle_nozs);
+ }
+ 
+ 
+@@ -1014,6 +1042,11 @@ SetDepthStencilState(D3D10DDI_HDEVICE hDevice,           // IN
+    psr.ref_value[0] = StencilRef;
+    psr.ref_value[1] = StencilRef;
+ 
+-   pipe->bind_depth_stencil_alpha_state(pipe, state);
++   Device *pDevice = CastDevice(hDevice);
++   pDevice->dss = CastDepthStencilState(hState);
++   if (pDevice->dss)
++      BindDepthStencil(pDevice);
++   else
++      pipe->bind_depth_stencil_alpha_state(pipe, state);
+    pipe->set_stencil_ref(pipe, psr);
+ }
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index d98792e..19de592 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -93,6 +93,8 @@ struct Device
+    void *empty_fs;
+    void *empty_vs;
+ 
++   struct DepthStencilState *dss;   /* TopazGpu: current D3D depth-stencil state */
++
+    enum mesa_prim primitive;
+ 
+    struct pipe_stream_output_target *so_targets[PIPE_MAX_SO_BUFFERS];
+@@ -281,6 +283,7 @@ CastPipeBlendState(D3D10DDI_HBLENDSTATE hBlendState)
+ struct DepthStencilState
+ {
+    void *handle;
++   void *handle_nozs;   /* TopazGpu: same state with depth/stencil off, bound while no DSV is set */
+ };
+ 
+ 
 diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
 index b8ab9f5..168218b 100644
 --- a/src/gallium/targets/d3d10umd/d3d10_gdi.c

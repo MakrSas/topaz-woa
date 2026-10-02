@@ -160,8 +160,14 @@ int main(int argc, char **argv)
         ctx->RSSetViewports(1, &vp);
         ctx->OMSetRenderTargets(nort ? 0 : 1, nort ? nullptr : &rtv, nullptr);
         D3D11_DEPTH_STENCIL_DESC dsd = {};               // default state has depth on (no DSV here)
+        dsd.DepthFunc = D3D11_COMPARISON_ALWAYS;         // 0 is invalid -> CreateDepthStencilState fails
+        dsd.StencilReadMask = dsd.StencilWriteMask = 0xff;
+        dsd.FrontFace.StencilFunc = dsd.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+        dsd.FrontFace.StencilPassOp = dsd.FrontFace.StencilFailOp = dsd.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+        dsd.BackFace = dsd.FrontFace;
         ID3D11DepthStencilState *dss = nullptr;
-        dev->CreateDepthStencilState(&dsd, &dss);
+        hr = dev->CreateDepthStencilState(&dsd, &dss);
+        printf("CreateDepthStencilState: %08lx\n", (unsigned long)hr);
         ctx->OMSetDepthStencilState(dss, 0);
         ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         ctx->VSSetShader(vs, nullptr, 0);
