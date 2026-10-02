@@ -82,19 +82,18 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   the driver, so `Remove-Item C:\TopazDisplay.log` fails silently (it keeps growing; read with `-Tail`).
 - v0.3 after reboot: Windows disables it again (problem 43). The v0.3 log has no PresentDisplayOnly line
   at all → Present is never reached; the failure is earlier.
-- **Root cause found with DxgKrnl ETW** (`logman create trace dxt -ets -o C:\topaz\dxt.etl -p
-  "{802EC45A-1E99-4B83-9920-87C98277BA9D}" 0xFFFFFFFFFFFFFFFF 5`, restart device, `logman stop`,
-  `tracerpt ... -of CSV`; event names via `(Get-WinEvent -ListProvider Microsoft-Windows-DxgKrnl).Events`):
-  event 494 "Adapter StartDevice has completed with status **0xC00000BB**" right after event 148/149
-  (= DxgkDdiQueryChildRelations). The child descriptor in v0.2: `01000000 FFFFFFFF ...` (type
-  VideoOutput, InterfaceTechnology = VOT_OTHER); in v0.3: `01000000 00000080` =
-  **D3DKMDT_VOT_INTERNAL (0x80000000)**. With INTERNAL DxgkCbs rejects the child → StartDevice fails
-  (so v0.2's old 0xC0000001 in Present was a different, earlier problem; v0.3's own failure is this).
-  v0.2 trace continues after QueryChildRelations with QueryChildStatus/VidPn/1123 "Software_Dod
-  StartupCall"; v0.3 stops there.
-  DxgkDdiQueryInterface returning STATUS_NOT_SUPPORTED for the I2C GUID {2564aa4f-...} is correct
-  per docs ("pass the query on") and was not the cause.
-- v0.4 (this commit): internal panel reported as **D3DKMDT_VOT_LVDS** ("LVDS or MIPI DSI" per
-  docs); `C:\topaz\td.cfg` = "<vot> <hpd>" (decimal; INTERNAL=2147483648? use -2147483648 as signed,
-  OTHER=-1, LVDS=6, DISPLAYPORT_EMBEDDED=11; hpd 4 = Interruptible) overrides at every
-  QueryChildRelations so several values can be tried with `devcon restart` without a reboot.
+- DxgKrnl ETW (`logman create trace dxt -ets -o C:\topaz\dxt.etl -p "{802EC45A-1E99-4B83-9920-87C98277BA9D}"
+  0xFFFFFFFFFFFFFFFF 5`, restart the device, `logman stop dxt -ets`, `tracerpt ... -of CSV`; event names via
+  `(Get-WinEvent -ListProvider Microsoft-Windows-DxgKrnl).Events`: 118 AddDevice, 138 StartDevice, 148
+  QueryChildRelations, 494 text messages). Event 494 "Adapter StartDevice has completed with status
+  0xC00000BB" shows up right after QueryChildRelations in the v0.3 trace, **but it also shows up in the
+  traces of a healthy start (v0.4, device OK) — it is not the failure cause**; do not chase it.
+- v0.3 child descriptor had InterfaceTechnology = D3DKMDT_VOT_INTERNAL (0x80000000) vs v0.2 OTHER.
+  v0.4 (this commit) reports the panel as **D3DKMDT_VOT_LVDS** (docs: "LVDS or MIPI DSI");
+  `C:\topaz\td.cfg` = "<vot> <hpd>" (decimal, signed; OTHER=-1, LVDS=6, DISPLAYPORT_EMBEDDED=11, hpd 4 =
+  Interruptible) overrides at every QueryChildRelations (read at device start, so `devcon restart` is enough).
+- v0.4 result: after the reboot the device showed Error (not started, no 4113 event) until a manual
+  `devcon restart Root\TopazDisplay`; then **Status OK, problem code 0**, no PresentDisplayOnly failure line in
+  the log, no new 4113. Win32_VideoController lists only "Redmi Note 12 Display (topaz)"; monitors:
+  "Generic Monitor" (current), "Generic Monitor (Topaz Panel)" (ghost, DISPLAY\TPZ6225). WmiMonitorBrightness
+  is still "not supported" (BasicDisplay is still the active adapter for DWM). Open: why it is not started at boot.
