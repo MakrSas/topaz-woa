@@ -120,3 +120,9 @@ lose SSH (ask the user before).
   Protocol (Linux q6prm.c): PRM module iid 2; PRM_CMD_REQUEST_HW_RSC 0x0100100F /
   RELEASE 0x01001010 with apm_cmd_header + {iid 2, PARAM_ID_RSC_HW_CORE 0x08001032, 4, 0, id}
   (1 LPASS macro, 2 DCODEC) or PARAM_ID_RSC_AUDIO_HW_CLK 0x0800102C {num 1, id, hz, attr 1, root 0}.
+- Amp identified: **sia8159** (chip id reg 0x00 = 0x60 in the driver's 0x60..0x68 range; regs
+  0x00-0x0A, 0x0B-0x0F NACK). Current state = off with playback defaults:
+  `60 41 20 ae c9 00 28 73 88 0d a4` (SYSCTRL 0x41 = sia8159_chip_off value). Power on per the
+  SI-in driver (sia8159_regs.c, e.g. Xiaomi-MT6833/kernel_xiaomi_evergo sound/soc/codecs/sia81xx):
+  write playback defaults 0x01..0x0A = BD 20 AE C9 00 28 73 88 0D A4, then ALGO_CFG1 (0x05) |= 1.
+  Off: 0x05 = 0, 0x01 = 0x41, 0x02 = 0x20. Lab I2C reads did not disturb TopazBattery.
