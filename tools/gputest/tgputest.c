@@ -92,7 +92,55 @@ static int NewBo(unsigned size, unsigned *handle, unsigned long long *iova, vola
    return 0;
 }
 
-int main(void)
+/* C1 (docs/P8_gpu.md step C): does Dxgkrnl's scheduler drive our adapter? Plain DMA buffers through
+   D3DKMTRender; the KMD log must show SubmitCommand and the fences must complete (otherwise Render
+   blocks once the DMA buffer pool runs out). */
+static int RenderTest(void)
+{
+   D3DKMT_CREATEDEVICE cd = {0};
+   D3DKMT_CREATECONTEXT cc = {0};
+   NTSTATUS st;
+   void *cmd;
+   unsigned i;
+
+   cd.hAdapter = g_Adapter;
+   st = D3DKMTCreateDevice(&cd);
+   printf("CreateDevice: %08lx\n", (unsigned long)st);
+   if (st)
+      return 10;
+   cc.hDevice = cd.hDevice;
+   cc.NodeOrdinal = 0;
+   cc.EngineAffinity = 1;
+   cc.ClientHint = D3DKMT_CLIENTHINT_DX10;
+   st = D3DKMTCreateContext(&cc);
+   printf("CreateContext: %08lx cmdbuf %p size %u alloc %u patch %u\n", (unsigned long)st, cc.pCommandBuffer,
+          cc.CommandBufferSize, cc.AllocationListSize, cc.PatchLocationListSize);
+   if (st)
+      return 11;
+   cmd = cc.pCommandBuffer;
+   for (i = 0; i < 20; i++) {
+      D3DKMT_RENDER r = {0};
+      LARGE_INTEGER t0, t1, f;
+      memset(cmd, 0, 16);
+      r.hContext = cc.hContext;
+      r.CommandOffset = 0;
+      r.CommandLength = 16;
+      QueryPerformanceFrequency(&f);
+      QueryPerformanceCounter(&t0);
+      st = D3DKMTRender(&r);
+      QueryPerformanceCounter(&t1);
+      printf("Render %2u: %08lx in %.1f ms, queued %u\n", i, (unsigned long)st,
+             (t1.QuadPart - t0.QuadPart) * 1000.0 / f.QuadPart, r.QueuedBufferCount);
+      if (st)
+         return 12;
+      if (r.pNewCommandBuffer)
+         cmd = r.pNewCommandBuffer;
+   }
+   Sleep(3000);
+   return 0;
+}
+
+int main(int argc, char **argv)
 {
    D3DKMT_ENUMADAPTERS2 en = {0};
    D3DKMT_ADAPTERINFO infos[16];
@@ -126,6 +174,8 @@ int main(void)
    printf("adapters: %u, TopazGpuW: %s\n", en.NumAdapters, g_Adapter ? "found" : "NOT FOUND");
    if (!g_Adapter)
       return 2;
+   if (argc > 1 && strcmp(argv[1], "render") == 0)
+      return RenderTest();
 
    r = Esc(TOPAZGPU_NR_VERSION, &v, sizeof(v));
    printf("VERSION: ret %d -> %s %d.%d\n", r, v.name, v.major, v.minor);
