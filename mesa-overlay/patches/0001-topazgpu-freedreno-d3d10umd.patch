@@ -180,6 +180,36 @@ index ad3374c..329a4b1 100644
     return MAX2(1, (draw->count * info->instance_count) / vtx_per_prim);
  }
  
+diff --git a/src/gallium/frontends/d3d10umd/Adapter.cpp b/src/gallium/frontends/d3d10umd/Adapter.cpp
+index 9078a80..837013e 100644
+--- a/src/gallium/frontends/d3d10umd/Adapter.cpp
++++ b/src/gallium/frontends/d3d10umd/Adapter.cpp
+@@ -104,6 +104,12 @@ OpenAdapter10(__inout D3D10DDIARG_OPENADAPTER *pOpenData)   // IN
+ {
+    LOG_ENTRYPOINT();
+ 
++   /* TopazGpu: opt-in only while the driver is experimental. Our adapter is DXGI adapter 0, so
++    * without this explorer/DWM render on it and a GPU hang freezes the desktop. */
++   if (GetEnvironmentVariableA("TOPAZGPU_ENABLE", NULL, 0) == 0) {
++      return E_FAIL;
++   }
++
+    /*
+     * This is checked here and not on the common code because MSDN docs
+     * state that it should be ignored on OpenAdapter10_2.
+@@ -223,6 +229,12 @@ OpenAdapter10_2(__inout D3D10DDIARG_OPENADAPTER *pOpenData)   // IN
+ {
+    LOG_ENTRYPOINT();
+ 
++   /* TopazGpu: opt-in only while the driver is experimental. Our adapter is DXGI adapter 0, so
++    * without this explorer/DWM render on it and a GPU hang freezes the desktop. */
++   if (GetEnvironmentVariableA("TOPAZGPU_ENABLE", NULL, 0) == 0) {
++      return E_FAIL;
++   }
++
+    HRESULT hr = OpenAdapterCommon(pOpenData);
+ 
+    if (SUCCEEDED(hr)) {
 diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
 index b8ab9f5..168218b 100644
 --- a/src/gallium/targets/d3d10umd/d3d10_gdi.c

@@ -160,6 +160,37 @@ static NTSTATUS Mmap(struct topazgpu_mmap *A)
     return STATUS_SUCCESS;
 }
 
+/* v0.18 hang dump: dwords of the BO holding Iova (identity mapping: the BO's kernel VA covers it) */
+VOID MsmDumpIova(PCSTR Tag, ULONGLONG Iova, ULONG Before, ULONG After)
+{
+    PLIST_ENTRY eb;
+    TGPU_BO *bo;
+    ULONGLONG lo, hi, a;
+    PULONG p;
+
+    KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);    /* recursive KMUTEX */
+    for (eb = g_Bos.Flink; eb != &g_Bos; eb = eb->Flink) {
+        bo = CONTAINING_RECORD(eb, TGPU_BO, Link);
+        if (bo->KernelVa == NULL || Iova < bo->Iova || Iova >= bo->Iova + bo->Size) {
+            continue;
+        }
+        lo = (Iova & ~3ull) - 4ull * Before;
+        lo = lo < bo->Iova ? bo->Iova : lo;
+        hi = (Iova & ~3ull) + 4ull * After;
+        hi = hi > bo->Iova + bo->Size ? bo->Iova + bo->Size : hi;
+        LogPrint("  %s %llx in bo %u (iova %llx size %llx):\n", Tag, Iova, bo->Handle, bo->Iova, (ULONGLONG)bo->Size);
+        for (a = lo; a < hi; a += 32) {
+            p = (PULONG)((PUCHAR)bo->KernelVa + (a - bo->Iova));
+            LogPrint("    %llx%s %08x %08x %08x %08x %08x %08x %08x %08x\n", a, (Iova >= a && Iova < a + 32) ? "*" : ":",
+                     p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+        }
+        KeReleaseMutex(&g_BoLock, FALSE);
+        return;
+    }
+    KeReleaseMutex(&g_BoLock, FALSE);
+    LogPrint("  %s %llx: no BO\n", Tag, Iova);
+}
+
 static NTSTATUS Munmap(struct topazgpu_mmap *A)
 {
     PLIST_ENTRY eb, em;
@@ -278,6 +309,7 @@ static int Errno(NTSTATUS St)
     case STATUS_ACCESS_VIOLATION:   return -14;  /* EFAULT */
     case STATUS_DEVICE_BUSY:        return -16;  /* EBUSY */
     case STATUS_TIMEOUT:            return -62;  /* ETIME */
+    case STATUS_DEVICE_HARDWARE_ERROR: return -5; /* EIO: GPU wedged */
     case STATUS_NOT_SUPPORTED:      return -38;  /* ENOSYS */
     default:                        return -22;  /* EINVAL */
     }
@@ -326,7 +358,7 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
             st = ((LONG)(HwCompletedFence() - bo->LastFence) >= 0) ? STATUS_SUCCESS : STATUS_DEVICE_BUSY;
         } else {
             KeReleaseMutex(&g_BoLock, FALSE);
-            st = HwWaitFence(bo->LastFence, 5000) ? STATUS_SUCCESS : STATUS_TIMEOUT;
+            st = HwWaitFence(bo->LastFence, 5000) ? STATUS_SUCCESS : HwWedged() ? STATUS_DEVICE_HARDWARE_ERROR : STATUS_TIMEOUT;
             KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
         }
         break;
@@ -342,7 +374,7 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
     case DRM_COMMAND_BASE + DRM_MSM_WAIT_FENCE: {
         ULONG f = ((struct drm_msm_wait_fence *)d)->fence;
         KeReleaseMutex(&g_BoLock, FALSE);
-        st = HwWaitFence(f, 5000) ? STATUS_SUCCESS : STATUS_TIMEOUT;
+        st = HwWaitFence(f, 5000) ? STATUS_SUCCESS : HwWedged() ? STATUS_DEVICE_HARDWARE_ERROR : STATUS_TIMEOUT;
         KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
         break;
     }

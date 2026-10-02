@@ -52,6 +52,7 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep)
 int main(void)
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
+    SetEnvironmentVariableA("TOPAZGPU_ENABLE", "1");  // the UMD refuses other processes
     AddVectoredExceptionHandler(1, crash_handler);
     IDXGIFactory1 *factory = nullptr;
     IDXGIAdapter1 *adapter = nullptr, *pick = nullptr;

@@ -59,6 +59,7 @@ typedef struct _KBUF {
 
 static volatile UCHAR *g_Gcc, *g_GpuCc, *g_Gpu, *g_Smmu;
 static BOOLEAN g_Ready, g_Failed, g_SmmuOn;
+static BOOLEAN g_Wedged;                                 /* v0.18: a fence timed out, GPU hung */
 static KMUTEX g_HwLock;          /* not FAST_MUTEX: file I/O (zap, SQE) at APC_LEVEL deadlocks */
 static KBUF g_Ring, g_Sqe, g_Mem;               /* g_Mem: fence at +0 */
 static ULONG g_Wptr, g_Seqno;
@@ -794,6 +795,7 @@ BOOLEAN HwStart(VOID)
     if (!ZapLoad() || !SmmuSetup() || !CpStart()) {
         goto fail;
     }
+    g_Wedged = FALSE;
     g_Ready = TRUE;
     ok = TRUE;
     goto out;
@@ -829,6 +831,10 @@ NTSTATUS HwSubmit(const ULONGLONG *IbIova, const ULONG *IbDwords, ULONG Count, P
 {
     ULONG i, need = 4 * Count + 5, spin;
 
+    if (g_Wedged) {
+        return STATUS_DEVICE_HARDWARE_ERROR;              /* restart the adapter to recover */
+    }
+
     if (!g_Ready) {
         return STATUS_DEVICE_NOT_READY;
     }
@@ -863,6 +869,28 @@ ULONG HwCompletedFence(VOID)
     return g_Mem.Va != NULL ? *(volatile ULONG *)g_Mem.Va : 0;
 }
 
+BOOLEAN HwWedged(VOID)
+{
+    return g_Wedged;
+}
+
+/* v0.18: where the CP stopped. IBx_BASE is the fetch pointer (the ROQ prefetches ahead), so dump the
+   dwords before it too. */
+static VOID HangDump(VOID)
+{
+    ULONGLONG ib1 = GpuRd(0x928) | ((ULONGLONG)GpuRd(0x929) << 32);
+    ULONGLONG ib2 = GpuRd(0x92B) | ((ULONGLONG)GpuRd(0x92C) << 32);
+
+    LogPrint("  hang: IB1 %llx rem %u, IB2 %llx rem %u, CP_HW_FAULT %08x CP_INT %08x RBBM_INT0 %08x\n",
+             ib1, GpuRd(0x92A), ib2, GpuRd(0x92D), GpuRd(0x821), GpuRd(0x823), GpuRd(0x201));
+    LogPrint("  hang: RBBM_STATUS %08x STATUS1 %08x STATUS2 %08x STATUS3 %08x CP_STATUS_1 %08x\n",
+             GpuRd(0x210), GpuRd(0x211), GpuRd(0x212), GpuRd(0x213), GpuRd(0x825));
+    MsmDumpIova("IB1", ib1, 64, 16);
+    if (GpuRd(0x92D) != 0 || ib2 != 0) {
+        MsmDumpIova("IB2", ib2, 64, 16);
+    }
+}
+
 BOOLEAN HwWaitFence(ULONG Fence, ULONG TimeoutMs)
 {
     LARGE_INTEGER d;
@@ -870,10 +898,15 @@ BOOLEAN HwWaitFence(ULONG Fence, ULONG TimeoutMs)
 
     d.QuadPart = -2000;                                  /* 200 us */
     while ((LONG)(HwCompletedFence() - Fence) < 0) {
+        if (g_Wedged) {
+            return FALSE;                                /* fail fast: no 5 s loop per caller */
+        }
         if (waited >= TimeoutMs * 5) {
-            LogPrint("wait fence %u: timeout, completed %u, rptr %u wptr %u RBBM_STATUS %08x\n", Fence,
-                     HwCompletedFence(), GpuRd(0x806), g_Wptr % RB_DWORDS, GpuRd(0x210));
+            LogPrint("wait fence %u: timeout, completed %u, rptr %u wptr %u RBBM_STATUS %08x -> GPU wedged\n",
+                     Fence, HwCompletedFence(), GpuRd(0x806), g_Wptr % RB_DWORDS, GpuRd(0x210));
             SmmuFault("wait");
+            HangDump();
+            g_Wedged = TRUE;
             return FALSE;
         }
         KeDelayExecutionThread(KernelMode, FALSE, &d);
