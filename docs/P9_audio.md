@@ -126,3 +126,32 @@ lose SSH (ask the user before).
   SI-in driver (sia8159_regs.c, e.g. Xiaomi-MT6833/kernel_xiaomi_evergo sound/soc/codecs/sia81xx):
   write playback defaults 0x01..0x0A = BD 20 AE C9 00 28 73 88 0D A4, then ALGO_CFG1 (0x05) |= 1.
   Off: 0x05 = 0, 0x01 = 0x41, 0x02 = 0x20. Lab I2C reads did not disturb TopazBattery.
+
+### A5 lab session 1 (2026-10-02, after a cold boot: ADSP up at boot via audio.arm)
+Lab scripts in `tools/audio/lab/` (dot-source `lab.ps1`; PowerShell aliases `r`/`rd` shadow
+functions, hence Get-Reg/Set-Reg; one-off ssh commands can't dot-source because of the execution
+policy, use `powershell -ExecutionPolicy Bypass -File`).
+- **PRM works:** HW core vote DCODEC (2) → status 0 (= stock `lpass_audio_hw_vote`, ext-clk-src
+  0x0b); LPASS macro (1) → status 1 (stock topaz DT doesn't use it); LPR (3) → BASIC_RSP 3
+  (unsupported). Clocks 0x30e/0x30f 22.5792 MHz, 0x30c/0x30d/0x307/0x308 19.2 MHz → all 0
+  (same packet as downstream audio_prm.c: attr 1, root 0).
+- **LPASS registers live after the votes, no bus hang:** RX macro 0xa600400 RX0_RX_PATH_CTL = 0x04
+  (reset default). RX macro MCLK_CONTROL=3, FS_CNT=1, SWR_CONTROL reset pulse → 1.
+- **SoundWire masters answer:** RX 0xa610000 and VA 0xa740000 COMP_HW_VERSION = 0x01060000.
+  Init as downstream swrm_master_init (+ HCTL 0xa6a9098 / 0xa7ec100 bit1 cleared, SW_RESET x2,
+  BUS_CTRL 1 then 2, frame 0x101C = 0xF (50x16), auto-enum, CMD_FIFO_CFG 0x80000003, COMP_CFG 3).
+  COMP_STATUS bit0 (frame gen) = 1, but: IRQ bit3 (bus clash) always set, MCP_SLV_STATUS 0,
+  no enumerated device on either master; SoundWire read cmds come back "ignored" (irq bit31).
+- Pins: LPI gpio0..5 = func1 (0xD04 clk / 0xD06 data, 10 mA), slew 0x3F3F at 0xa95a000;
+  TLMM gpio92 (WCD937x reset, WEST, 0x55c000) out high (CTL 0x200, IO 2). The LPI IN bit of the
+  clock pins stays 0 in every sample (data pins do follow the pad) → **the SWR clock does not reach
+  the pad**; the codec never sees a bus.
+- Also done without effect: bolero fs-gen sequence (VA MCLK, FS cnt, TOP_CFG0 bit1 broadcast),
+  RX mclk muxsel 0xa5640d8 = 1 (downstream mux1 path since rx default-clk-id = TX), NPL clocks
+  for TX/VA, reset released before/after bus start.
+- L9 (WCD937x rxtx/px 1.8 V) is on (TopazWifi pmic log: 80/87/0708); L14 (buck) not checked.
+- Open questions: what gates the SWR clock output (a clock the stock kernel gets from some node
+  we haven't mapped? the failing LPASS macro vote?), L14 state. Next: dump the whole RX macro
+  CLK_RST block + VA/TX TOP CSR registers, compare with reset defaults from lpass-rx-macro.c /
+  downstream bolero register defaults; try the TX macro SWR path; read L14 via SPMI (needs an
+  allowlist entry → driver update + power-off).
