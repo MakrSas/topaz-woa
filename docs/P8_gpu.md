@@ -547,3 +547,26 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - After the user left the phone, BSOD 0x14F PDC_WATCHDOG_TIMEOUT (1, 1, ...) at the screen-off ->
   Modern Standby transition (never tested on this port). Monitor/standby timeouts set to 0 on the phone
   (powercfg) for the tests; real fix later (TgSetPowerState / monitor power do nothing yet).
+
+### 02:12 boot + state at the pause (2026-10-03 ~02:25)
+- UMD log: DWM's SetDisplayMode(primary) -> S_OK, then every DXGI Present with Flags.Flip (0x2, no
+  destination) -> pfnPresentCb returns E_FAIL (0x80004005) -> DWM drops the device and starts over
+  (that is the ~350x loop). The KMD never saw a flip Present in the (count-limited) log, so Dxgkrnl
+  rejects it before DxgkDdiPresent. Unknown why: to find with DxgKrnl ETW + v0.34 logging.
+- DxgKrnl ETW sessions were empty because the brightness-era autologger `TopazDxg` held the provider;
+  the autologger key is deleted now (02:20). Stopping it with `logman stop TopazDxg -ets` while DWM
+  looped froze the phone (user reset).
+- Ideas for the flip E_FAIL: (1) the flip goes through our own context (lazy pfnCreateContextCb), not
+  the D3D device's; (2) DescribeAllocation reports fmt 21 for primaries while the mode is 22 (X8R8G8B8);
+  (3) KMD Present for flips: viogpu3d returns success without touching the DMA buffer; (4) primaries
+  are created linear in a BO and VidMM backing is ignored (SectionBackedPrimary). A fallback that
+  avoids flips entirely: report DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT in CreateResource for
+  pPrimaryDesc so DXGI uses blt presents.
+- Phone state: normal boot (flashed UEFI) works with TopazDisplay v0.8 (ROOT\DISPLAY\0000 OK).
+  Staged for GPU0 boots: TopazGpuW v0.34 (.sys swapped), UMD with patch 0002 (System32), files
+  C:\topaz\umd.enable and C:\ProgramData\topaz\umd.log.enable (UMD log), WER LocalDumps for dwm.exe
+  (C:\topaz\dumps, DumpType 1), power timeouts 0 (powercfg). To make GPU0 boots show the CDD desktop
+  again without DWM-on-UMD: delete C:\topaz\umd.enable.
+- Next session: fastboot boot the GPU0 image, `logman create trace` DxgKrnl for a few seconds while
+  DWM loops, look for the Present failure; read C:\TopazGpuW.log (flip presents) and
+  C:\ProgramData\topaz\umd-<pid>.log.
