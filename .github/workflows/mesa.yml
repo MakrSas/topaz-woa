@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "mesa-overlay/**"
+      - "tools/ci/**"
       - ".github/workflows/mesa.yml"
 
 jobs:
