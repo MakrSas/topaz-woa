@@ -290,10 +290,22 @@ index 53ef690..65e674a 100644
     return S_OK;
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 24131e5..cecabd7 100644
+index 24131e5..44b8ec4 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
-@@ -306,6 +306,9 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -251,6 +251,11 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    struct pipe_screen *screen = pipe->screen;
+ 
++   TopazWddmLogf("CreateResource dim %u %ux%u fmt %u bind 0x%x misc 0x%x usage %u mips %u array %u samples %u primary %d\n",
++                 pCreateResource->ResourceDimension, pCreateResource->pMipInfoList[0].TexelWidth,
++                 pCreateResource->pMipInfoList[0].TexelHeight, pCreateResource->Format, pCreateResource->BindFlags,
++                 pCreateResource->MiscFlags, pCreateResource->Usage, pCreateResource->MipLevels,
++                 pCreateResource->ArraySize, pCreateResource->SampleDesc.Count, pCreateResource->pPrimaryDesc != NULL);
+    mtx_lock(&device->CreateResourceMtx);
+    device->device.allocationVidPn = 0;
+    device->device.isPrimary = pCreateResource->pPrimaryDesc != NULL;
+@@ -306,6 +311,9 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
     if ((pCreateResource->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED)) {
        templat.bind |= PIPE_BIND_SHARED;
     }
@@ -303,7 +315,15 @@ index 24131e5..cecabd7 100644
  
     if (templat.target != PIPE_BUFFER) {
        if (!screen->is_format_supported(screen,
-@@ -332,6 +335,12 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -316,6 +324,7 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                                        templat.bind)) {
+          debug_printf("%s: unsupported format %s\n",
+                      __func__, util_format_name(templat.format));
++         TopazWddmLogf("  unsupported format %s bind 0x%x\n", util_format_name(templat.format), templat.bind);
+          SetError(hDevice, E_OUTOFMEMORY);
+          goto unlock;
+       }
+@@ -332,6 +341,12 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
     pResource->transfers = (struct pipe_transfer **)calloc(pResource->NumSubResources,
                                                            sizeof *pResource->transfers);
  
@@ -316,7 +336,16 @@ index 24131e5..cecabd7 100644
     if (pCreateResource->pInitialDataUP) {
        if (pResource->buffer) {
           assert(pResource->NumSubResources == 1);
-@@ -457,6 +466,9 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -441,6 +456,8 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+    LOG_ENTRYPOINT();
+    
+    Device *pDevice = CastDevice(hDevice);
++   TopazWddmLogf("OpenResource allocations %u priv %u\n", pOpenResource->NumAllocations,
++                 pOpenResource->NumAllocations ? pOpenResource->pOpenAllocationInfo[0].PrivateDriverDataSize : 0);
+    if (!pDevice->screen->resource_from_handle) {
+       SetError(hDevice, E_OUTOFMEMORY);
+       return;
+@@ -457,6 +474,9 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
     whandle.type = WINSYS_HANDLE_TYPE_WIN32_HANDLE;
     whandle.handle = (HANDLE)pOpenResource->hKMResource.handle;
     
@@ -326,7 +355,7 @@ index 24131e5..cecabd7 100644
     pResource->resource =
        pDevice->screen->resource_from_handle(pDevice->screen, NULL, &whandle, 0);
     
-@@ -518,6 +530,7 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+@@ -518,6 +538,7 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
     }
     free(pResource->transfers);
  
@@ -370,7 +399,7 @@ index 6f5006b..d80905d 100644
        tgsi_dump(tokens, 0);
     }
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
-index 19de592..0ba603d 100644
+index 19de592..59946ad 100644
 --- a/src/gallium/frontends/d3d10umd/State.h
 +++ b/src/gallium/frontends/d3d10umd/State.h
 @@ -94,6 +94,7 @@ struct Device
@@ -381,7 +410,25 @@ index 19de592..0ba603d 100644
  
     enum mesa_prim primitive;
  
-@@ -170,6 +171,7 @@ struct Resource
+@@ -151,11 +152,16 @@ CastPipeDevice(DXGI_DDI_HDEVICE hDevice)
+ }
+ 
+ 
++extern "C" void TopazWddmLogf(const char *fmt, ...);   /* TopazGpu: topaz_wddm.cpp */
++
++#define SetError(hDevice, hr) SetErrorAt(hDevice, hr, __func__, __LINE__)
++
+ static inline void
+-SetError(D3D10DDI_HDEVICE hDevice, HRESULT hr)
++SetErrorAt(D3D10DDI_HDEVICE hDevice, HRESULT hr, const char *func, int line)
+ {
+    if (FAILED(hr)) {
+       Device *pDevice = CastDevice(hDevice);
++      TopazWddmLogf("SetError 0x%08lx in %s:%d\n", (unsigned long)hr, func, line);
+       pDevice->UMCallbacks.pfnSetErrorCb(pDevice->hRTCoreLayer, hr);
+    }
+ }
+@@ -170,6 +176,7 @@ struct Resource
     struct pipe_resource *resource;
     struct pipe_transfer **transfers;
     struct pipe_stream_output_target *so_target;
@@ -389,7 +436,7 @@ index 19de592..0ba603d 100644
  };
  
  
-@@ -421,3 +423,13 @@ CastPipeQuery(D3D10DDI_HQUERY hQuery)
+@@ -421,3 +428,13 @@ CastPipeQuery(D3D10DDI_HQUERY hQuery)
     return pQuery ? pQuery->handle : NULL;
  }
  
@@ -419,10 +466,10 @@ index 83bc243..b48f556 100644
    cpp_args : _c_args_d3d10umd,
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 new file mode 100644
-index 0000000..2b4a066
+index 0000000..c94d723
 --- /dev/null
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,243 @@
 +/*
 + * TopazGpu step C2: the WDDM side of resources that leave the UMD (docs/P8_gpu.md in topaz-woa).
 + *
@@ -433,6 +480,8 @@ index 0000000..2b4a066
 + * finished (the KMD copies with the CPU). Same model as viogpu3d + virgl_gdi_winsys, but the BO stays
 + * a freedreno BO.
 + */
++
++#include <stdarg.h>
 +
 +#include "Device.h"
 +#include "State.h"
@@ -506,7 +555,7 @@ index 0000000..2b4a066
 +   memset(&wh, 0, sizeof(wh));
 +   wh.type = WINSYS_HANDLE_TYPE_SHARED;
 +   if (!screen->resource_get_handle(screen, pDevice->pipe, res, &wh, 0)) {
-+      DebugPrintf("topaz: resource_get_handle failed\n");
++      TopazWddmLogf("topaz: resource_get_handle failed\n");
 +      return E_OUTOFMEMORY;
 +   }
 +
@@ -534,7 +583,7 @@ index 0000000..2b4a066
 +   opts.pAllocationInfo = &ai;
 +   st = pDevice->device.base.createAllocation(&pDevice->device.base, &opts);
 +   if (st < 0) {
-+      DebugPrintf("topaz: AllocateCb failed 0x%08lx\n", (unsigned long)st);
++      TopazWddmLogf("topaz: AllocateCb failed 0x%08lx\n", (unsigned long)st);
 +      return E_OUTOFMEMORY;
 +   }
 +   pResource->hAllocation = ai.hAllocation;
@@ -564,7 +613,7 @@ index 0000000..2b4a066
 +   a = (const struct topazgpu_alloc *)pOpen->pOpenAllocationInfo[0].pPrivateDriverData;
 +   if (a == NULL || pOpen->pOpenAllocationInfo[0].PrivateDriverDataSize < sizeof(*a) ||
 +       a->magic != TOPAZGPU_ALLOC_MAGIC || a->bo == 0) {
-+      DebugPrintf("topaz: OpenResource without a BO (kind %u)\n", a ? a->kind : ~0u);
++      TopazWddmLogf("topaz: OpenResource without a BO (kind %u)\n", a ? a->kind : ~0u);
 +      return NULL;
 +   }
 +   memset(&templat, 0, sizeof(templat));
@@ -594,7 +643,7 @@ index 0000000..2b4a066
 +   struct pipe_fence_handle *fence = NULL;
 +
 +   if (!pSrc->hAllocation) {
-+      DebugPrintf("topaz: Present of a resource without allocation\n");
++      TopazWddmLogf("topaz: Present of a resource without allocation\n");
 +      return S_OK;
 +   }
 +   pipe->flush(pipe, &fence, 0);
@@ -642,6 +691,18 @@ index 0000000..2b4a066
 +{
 +   if (topaz_log_on)
 +      fputs(text, stderr);
++}
++
++extern "C" void
++TopazWddmLogf(const char *fmt, ...)
++{
++   va_list ap;
++
++   if (!topaz_log_on)
++      return;
++   va_start(ap, fmt);
++   vfprintf(stderr, fmt, ap);
++   va_end(ap);
 +}
 +
 +/* opt-in while experimental: env TOPAZGPU_ENABLE or C:\topaz\umd.enable (needed for DWM) */
