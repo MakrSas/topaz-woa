@@ -17,7 +17,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.15"
+#define TGPU_VERSION        "v0.16"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
@@ -53,6 +53,12 @@ typedef struct _TGPU_MAP {
 BOOLEAN   HwStart(VOID);
 VOID      HwStop(VOID);
 BOOLEAN   HwReady(VOID);
+/* TGPU_IDENTITY 1: the GPU SMMU context bank is pass-through (as in G1) and every GPU buffer is
+   physically contiguous below 4 GB with GPU VA = PA. The LPAE page-table path (0) still faults on
+   the first CP fetch (translation fault, FSYNR0 level 0) - to be debugged later. */
+#define TGPU_IDENTITY 1
+PMDL      TgAllocPages(SIZE_T Size, PULONGLONG Iova, PVOID *KernelVa);
+VOID      TgFreePages(PMDL Mdl, PVOID KernelVa, SIZE_T Size, ULONGLONG Iova);
 NTSTATUS  MmuMap(ULONGLONG Va, PMDL Mdl, SIZE_T Size);
 VOID      MmuUnmap(ULONGLONG Va, SIZE_T Size);
 ULONGLONG VaAlloc(SIZE_T Size);

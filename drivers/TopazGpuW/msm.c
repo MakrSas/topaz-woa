@@ -51,13 +51,7 @@ static VOID BoFree(TGPU_BO *Bo)
 {
     HwWaitFence(Bo->LastFence, 2000);
     BoUnmapAll(Bo, NULL);
-    MmuUnmap(Bo->Iova, Bo->Size);
-    VaFree(Bo->Iova, Bo->Size + PAGE_SIZE);
-    if (Bo->KernelVa != NULL) {
-        MmUnmapLockedPages(Bo->KernelVa, Bo->Mdl);
-    }
-    MmFreePagesFromMdl(Bo->Mdl);
-    ExFreePool(Bo->Mdl);
+    TgFreePages(Bo->Mdl, Bo->KernelVa, Bo->Size, Bo->Iova);
     g_BoTable[Bo->Handle] = NULL;
     RemoveEntryList(&Bo->Link);
     ExFreePoolWithTag(Bo, TGPU_POOL_TAG);
@@ -83,18 +77,11 @@ static NTSTATUS GemNew(struct drm_msm_gem_new *A)
     lo.QuadPart = 0;
     hi.QuadPart = 0xEFFFFFFF;                          /* v0.14: walks/fetches above 4 GB faulted */
     skip.QuadPart = 0;
-    bo->Mdl = MmAllocatePagesForMdlEx(lo, hi, skip, bo->Size, MmWriteCombined, MM_ALLOCATE_FULLY_REQUIRED);
+    UNREFERENCED_PARAMETER(lo);
+    UNREFERENCED_PARAMETER(hi);
+    UNREFERENCED_PARAMETER(skip);
+    bo->Mdl = TgAllocPages(bo->Size, &bo->Iova, &bo->KernelVa);
     if (bo->Mdl == NULL) {
-        ExFreePoolWithTag(bo, TGPU_POOL_TAG);
-        return STATUS_NO_MEMORY;
-    }
-    bo->Iova = VaAlloc(bo->Size + PAGE_SIZE);            /* + guard page */
-    if (bo->Iova == 0 || !NT_SUCCESS(MmuMap(bo->Iova, bo->Mdl, bo->Size))) {
-        if (bo->Iova != 0) {
-            VaFree(bo->Iova, bo->Size + PAGE_SIZE);
-        }
-        MmFreePagesFromMdl(bo->Mdl);
-        ExFreePool(bo->Mdl);
         ExFreePoolWithTag(bo, TGPU_POOL_TAG);
         return STATUS_NO_MEMORY;
     }
@@ -106,10 +93,7 @@ static NTSTATUS GemNew(struct drm_msm_gem_new *A)
     }
     if (h == BO_MAX) {
         bo->Handle = 0;
-        MmuUnmap(bo->Iova, bo->Size);
-        VaFree(bo->Iova, bo->Size + PAGE_SIZE);
-        MmFreePagesFromMdl(bo->Mdl);
-        ExFreePool(bo->Mdl);
+        TgFreePages(bo->Mdl, bo->KernelVa, bo->Size, bo->Iova);
         ExFreePoolWithTag(bo, TGPU_POOL_TAG);
         return STATUS_NO_MEMORY;
     }

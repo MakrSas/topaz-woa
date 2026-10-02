@@ -442,7 +442,11 @@ static BOOLEAN SmmuSetup(VOID)
     Wr(g_Smmu, SMMU_CB0 + 0x038, 0x44);                  /* MAIR0: attr0 = Normal non-cacheable */
     Wr(g_Smmu, SMMU_CB0 + 0x03C, 0);
     __dsb(_ARM64_BARRIER_SY);
+#if TGPU_IDENTITY
+    Wr(g_Smmu, SMMU_CB0 + 0x000, 0xE0);                  /* SCTLR: M=0 pass-through (G1) */
+#else
     Wr(g_Smmu, SMMU_CB0 + 0x000, 0x67);                  /* SCTLR: CFIE CFRE AFE TRE M */
+#endif
     Wr(g_Smmu, 0xC00, 0);                                /* S2CR0 -> CB0 */
     Wr(g_Smmu, 0x800, (1u << 31) | (1u << 16));          /* SMR0: SID 0 mask 1 */
     g_SmmuOn = TRUE;
@@ -498,8 +502,77 @@ VOID VaFree(ULONGLONG Va, SIZE_T Size)
 
 /* ---------------------------------------------------------------- kernel buffers */
 
+/* GPU-visible pages: identity mode = contiguous WC memory below 4 GB, GPU VA = PA */
+PMDL TgAllocPages(SIZE_T Size, PULONGLONG Iova, PVOID *KernelVa)
+{
+#if TGPU_IDENTITY
+    PHYSICAL_ADDRESS lo, hi, bound;
+    PVOID va;
+    PMDL mdl;
+
+    lo.QuadPart = 0;
+    hi.QuadPart = 0xEFFFFFFF;
+    bound.QuadPart = 0;
+    Size = ROUND_TO_PAGES(Size);
+    va = MmAllocateContiguousMemorySpecifyCache(Size, lo, hi, bound, MmWriteCombined);
+    if (va == NULL) {
+        return NULL;
+    }
+    mdl = IoAllocateMdl(va, (ULONG)Size, FALSE, FALSE, NULL);
+    if (mdl == NULL) {
+        MmFreeContiguousMemorySpecifyCache(va, Size, MmWriteCombined);
+        return NULL;
+    }
+    MmBuildMdlForNonPagedPool(mdl);
+    RtlZeroMemory(va, Size);
+    *KernelVa = va;
+    *Iova = (ULONGLONG)MmGetPhysicalAddress(va).QuadPart;
+    return mdl;
+#else
+    PHYSICAL_ADDRESS lo, hi, skip;
+    PMDL mdl;
+
+    lo.QuadPart = 0;
+    hi.QuadPart = 0xEFFFFFFF;
+    skip.QuadPart = 0;
+    Size = ROUND_TO_PAGES(Size);
+    mdl = MmAllocatePagesForMdlEx(lo, hi, skip, Size, MmWriteCombined, MM_ALLOCATE_FULLY_REQUIRED);
+    if (mdl == NULL) {
+        return NULL;
+    }
+    *KernelVa = NULL;
+    *Iova = VaAlloc(Size + PAGE_SIZE);
+    if (*Iova == 0 || !NT_SUCCESS(MmuMap(*Iova, mdl, Size))) {
+        MmFreePagesFromMdl(mdl);
+        ExFreePool(mdl);
+        return NULL;
+    }
+    return mdl;
+#endif
+}
+
+VOID TgFreePages(PMDL Mdl, PVOID KernelVa, SIZE_T Size, ULONGLONG Iova)
+{
+#if TGPU_IDENTITY
+    UNREFERENCED_PARAMETER(Iova);
+    IoFreeMdl(Mdl);
+    MmFreeContiguousMemorySpecifyCache(KernelVa, ROUND_TO_PAGES(Size), MmWriteCombined);
+#else
+    UNREFERENCED_PARAMETER(KernelVa);
+    MmuUnmap(Iova, Size);
+    VaFree(Iova, Size + PAGE_SIZE);
+    MmFreePagesFromMdl(Mdl);
+    ExFreePool(Mdl);
+#endif
+}
+
 static BOOLEAN KBufAlloc(KBUF *B, SIZE_T Size)
 {
+#if TGPU_IDENTITY
+    B->Size = ROUND_TO_PAGES(Size);
+    B->Mdl = TgAllocPages(B->Size, &B->Iova, &B->Va);
+    return B->Mdl != NULL;
+#else
     PHYSICAL_ADDRESS lo, hi, skip;
 
     lo.QuadPart = 0;
@@ -518,10 +591,18 @@ static BOOLEAN KBufAlloc(KBUF *B, SIZE_T Size)
     B->Iova = g_KernelVaNext;
     g_KernelVaNext += B->Size + PAGE_SIZE;               /* guard page */
     return NT_SUCCESS(MmuMap(B->Iova, B->Mdl, B->Size));
+#endif
 }
 
 static VOID KBufFree(KBUF *B)
 {
+#if TGPU_IDENTITY
+    if (B->Mdl != NULL) {
+        TgFreePages(B->Mdl, B->Va, B->Size, B->Iova);
+    }
+    RtlZeroMemory(B, sizeof(*B));
+    return;
+#endif
     if (B->Va != NULL) {
         MmUnmapLockedPages(B->Va, B->Mdl);
     }
