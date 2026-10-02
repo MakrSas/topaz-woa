@@ -282,7 +282,7 @@ static NTSTATUS GetParam(struct drm_msm_param *A)
 {
     switch (A->param) {
     case MSM_PARAM_GPU_ID:      A->value = 610; break;
-    case MSM_PARAM_GMEM_SIZE:   A->value = 0x21000; break;           /* 128K + 4K */
+    case MSM_PARAM_GMEM_SIZE:   A->value = HwGmemSize(); break;      /* 128K + 4K unless overridden */
     case MSM_PARAM_CHIP_ID:     A->value = 0x06010001; break;
     case MSM_PARAM_MAX_FREQ:    A->value = 300000000; break;
     case MSM_PARAM_TIMESTAMP:   A->value = HwTimestamp(); break;

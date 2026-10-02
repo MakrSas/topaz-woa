@@ -59,7 +59,8 @@ typedef struct _KBUF {
 
 static volatile UCHAR *g_Gcc, *g_GpuCc, *g_Gpu, *g_Smmu, *g_Gmu;
 static BOOLEAN g_Ready, g_Failed, g_SmmuOn;
-static BOOLEAN g_Wedged;                                 /* v0.18: a fence timed out, GPU hung */
+static BOOLEAN g_Wedged;
+static ULONG g_GmemSize = 0x21000;                       /* 128K + 4K (bengal); v0.24: C:\topaz\gpu.gmem overrides */                                 /* v0.18: a fence timed out, GPU hung */
 static KMUTEX g_HwLock;          /* not FAST_MUTEX: file I/O (zap, SQE) at APC_LEVEL deadlocks */
 static KBUF g_Ring, g_Sqe, g_Mem;               /* g_Mem: fence at +0 */
 static ULONG g_Wptr, g_Seqno;
@@ -784,7 +785,7 @@ static VOID HwInitRegs(VOID)
     GpuWr64(0xE09, 0x1fffffffff000ull);
     GpuWr64(0xE07, 0x1fffffffff000ull);
     GpuWr64(0xE0B, 0x100000);
-    GpuWr64(0xE0D, 0x100000 + 0x21000 - 1);
+    GpuWr64(0xE0D, 0x100000 + g_GmemSize - 1);
     GpuWr(0xE18, 0x804);
     GpuWr(0xE17, 4);
     GpuWr(0x8c2, 0x00800060);
@@ -805,6 +806,35 @@ static VOID HwInitRegs(VOID)
     GpuWr(0xae02, 0x9);                                  /* SP_NC_MODE_CNTL */
     GpuWr(0xE01, 1u << 23);                              /* UCHE_MODE_CNTL */
     GpuWr(0x534, 0);                                     /* RBBM_NC_MODE_CNTL */
+}
+
+/* v0.24 experiment: 3D draws hang with RB/CCU busy; CCU's sysmem cache sits at the end of GMEM as
+   Mesa computes it from GMEM_SIZE. C:\topaz\gpu.gmem = hex size to test a smaller khaje GMEM. */
+static VOID LoadGmemOverride(VOID)
+{
+    ULONG size = 0, v = 0, i;
+    PUCHAR f = ReadWholeFile(L"\\??\\C:\\topaz\\gpu.gmem", &size);
+
+    if (f == NULL) {
+        return;
+    }
+    for (i = 0; i < size; i++) {
+        UCHAR c = f[i];
+        if (c >= '0' && c <= '9') v = v * 16 + (c - '0');
+        else if (c >= 'a' && c <= 'f') v = v * 16 + (c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F') v = v * 16 + (c - 'A' + 10);
+        else if (c == 'x' || c == 'X') v = 0;
+    }
+    ExFreePoolWithTag(f, TGPU_POOL_TAG);
+    if (v >= 0x4000 && v <= 0x100000) {
+        g_GmemSize = v;
+    }
+    LogPrint("  GMEM size override: %x\n", g_GmemSize);
+}
+
+ULONG HwGmemSize(VOID)
+{
+    return g_GmemSize;
 }
 
 static BOOLEAN CpStart(VOID)
@@ -884,6 +914,7 @@ BOOLEAN HwStart(VOID)
     /* v0.22: Sptprac() NOT called: on khaje reading the GMU wrapper (0x597E340) hangs the bus ->
        bugcheck 0x101 CLOCK_WATCHDOG_TIMEOUT (v0.21). Kept for reference only. */
     UNREFERENCED_PARAMETER(Sptprac);
+    LoadGmemOverride();
     if (!ZapLoad() || !SmmuSetup() || !CpStart()) {
         goto fail;
     }
