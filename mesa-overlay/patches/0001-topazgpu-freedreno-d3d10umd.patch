@@ -138,6 +138,25 @@ index b455cd6..8cfeb57 100644
    subdir('drm')
  endif
  
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index 44b81b8..a18b2b5 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -2022,6 +2022,14 @@ ttn_emit_instruction(struct ttn_compile *c)
+       ttn_barrier(b);
+       break;
+ 
++   case TGSI_OPCODE_RET:
++      /* TopazGpu: d3d10umd ends every DXBC main with RET. Outputs are stored after the last
++       * instruction (ttn_add_output_stores), so a real return would skip them: a top-level RET is
++       * a no-op. A nested (early) RET is not supported yet and is ignored with a warning. */
++      if (nir_cursor_current_block(b->cursor)->cf_node.parent != &b->impl->cf_node)
++         fprintf(stderr, "tgsi_to_nir: nested RET ignored\n");
++      break;
++
+    default:
+       if (op_trans[tgsi_op] != 0 || tgsi_op == TGSI_OPCODE_MOV) {
+          dst = ttn_alu(b, op_trans[tgsi_op], dst_bitsize, src);
 diff --git a/src/gallium/auxiliary/renderonly/renderonly.h b/src/gallium/auxiliary/renderonly/renderonly.h
 index de22b37..ae787e2 100644
 --- a/src/gallium/auxiliary/renderonly/renderonly.h
