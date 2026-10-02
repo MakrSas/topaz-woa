@@ -139,6 +139,19 @@ index de22b37..ae787e2 100644
     handle->stride = scanout->stride;
  
     return true;
+diff --git a/src/gallium/auxiliary/util/u_trace_gallium.c b/src/gallium/auxiliary/util/u_trace_gallium.c
+index df79a7c..707ed76 100644
+--- a/src/gallium/auxiliary/util/u_trace_gallium.c
++++ b/src/gallium/auxiliary/util/u_trace_gallium.c
+@@ -81,7 +81,7 @@ u_trace_pipe_context_init(struct u_trace_context *utctx,
+                         delete_flush_data);
+ }
+ 
+-inline void
++void
+ trace_framebuffer_state(struct u_trace *ut, void *cs, const struct pipe_framebuffer_state *pfb)
+ {
+    if (likely(!u_trace_enabled(ut->utctx)))
 diff --git a/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc b/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc
 index ad3374c..329a4b1 100644
 --- a/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc
@@ -153,10 +166,10 @@ index ad3374c..329a4b1 100644
  }
  
 diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
-index b8ab9f5..1f6f771 100644
+index b8ab9f5..1932404 100644
 --- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
 +++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
-@@ -34,6 +34,29 @@
+@@ -34,6 +34,44 @@
  #include "softpipe/sp_public.h"
  #include "sw/gdi/gdi_sw_winsys.h"
  #include "virgl/gdi/virgl_gdi_public.h"
@@ -165,6 +178,7 @@ index b8ab9f5..1f6f771 100644
 +#include "util/xmlconfig.h"
 +#include "util/driconf.h"
 +#include "pipe/p_screen.h"
++#include "renderonly/renderonly.h"
 +
 +struct pipe_screen *fd_screen_create(int fd, const struct pipe_screen_config *config, struct renderonly *ro);
 +
@@ -174,6 +188,20 @@ index b8ab9f5..1f6f771 100644
 +};
 +static driOptionCache fd_options;
 +static struct pipe_screen_config fd_config;
++
++/* renderonly.c needs libdrm and is not built on Windows; freedreno only calls these when
++ * screen->ro != NULL, and we always pass NULL. */
++void
++renderonly_scanout_destroy(struct renderonly_scanout *scanout, struct renderonly *ro)
++{
++}
++
++struct renderonly_scanout *
++renderonly_create_gpu_import_for_resource(struct pipe_resource *rsc, struct renderonly *ro,
++                                          struct winsys_handle *out_handle)
++{
++   return NULL;
++}
 +
 +/* TopazGpu: DRM ioctls of freedreno travel as escapes through the D3D10 device callbacks */
 +static int
@@ -186,7 +214,7 @@ index b8ab9f5..1f6f771 100644
  
  #include "winddk_compat.h"
  #include <d3dkmthk.h>
-@@ -66,6 +89,20 @@ d3d10_create_screen(struct gdikmt_device* device)
+@@ -66,6 +104,20 @@ d3d10_create_screen(struct gdikmt_device* device)
  #ifdef GALLIUM_VIRGL
     return virgl_gdi_screen_create(device);
  #endif
