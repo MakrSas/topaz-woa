@@ -28,8 +28,8 @@ typedef struct {
   unsigned int TxQueued;
 } TAUDIO_STATE;
 
-/* Op: 0 read32, 1 write32. Allowed: LPASS 0x0A000000-0x0AFFFFFF, TLMM 0x00400000-0x00FFFFFF,
-   apps SMMU 0x0C600000-0x0C6FFFFF. Reading an unclocked LPASS block hangs the bus: vote first. */
+/* Op: 0 read32, 1 write32. Allowed: a list of known LPASS blocks (Lab.c MmioAllowed), TLMM,
+   apps SMMU. Unknown LPASS pages can hang the bus (watchdog reboot): they are refused. */
 typedef struct {
   unsigned int Op;
   unsigned int Count;          /* read: number of consecutive dwords (<= 64) */

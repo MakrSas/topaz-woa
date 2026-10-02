@@ -155,3 +155,9 @@ policy, use `powershell -ExecutionPolicy Bypass -File`).
   CLK_RST block + VA/TX TOP CSR registers, compare with reset defaults from lpass-rx-macro.c /
   downstream bolero register defaults; try the TX macro SWR path; read L14 via SPMI (needs an
   allowlist entry → driver update + power-off).
+- **2026-10-02 17:39 and 17:47: two watchdog reboots caused by lab reads** of 0x0A7E0100 and of
+  whole 0x0A6A9000 / 0x0A7A0000 pages (bus hang). v0.5.2 restricts lab MMIO to known blocks.
+  Also learned: a normal Windows restart (`shutdown /r`) leaves SMEM clean, the ADSP boots again
+  (no full power-off needed). On bengal the VA SoundWire master is clocked by the VA macro SWR
+  gate (0xa730008), not by the TX macro as on agatti; VA/TX CGCR = 0xa7ec100 (agatti lpasscc @
+  0xa7ec000). `tools/audio/lab/bringup.ps1` = reproducible bring-up from a fresh boot.

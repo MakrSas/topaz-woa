@@ -76,10 +76,25 @@ VOID LabPoll(VOID)
   }
 }
 
+/*
+ * Only blocks that were read safely or are documented (stock DT / Linux drivers). Some LPASS
+ * pages hang the bus when read without their clock (0x0A7E0100, parts of 0x0A6A9000 /
+ * 0x0A7A0000 pages, 2026-10-02: two watchdog reboots), so no wide LPASS window any more.
+ */
 STATIC BOOLEAN MmioAllowed(UINT64 Pa, UINT32 Bytes)
 {
   STATIC CONST UINT64 r[][2] = {
-    { 0x0A000000, 0x0B000000 },               /* LPASS */
+    { 0x0A600000, 0x0A601000 },               /* RX macro */
+    { 0x0A610000, 0x0A612000 },               /* RX SoundWire master */
+    { 0x0A620000, 0x0A621000 },               /* TX macro */
+    { 0x0A730000, 0x0A731000 },               /* VA macro */
+    { 0x0A740000, 0x0A742000 },               /* VA SoundWire master */
+    { 0x0A6A9090, 0x0A6A90A0 },               /* RX SWR CGCR (HCTL 0x98) */
+    { 0x0A7EC100, 0x0A7EC104 },               /* VA/TX SWR CGCR (HCTL) */
+    { 0x0A5640C0, 0x0A5640E0 },               /* RX MCLK mux select (0xD8) */
+    { 0x0A7A0000, 0x0A7A0010 },               /* VA MCLK mux select */
+    { 0x0A7C0000, 0x0A7D3000 },               /* LPI TLMM pins 0..18 */
+    { 0x0A95A000, 0x0A95A004 },               /* LPI slew */
     { 0x00400000, 0x01000000 },               /* TLMM */
     { 0x0C600000, 0x0C700000 },               /* apps SMMU */
   };
