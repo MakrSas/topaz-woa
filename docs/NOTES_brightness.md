@@ -21,6 +21,10 @@ How it works now:
   REG_DWORD /d 0 /f; devcon enable "@ROOT\BASICDISPLAY\0000"` (works without a reboot), then fix TopazDisplay.
 - Tools: DxgKrnl ETW recipe + manifest event names in the section "TopazDisplay v0.3 on the phone"; the research report
   section explains the dxgkrnl/monitor.sys logic (PDB-based disassembly lives on s8build `~/work/dxgre`).
+- Verified by the user: screen off/on with the power button keeps the brightness level (no resume handling needed
+  for that case). Not tested: lock-screen timeout, sleep/Modern Standby.
+- Open (not needed now): brightness curve (linear % -> DBV today: 1 % = 0x014, 50 % = 0x3FF; an AMOLED-friendly
+  table/gamma would feel more even), retry on "NO DONE", no ambient light sensor (needs ADSP) so no auto-brightness.
 - Remaining nice-to-have: monitor INF for `MONITOR\TPZ6225` with `HKR,,BrightnessControl,0x00010001,1` instead of the
   script; persist/restore the brightness level across boots is done by Windows itself (it calls SetBrightness).
 
