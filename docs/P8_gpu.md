@@ -308,3 +308,14 @@ process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
   (RB/TPL1/SP 0x9, UCHE_MODE 0x800000), CP_MEM_POOL_DBG_ADDR 47, perf counter setup.
 - To resume: delete `C:\topaz\gpuw.guard`, install v0.17 (WDDM update needs a reboot — ask the
   user), copy the latest UMD DLL, run `tools/gputest/run-d3dtest.ps1` (copy to C:\topaz\run.ps1).
+- v0.18/v0.19 (2026-10-02 18:xx): UMD opt-in (`TOPAZGPU_ENABLE`), KMD fail-fast "wedged" + hang
+  dump. **BSOD 0xCE** while updating v0.17→v0.18: the guard thread slept inside the image and the
+  update unloaded it → v0.19 signals/awaits it in StopDevice/Unload. Install rule: certutil the new
+  CI cert first (each run re-signs), update only while no old-style guard thread runs.
+- v0.20: a610 HWCG table (Linux a612_hwcg, RBBM_CLOCK_CNTL 0xaaa8aa82) — no change in the hang.
+- **First GPU work through D3D11: `d3dtest copy` PASSES** (texture with initial data →
+  CopyResource → staging → ff4080ff): freedreno's blitter runs on the Adreno via our KMD.
+- `d3dtest clear` (3D draw with shaders) hangs with any FD_MESA_DEBUG (sysmem, noubwc): RBBM_STATUS
+  00f715a5 = CP, PC_DCALL, VPC, UCHE, SP, VSC, HLSQ, TSE, RB, CCU, LRZ busy; no CP/SMMU fault;
+  IB1/IB2 fully fetched (rem 0). → the shader pipeline does not run. Test script `t.ps1 <clear|copy>
+  [FD_MESA_DEBUG]` (restarts the adapter first: a wedged GPU stays wedged until restart).
