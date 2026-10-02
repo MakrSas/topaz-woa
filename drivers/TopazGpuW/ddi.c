@@ -29,6 +29,45 @@ typedef struct _TGPU_ALLOCATION {
 
 static TGPU_ADAPTER *g_Adapter;
 
+/* ---------------------------------------------------------------- hang guard
+ * C:\topaz\gpuw.guard is created at StartDevice and deleted after 60 s of normal life. If it is
+ * still there at the next StartDevice, the previous start hung the system: refuse to start. */
+
+#define GUARD_PATH L"\\??\\C:\\topaz\\gpuw.guard"
+
+static BOOLEAN GuardFile(BOOLEAN Create, BOOLEAN Delete)
+{
+    UNICODE_STRING name;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+    NTSTATUS st;
+
+    RtlInitUnicodeString(&name, GUARD_PATH);
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    st = ZwCreateFile(&h, (Delete ? DELETE : FILE_READ_ATTRIBUTES) | SYNCHRONIZE, &oa, &iosb, NULL,
+                      FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_DELETE, Create ? FILE_OPEN_IF : FILE_OPEN,
+                      (Delete ? FILE_DELETE_ON_CLOSE : 0) | FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+                      NULL, 0);
+    if (!NT_SUCCESS(st)) {
+        return FALSE;
+    }
+    ZwClose(h);
+    return TRUE;
+}
+
+static KSTART_ROUTINE GuardThread;
+static VOID GuardThread(PVOID Ctx)
+{
+    LARGE_INTEGER d;
+    UNREFERENCED_PARAMETER(Ctx);
+    d.QuadPart = -10000000LL * 60;
+    KeDelayExecutionThread(KernelMode, FALSE, &d);
+    GuardFile(FALSE, TRUE);
+    LogPrint("guard: 60 s stable, guard file removed\n");
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
 /* ---------------------------------------------------------------- completion of Dxgkrnl DMA buffers */
 
 typedef struct _NOTIFY_CTX {
@@ -80,6 +119,17 @@ static NTSTATUS TgStartDevice(const PVOID Ctx, PDXGK_START_INFO StartInfo, PDXGK
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)Ctx;
 
     UNREFERENCED_PARAMETER(StartInfo);
+    if (GuardFile(FALSE, FALSE)) {
+        LogPrint("StartDevice: C:\\topaz\\gpuw.guard exists (previous start hung?) -> refusing to start\n");
+        return STATUS_UNSUCCESSFUL;
+    }
+    GuardFile(TRUE, FALSE);
+    {
+        HANDLE th;
+        if (NT_SUCCESS(PsCreateSystemThread(&th, THREAD_ALL_ACCESS, NULL, NULL, NULL, GuardThread, NULL))) {
+            ZwClose(th);
+        }
+    }
     RtlCopyMemory(&a->Dxgk, Dxgk, sizeof(a->Dxgk));
     {
         DXGK_DEVICE_INFO di;
@@ -127,15 +177,18 @@ static NTSTATUS TgDispatchIoRequest(const PVOID Ctx, ULONG Src, PVIDEO_REQUEST_P
     return STATUS_NOT_SUPPORTED;
 }
 
+static volatile LONG g_Isr;
 static BOOLEAN TgInterruptRoutine(const PVOID Ctx, ULONG Msg)
 {
     UNREFERENCED_PARAMETER(Ctx);
     UNREFERENCED_PARAMETER(Msg);
-    return FALSE;
+    InterlockedIncrement(&g_Isr);
+    return FALSE;                                        /* GPU interrupts are still masked */
 }
 
 static VOID TgDpcRoutine(const PVOID Ctx)
 {
+    LogPrint("Dpc\n");
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)Ctx;
     a->Dxgk.DxgkCbNotifyDpc(a->Dxgk.DeviceHandle);
 }
@@ -237,6 +290,7 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
 static NTSTATUS APIENTRY TgEscape(const HANDLE hAdapter, const DXGKARG_ESCAPE *E)
 {
     UNREFERENCED_PARAMETER(hAdapter);
+    LogPrint("Escape: size %u flags %x\n", E->PrivateDriverDataSize, E->Flags.Value);
     if (E->PrivateDriverDataSize < sizeof(struct topazgpu_escape) || E->pPrivateDriverData == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
@@ -388,6 +442,7 @@ static NTSTATUS APIENTRY TgSubmitCommand(const HANDLE hAdapter, const DXGKARG_SU
 {
     LogPrint("%s\n", "TgSubmitCommand");
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)hAdapter;
+    LogPrint("SubmitCommand: fence %u node %u flags %x\n", A->SubmissionFenceId, A->NodeOrdinal, A->Flags.Value);
     a->LastSubmittedFence = A->SubmissionFenceId;
     CompleteFence(a, A->SubmissionFenceId);              /* nothing to execute: done at once */
     return STATUS_SUCCESS;
@@ -395,6 +450,7 @@ static NTSTATUS APIENTRY TgSubmitCommand(const HANDLE hAdapter, const DXGKARG_SU
 
 static NTSTATUS APIENTRY TgPreemptCommand(const HANDLE hAdapter, const DXGKARG_PREEMPTCOMMAND *A)
 {
+    LogPrint("PreemptCommand: fence %u\n", A->PreemptionFenceId);
     UNREFERENCED_PARAMETER(hAdapter);
     UNREFERENCED_PARAMETER(A);
     return STATUS_SUCCESS;
@@ -433,6 +489,7 @@ static NTSTATUS APIENTRY TgQueryCurrentFence(const HANDLE hAdapter, DXGKARG_QUER
 {
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)hAdapter;
     A->CurrentFence = a->LastCompletedFence;
+    LogPrint("QueryCurrentFence -> %u\n", A->CurrentFence);
     return STATUS_SUCCESS;
 }
 
