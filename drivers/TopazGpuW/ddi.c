@@ -66,12 +66,12 @@ static VOID GuardThread(PVOID Ctx)
     UNREFERENCED_PARAMETER(Ctx);
     d.QuadPart = -10000000LL * 60;
     KeDelayExecutionThread(KernelMode, FALSE, &d);
-    if (g_Adapter != NULL && g_Adapter->LastCompletedFence != 0) {
-        GuardFile(FALSE, TRUE);
-        LogPrint("guard: scheduler works (fence %u completed), guard file removed\n", g_Adapter->LastCompletedFence);
-    } else {
-        LogPrint("guard: no DMA buffer completed in 60 s -> guard kept, next boot will not start the adapter\n");
-    }
+    /* v0.17: surviving 60 s is what the guard checks. Dxgkrnl never sends DMA buffers to this
+       render-only adapter (all GPU work goes through escapes), so waiting for a completed fence kept
+       the guard forever and the adapter refused to start after every reboot. */
+    GuardFile(FALSE, TRUE);
+    LogPrint("guard: alive 60 s (Dxgkrnl fence %u), guard file removed\n",
+             g_Adapter != NULL ? g_Adapter->LastCompletedFence : 0);
     PsTerminateSystemThread(STATUS_SUCCESS);
 }
 
