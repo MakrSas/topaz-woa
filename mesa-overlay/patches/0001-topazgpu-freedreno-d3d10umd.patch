@@ -166,10 +166,10 @@ index ad3374c..329a4b1 100644
  }
  
 diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
-index b8ab9f5..1932404 100644
+index b8ab9f5..168218b 100644
 --- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
 +++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
-@@ -34,6 +34,44 @@
+@@ -34,6 +34,45 @@
  #include "softpipe/sp_public.h"
  #include "sw/gdi/gdi_sw_winsys.h"
  #include "virgl/gdi/virgl_gdi_public.h"
@@ -179,6 +179,7 @@ index b8ab9f5..1932404 100644
 +#include "util/driconf.h"
 +#include "pipe/p_screen.h"
 +#include "renderonly/renderonly.h"
++#include "compiler/glsl_types.h"
 +
 +struct pipe_screen *fd_screen_create(int fd, const struct pipe_screen_config *config, struct renderonly *ro);
 +
@@ -214,13 +215,16 @@ index b8ab9f5..1932404 100644
  
  #include "winddk_compat.h"
  #include <d3dkmthk.h>
-@@ -66,6 +104,20 @@ d3d10_create_screen(struct gdikmt_device* device)
+@@ -66,6 +105,23 @@ d3d10_create_screen(struct gdikmt_device* device)
  #ifdef GALLIUM_VIRGL
     return virgl_gdi_screen_create(device);
  #endif
 +#ifdef GALLIUM_FREEDRENO
 +   {
-+      int fd = fd_wddm_open(d3d10_fd_escape, device);
++      int fd;
++      /* freedreno/NIR need the GLSL type cache; on Linux the GL frontend creates it */
++      glsl_type_singleton_init_or_ref();
++      fd = fd_wddm_open(d3d10_fd_escape, device);
 +      if (fd < 0)
 +         return NULL;
 +      if (!fd_config.options) {
