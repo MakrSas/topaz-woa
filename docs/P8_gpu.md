@@ -262,3 +262,8 @@ BO name (KMD fills it in DxgkDdiGetStandardAllocationDriverData for runtime-crea
 - Next (v0.8): boot/hang guard file (adapter refuses to start if the previous start never reached
   "stable"), log every scheduling DDI (BuildPagingBuffer operation, SubmitCommand fence, Preempt,
   QueryCurrentFence, ControlInterrupt, Dpc, Escape entry), and complete paging work without an IRQ.
+- v0.9/v0.10: gave the root device the GPU IRQ (GSIV 209) through Enum\...\LogConf\BasicConfigVector
+  written from the kernel (user-mode SYSTEM tasks/services could not start while the adapter was
+  stuck). PnP assigned it ("Resources" tab), but then Dxgkrnl failed the start with c0000034 *before*
+  calling DxgkDdiStartDevice → dropped in v0.11 (LogConf deleted). Without an IRQ the adapter starts
+  but the scheduler never submits the 2 paging buffers.

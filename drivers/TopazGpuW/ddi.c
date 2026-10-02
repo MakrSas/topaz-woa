@@ -161,7 +161,8 @@ static VOID EnsureIrqRequirement(PDEVICE_OBJECT Pdo)
 
 static NTSTATUS TgAddDevice(const PDEVICE_OBJECT Pdo, PVOID *Ctx)
 {
-    EnsureIrqRequirement(Pdo);
+    /* v0.10: with this IRQ requirement Dxgkrnl failed the start (c0000034) before StartDevice */
+    UNREFERENCED_PARAMETER(EnsureIrqRequirement);
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*a), TGPU_POOL_TAG);
     if (a == NULL) {
         return STATUS_NO_MEMORY;
