@@ -335,3 +335,19 @@ process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
   RBBM_STATUS 00e70585 = RB, CCU, LRZ, VPC, UCHE, SP, HLSQ busy; RAS/TSE/PC idle.
 - Next experiment (v0.24+): GMEM size override `C:\topaz\gpu.gmem` (hex) — CCU's sysmem cache is
   placed at the end of GMEM by Mesa; a smaller khaje GMEM would wedge RB/CCU.
+
+## 3D HANG SOLVED (2026-10-02 evening): MSVC-ABI signed enum bitfields
+- Root cause found with an `.rd` capture (`FD_RD_DUMP=enable`, files land in `C:\tmp`) decoded by
+  `cffdump` (built on s8build: `~/work/gpu/mesa-tools/build-tools/src/freedreno/decode/cffdump`):
+  every 3D draw wrote **0xffffffff into RB_DEPTH_PLANE_CNTL / GRAS_SU_DEPTH_PLANE_CNTL**.
+  `struct fd6_lrz_state` has `enum a6xx_ztest_mode z_mode : 2`; under the MSVC ABI (clang-cl)
+  enum bitfields are *signed*, so A6XX_INVALID_ZTEST (3) reads back as -1, passes the
+  `!= A6XX_INVALID_ZTEST` check and is emitted. Also bool/enum bitfields are not packed together on
+  MSVC, so `val:8` did not overlay direction/z_mode. Fix: uint32_t bitfields + casts at the register
+  writes; other enum bitfields whose values do not fit a signed field got +1 bit
+  (freedreno_resource.h lrz_direction, ir3 tess spacing, shader_info depth/stencil layout,
+  derivative_group).
+- Result: no more GPU hangs; **`d3dtest clear` = ff4080ff** (u_blitter 3D draw with shaders),
+  copy OK. `tri` (own VS/PS via d3d10umd DXBC→TGSI→NIR) completes but leaves 0 — next to debug.
+- Other UMD fixes on the way: tgsi_to_nir RET (d3d10umd ends every main with RET), no depth
+  tracking without zsbuf, empty vertex elements for draws without an input layout.
