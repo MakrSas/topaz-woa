@@ -242,3 +242,11 @@ BO name (KMD fills it in DxgkDdiGetStandardAllocationDriverData for runtime-crea
   QueryAdapterInfo. v0.3 (all display DDIs NULL): DxgkInitialize → c0000059. v0.4: the full DDI set
   with 0 sources (docs: "implement all DDIs ... but report 0 VidPN sources/targets").
 - A driver update of a WDDM KMD needs a reboot (CM_PROB_NEED_RESTART), ask the user first.
+- **Root cause of the StartDevice → StopDevice loop** (DxgKrnl ETW trace: `logman start dxtrace -p
+  Microsoft-Windows-DxgKrnl 0xFFFFFFFFFFFFFFFF 5 -o C:\topaz\dx.etl -ets`, restart the device,
+  `logman stop`, `tracerpt -of XML`): "Adapter StartDevice has completed with status" 0xC0000034
+  (OBJECT_NAME_NOT_FOUND) right after DpiReportAdapter → Dxgkrnl needs the UMD registry values
+  (UserModeDriverName etc.) for a rendering adapter. v0.6 adds them in the INF. (LogConfigOverride
+  IRQ in the INF was not applied to the root device: no LogConf key.)
+- Note: when the phone's screen locks it sleeps and Wi-Fi (TopazWifi) pauses → SSH times out until
+  the user unlocks.

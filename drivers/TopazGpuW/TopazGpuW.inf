@@ -31,6 +31,7 @@ TopazGpuW.sys = 1,,
 [TopazGpuW_Inst]
 FeatureScore = F8
 CopyFiles = TopazGpuW_Files
+AddReg = TopazGpuW_UmdReg
 
 [TopazGpuW_Inst.LogConfigOverride]
 LogConfig = TopazGpuW_LC
@@ -39,6 +40,13 @@ LogConfig = TopazGpuW_LC
 [TopazGpuW_LC]
 ConfigPriority = HARDRECONFIG
 IRQConfig = L:209
+
+; Dxgkrnl reads these for every adapter that renders (v0.5 failed start with c0000034 without them).
+; The UMD is Mesa freedreno + d3d10umd (mesa-overlay), installed to System32 as topazgpu_d3d10.dll.
+[TopazGpuW_UmdReg]
+HKR,,UserModeDriverName,%REG_MULTI_SZ%,topazgpu_d3d10.dll,topazgpu_d3d10.dll,topazgpu_d3d10.dll,topazgpu_d3d10.dll
+HKR,,InstalledDisplayDrivers,%REG_MULTI_SZ%,topazgpu_d3d10
+HKR,,VgaCompatible,%REG_DWORD%,0
 
 [TopazGpuW_Files]
 TopazGpuW.sys
@@ -61,6 +69,8 @@ HKR,,EventMessageFile,0x00020000,"%%SystemRoot%%\System32\IoLogMsg.dll"
 HKR,,TypesSupported,0x00010001,7
 
 [Strings]
+REG_MULTI_SZ     = 0x00010000
+REG_DWORD        = 0x00010001
 ProviderName     = "topaz-woa"
 ManufacturerName = "topaz-woa"
 DiskName         = "TopazGpuW Installation Disk"
