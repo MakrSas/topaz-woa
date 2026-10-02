@@ -145,6 +145,11 @@ typedef struct _CURRENT_BDD_MODE
     } FrameBuffer;
 } CURRENT_BDD_MODE;
 
+// topaz_bl.cxx: Windows brightness slider -> DCS 0x51 over DSI0 (docs/NOTES_brightness.md)
+VOID TopazBlInit(VOID);
+NTSTATUS TopazBlQueryInterface(PQUERY_INTERFACE Qi);
+NTSTATUS APIENTRY BddDdiQueryInterface(_In_ CONST PVOID pDeviceContext, _In_ PQUERY_INTERFACE pQueryInterface);
+
 class BASIC_DISPLAY_DRIVER;
 
 class BDD_HWBLT

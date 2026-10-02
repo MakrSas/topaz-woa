@@ -106,6 +106,8 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
         // after a pre-WDDM 1.2 driver. Since we can't draw anything, we should fail to start.
         return STATUS_UNSUCCESSFUL;
     }
+    m_CurrentModes[0].Flags.IsInternal = TRUE;      /* topaz: built-in panel -> brightness interface is asked */
+    TopazBlInit();
     m_Flags.DriverStarted = TRUE;
     *pNumberOfViews = MAX_VIEWS;
     *pNumberOfChildren = MAX_CHILDREN;
@@ -347,6 +349,7 @@ NTSTATUS BASIC_DISPLAY_DRIVER::QueryAdapterInfo(_In_ CONST DXGKARG_QUERYADAPTERI
         {
             // BDD does not need to support any other adapter information types
             BDD_LOG_WARNING1("Unknown QueryAdapterInfo Type (0x%I64x) requested", pQueryAdapterInfo->Type);
+            LogPrint("QueryAdapterInfo type %u: not supported\n", (UINT)pQueryAdapterInfo->Type);
             return STATUS_NOT_SUPPORTED;
         }
     }

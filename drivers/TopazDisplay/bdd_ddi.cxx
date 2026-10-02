@@ -27,7 +27,7 @@ DriverEntry(
     PAGED_CODE();
 
     LogOpen();
-    LogPrint("==== TopazDisplay v0.2 (KMDOD based) ====\n");
+    LogPrint("==== TopazDisplay v0.3 (KMDOD based, brightness) ====\n");
 
     // Initialize DDI function pointers and dxgkrnl
     KMDDOD_INITIALIZATION_DATA InitialData = {0};
@@ -59,6 +59,7 @@ DriverEntry(
     InitialData.DxgkDdiRecommendMonitorModes        = BddDdiRecommendMonitorModes;
     InitialData.DxgkDdiQueryVidPnHWCapability       = BddDdiQueryVidPnHWCapability;
     InitialData.DxgkDdiPresentDisplayOnly           = BddDdiPresentDisplayOnly;
+    InitialData.DxgkDdiQueryInterface               = BddDdiQueryInterface;
     InitialData.DxgkDdiStopDeviceAndReleasePostDisplayOwnership = BddDdiStopDeviceAndReleasePostDisplayOwnership;
     InitialData.DxgkDdiSystemDisplayEnable          = BddDdiSystemDisplayEnable;
     InitialData.DxgkDdiSystemDisplayWrite           = BddDdiSystemDisplayWrite;
@@ -306,6 +307,17 @@ BddDdiSetPointerShape(
 
 NTSTATUS
 APIENTRY
+BddDdiQueryInterface(
+    _In_ CONST PVOID       pDeviceContext,
+    _In_ PQUERY_INTERFACE  pQueryInterface)
+{
+    PAGED_CODE();
+    UNREFERENCED_PARAMETER(pDeviceContext);
+    return TopazBlQueryInterface(pQueryInterface);   /* topaz_bl.cxx: Windows brightness slider */
+}
+
+NTSTATUS
+APIENTRY
 BddDdiPresentDisplayOnly(
     _In_ CONST HANDLE                       hAdapter,
     _In_ CONST DXGKARG_PRESENT_DISPLAYONLY* pPresentDisplayOnly)
@@ -316,10 +328,17 @@ BddDdiPresentDisplayOnly(
     BASIC_DISPLAY_DRIVER* pBDD = reinterpret_cast<BASIC_DISPLAY_DRIVER*>(hAdapter);
     if (!pBDD->IsDriverActive())
     {
-        BDD_LOG_ASSERTION1("BDD (0x%I64x) is being called when not active!", pBDD);
+        LogPrint("PresentDisplayOnly: driver not active\n");
         return STATUS_UNSUCCESSFUL;
     }
-    return pBDD->PresentDisplayOnly(pPresentDisplayOnly);
+    NTSTATUS st = pBDD->PresentDisplayOnly(pPresentDisplayOnly);
+    static LONG s_PresentLogs;
+    if (!NT_SUCCESS(st) && InterlockedIncrement(&s_PresentLogs) <= 20)
+    {
+        LogPrint("PresentDisplayOnly: %08x (moves %u dirty %u bpp %u pitch %d)\n", st, pPresentDisplayOnly->NumMoves,
+                 pPresentDisplayOnly->NumDirtyRects, pPresentDisplayOnly->BytesPerPixel, pPresentDisplayOnly->Pitch);
+    }
+    return st;
 }
 
 NTSTATUS

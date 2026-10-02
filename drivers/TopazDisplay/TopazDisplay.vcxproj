@@ -58,6 +58,7 @@
     <ClCompile Include="blthw.cxx" />
     <ClCompile Include="memory.cxx" />
     <ClCompile Include="topaz_edid.cxx" />
+    <ClCompile Include="topaz_bl.cxx" />
     <ClCompile Include="log.c" />
   </ItemGroup>
   <ItemGroup>
