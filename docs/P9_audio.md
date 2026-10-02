@@ -104,3 +104,19 @@ lose SSH (ask the user before).
   Next (A5): the sia81xx is an analog-input amp fed from WCD937x AUX_OUT (routing IN3_AUX →
   AUX_OUT), so the speaker path is: AudioReach graph → codec DMA RX → RX macro → SoundWire →
   WCD937x AUX → sia81xx (enable + mode via I2C, reg map from the SI-in sia81xx Linux driver).
+- v0.5 = **lab interface**: `\\.\TopazAudio` (admin only) + `tools/audio/taudio.c` (built in CI
+  into the TopazAudio artifact). Raw GPR send/recv (every GPR packet except our SPF polling goes to
+  an RX ring), MMIO read/write in LPASS 0x0A000000-0x0AFFFFFF / TLMM / apps SMMU, I2C on QUP0 SE1
+  in TopazBattery quiet windows, contiguous buffers. Experiments then need only a tool rebuild,
+  not a driver reinstall + power-off.
+- A5 facts (topaz dtbo fragment@45/48 + stock dtb): bolero v5 macros RX 0xa600000 (SoundWire
+  master 0xa610000, id 2, 5 ports, hctl 0xa6a9098), TX 0xa620000, VA 0xa730000 (SoundWire master
+  0xa740000, id 3, 3 ports, hctl 0xa7ec100); WCD937x RX slave (0x0a, 0x1170224) on the RX master,
+  TX slave (0x0a, 0x1170223) on the VA master; WCD937x reset = TLMM GPIO 92 (msm_cdc_pinctrl@92),
+  supplies L14A buck 1.8 V, L9A rxtx/vddpx 1.8 V. PRM clocks: RX core 0x30e / NPL 0x30f
+  22.5792 MHz, TX 0x30c/0x30d and VA 0x307/0x308 19.2 MHz; `lpass_audio_hw_vote` = PRM HW core
+  vote. LPI TLMM 0xa7c0000 (19 pins; RX SWR clk gpio3, data gpio4/5). ADSP DMA = apps SMMU SID
+  0x1C1 mask 0xF (msm-audio-ion IOVA pool 0x10000000+0x10000000).
+  Protocol (Linux q6prm.c): PRM module iid 2; PRM_CMD_REQUEST_HW_RSC 0x0100100F /
+  RELEASE 0x01001010 with apm_cmd_header + {iid 2, PARAM_ID_RSC_HW_CORE 0x08001032, 4, 0, id}
+  (1 LPASS macro, 2 DCODEC) or PARAM_ID_RSC_AUDIO_HW_CLK 0x0800102C {num 1, id, hz, attr 1, root 0}.

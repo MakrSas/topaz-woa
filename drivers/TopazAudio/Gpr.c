@@ -75,11 +75,31 @@ STATIC VOID GprRx(CONST UINT8 *Data, UINT32 Len)
     }
     return;
   }
+  if (h->Opcode == GPR_BASIC_RSP_RESULT && Len >= hlen + 4 && p[0] == APM_CMD_GET_SPF_STATE && h->DestPort == GPR_OUR_PORT) {
+    return;                                    /* "not ready yet" answer to our own polling */
+  }
+  LabGprRx (Data, Len);                        /* everything else goes to the lab interface */
   if (mRx <= 32) {
     Out ("  t=%u.%03u gpr rx %u B: dom %u->%u port %x->%x token %x opcode %08x payload %08x %08x\r\n", T, Len,
          h->SrcDomain, h->DestDomain, h->SrcPort, h->DestPort, h->Token, h->Opcode,
          Len >= hlen + 4 ? p[0] : 0, Len >= hlen + 8 ? p[1] : 0);
   }
+}
+
+BOOLEAN GprIsUp(VOID)
+{
+  return GlinkChanUp (CHAN);
+}
+
+UINT32 GprSpfState(VOID)
+{
+  return mSpfState;
+}
+
+/* a whole packet built by the lab tool (header included) */
+VOID GprSendRaw(CONST VOID *Pkt, UINT32 Len)
+{
+  GlinkSend (CHAN, Pkt, Len);
 }
 
 VOID GprInit(VOID)

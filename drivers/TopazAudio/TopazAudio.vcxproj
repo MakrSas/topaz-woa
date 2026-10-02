@@ -67,6 +67,7 @@
     <ClCompile Include="fileio.c" />
     <ClCompile Include="Glink.c" />
     <ClCompile Include="Gpr.c" />
+    <ClCompile Include="Lab.c" />
     <ClCompile Include="log.c" />
     <ClCompile Include="Pas.c" />
     <ClCompile Include="port.c" />

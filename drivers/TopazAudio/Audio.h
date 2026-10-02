@@ -75,6 +75,16 @@ VOID           QrtrSummary(VOID);
 VOID           GprInit(VOID);
 VOID           GprPoll(VOID);
 VOID           GprSummary(VOID);
+BOOLEAN        GprIsUp(VOID);
+UINT32         GprSpfState(VOID);
+VOID           GprSendRaw(CONST VOID *Pkt, UINT32 Len);
+
+/* Lab.c: user-mode lab interface (taudio_ioctl.h) */
+VOID           LabInit(VOID);
+VOID           LabGprRx(CONST UINT8 *Data, UINT32 Len);
+VOID           LabPoll(VOID);
+NTSTATUS       LabIoctl(ULONG Code, VOID *Buf, UINT32 InLen, UINT32 OutLen, UINT32 *Info);
 
 /* amp.c: read-only speaker amp detection on QUP0 SE1 I2C (shared with TopazBattery) */
 VOID           AmpProbe(VOID);
+UINT32         AmpI2cXfer(UINT8 Addr, CONST UINT8 *W, UINT32 WLen, UINT8 *R, UINT32 RLen);

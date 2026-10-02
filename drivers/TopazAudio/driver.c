@@ -10,13 +10,17 @@
 #include <wdf.h>
 #include "Audio.h"
 
-#define TOPAZ_AUDIO_VERSION "v0.4"
+#define TOPAZ_AUDIO_VERSION "v0.5"
 
 DRIVER_INITIALIZE DriverEntry;
 static EVT_WDF_DRIVER_DEVICE_ADD TopazEvtDeviceAdd;
 static EVT_WDF_DRIVER_UNLOAD TopazEvtDriverUnload;
 static EVT_WDF_DEVICE_D0_ENTRY TopazEvtD0Entry;
 static EVT_WDF_DEVICE_D0_EXIT TopazEvtD0Exit;
+static EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL TopazEvtIoctl;
+
+/* admin + SYSTEM only: the lab interface pokes hardware */
+DECLARE_CONST_UNICODE_STRING(g_Sddl, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
 
 static PKTHREAD g_Thread;
 static BOOLEAN  g_Started;
@@ -74,6 +78,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
     LogOpen();
     LogPrint("\r\n==== TopazAudio " TOPAZ_AUDIO_VERSION " ====\r\n");
+    LabInit();
 
     WDF_DRIVER_CONFIG_INIT(&config, TopazEvtDeviceAdd);
     config.EvtDriverUnload = TopazEvtDriverUnload;
@@ -95,17 +100,51 @@ static VOID TopazEvtDriverUnload(WDFDRIVER Driver)
 static NTSTATUS TopazEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 {
     WDF_PNPPOWER_EVENT_CALLBACKS pnp;
+    WDF_IO_QUEUE_CONFIG qcfg;
+    DECLARE_CONST_UNICODE_STRING(link, L"\\DosDevices\\TopazAudio");
     WDFDEVICE device;
     NTSTATUS status;
 
     UNREFERENCED_PARAMETER(Driver);
+    WdfDeviceInitAssignSDDLString(DeviceInit, &g_Sddl);
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
     pnp.EvtDeviceD0Entry = TopazEvtD0Entry;
     pnp.EvtDeviceD0Exit = TopazEvtD0Exit;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &pnp);
     status = WdfDeviceCreate(&DeviceInit, WDF_NO_OBJECT_ATTRIBUTES, &device);
     LogPrint("WdfDeviceCreate: %08x\r\n", status);
-    return status;
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+    WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&qcfg, WdfIoQueueDispatchSequential);
+    qcfg.EvtIoDeviceControl = TopazEvtIoctl;
+    status = WdfIoQueueCreate(device, &qcfg, WDF_NO_OBJECT_ATTRIBUTES, WDF_NO_HANDLE);
+    if (NT_SUCCESS(status)) {
+        status = WdfDeviceCreateSymbolicLink(device, &link);
+    }
+    LogPrint("lab interface \\\\.\\TopazAudio: %08x\r\n", status);
+    return STATUS_SUCCESS;                             /* the ADSP part works without the lab */
+}
+
+static VOID TopazEvtIoctl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLen, size_t InLen, ULONG Code)
+{
+    PVOID buf = NULL;
+    size_t len = 0;
+    UINT32 info = 0;
+    NTSTATUS status;
+
+    UNREFERENCED_PARAMETER(Queue);
+    /* METHOD_BUFFERED: one system buffer of max(in, out) bytes */
+    if (InLen != 0 || OutLen != 0) {
+        status = (InLen != 0) ? WdfRequestRetrieveInputBuffer(Request, 1, &buf, &len)
+                              : WdfRequestRetrieveOutputBuffer(Request, 1, &buf, &len);
+        if (!NT_SUCCESS(status)) {
+            WdfRequestComplete(Request, status);
+            return;
+        }
+    }
+    status = LabIoctl(Code, buf, (UINT32)InLen, (UINT32)OutLen, &info);
+    WdfRequestCompleteWithInformation(Request, status, info);
 }
 
 static NTSTATUS TopazEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)

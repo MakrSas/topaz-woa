@@ -508,6 +508,7 @@ EFI_STATUS AdspBoot(VOID)
     BOOLEAN busy = GlinkPoll ();
     QrtrPoll ();
     GprPoll ();
+    LabPoll ();
     if (*gAdspState & 1) {
       Out ("  t=%lu ms *** ADSP FATAL (slave-kernel %08x, wdog %u) ***\r\n", (UINT64)AudMs (), *gAdspState, WdogPending ());
       CrashReason ();
