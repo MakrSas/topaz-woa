@@ -34,7 +34,9 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
 2. v0.3 — optional **DMA path** (flag file `C:\topaz\dsi.dma`): packet in a contiguous non-cached
    buffer below 4 GB, DMA_CMD_OFFSET = its PA. Risk: MDSS reaches memory through the apps SMMU
    (0xC600000); a missing mapping = context fault, maybe a frozen picture until reboot. GFSR is
-   logged before/after. (result: pending)
+   logged before/after. **Result (2026-10-02 ~21:30): WORKS** — display off/on visibly blanks and
+   restores the panel; MDSS reaches the buffer at PA 0xfffff000, apps SMMU GFSR stays 0, DONE in
+   1-8 ms. So on this DSI 2.4.1 the TPG FIFO path is a no-op and the memory DMA path is the one.
 
 ## Notes
 - `C:\topaz\dsicmd` (v0.2+): hex `"<DT> <bytes>"` sent once and deleted; 05 = DCS short write,
