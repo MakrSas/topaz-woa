@@ -23,14 +23,33 @@ static TG_FENCE_DONE g_Done;
 static PVOID         g_DoneCtx;
 static volatile LONG g_ScanKick;
 
+/* CPU view of a present operand: its BO / own aperture mapping, else the aperture address (v0.30) */
+static PUCHAR View(TGPU_ALLOCATION *Al, ULONG Seg, ULONGLONG Addr, PMDL *Tmp)
+{
+    PUCHAR p = AllocPixels(Al);
+
+    *Tmp = NULL;
+    if (p == NULL && Al != NULL && Seg == 1) {
+        p = (PUCHAR)GartMapVa(Addr, Al->Size, Tmp);
+    }
+    return p;
+}
+
 static VOID Blt(const TG_CMD *C)
 {
-    PUCHAR s = AllocPixels(C->Src), d = AllocPixels(C->Dst);
+    PMDL ms, md;
+    PUCHAR s = View(C->Src, C->SrcSeg, C->SrcAddr, &ms), d = View(C->Dst, C->DstSeg, C->DstAddr, &md);
     ULONG i, n = C->NumRects ? C->NumRects : 1;
     LONG dx = C->SrcRect.left - C->DstRect.left, dy = C->SrcRect.top - C->DstRect.top;
+    static ULONG fails;
 
     if (s == NULL || d == NULL) {
-        LogPrint("eng: blt without CPU view (src %p/%p dst %p/%p)\n", C->Src, s, C->Dst, d);
+        if (++fails <= 10) {
+            LogPrint("eng: blt without CPU view (src %p/%p seg %u %llx, dst %p/%p seg %u %llx)\n", C->Src, s, C->SrcSeg,
+                     C->SrcAddr, C->Dst, d, C->DstSeg, C->DstAddr);
+        }
+        GartUnmapVa(s, ms);
+        GartUnmapVa(d, md);
         return;
     }
     for (i = 0; i < n; i++) {
@@ -55,12 +74,15 @@ static VOID Blt(const TG_CMD *C)
                           s + (SIZE_T)(y + dy) * C->Src->Desc.pitch + (SIZE_T)(r.left + dx) * 4, (SIZE_T)w * 4);
         }
     }
+    GartUnmapVa(s, ms);
+    GartUnmapVa(d, md);
     DispPresentRects(C->Dst, C->NumRects ? C->Rects : &C->DstRect, n);
 }
 
 static VOID Fill(const TG_CMD *C)
 {
-    PUCHAR d = AllocPixels(C->Dst);
+    PMDL md;
+    PUCHAR d = View(C->Dst, C->DstSeg, C->DstAddr, &md);
     ULONG i, n = C->NumRects ? C->NumRects : 1;
 
     if (d == NULL) {
@@ -80,6 +102,7 @@ static VOID Fill(const TG_CMD *C)
             }
         }
     }
+    GartUnmapVa(d, md);
     DispPresentRects(C->Dst, C->NumRects ? C->Rects : &C->DstRect, n);
 }
 

@@ -19,7 +19,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.29"
+#define TGPU_VERSION        "v0.30"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
@@ -99,6 +99,13 @@ VOID   AllocRelease(TGPU_ALLOCATION *Al);
 VOID   AllocMapAperture(TGPU_ALLOCATION *Al, PMDL Mdl, ULONG MdlOffset, SIZE_T Pages);
 VOID   AllocUnmapAperture(TGPU_ALLOCATION *Al);
 
+/* ---- ddi.c: aperture page table ("GART"), v0.30. VidMM maps some allocations into the aperture
+   with hAllocation == NULL (CDD's shadow surface), so CPU views come from the aperture address. */
+#define TGPU_APERTURE_BASE  0xC0000000ULL
+#define TGPU_APERTURE_SIZE  (1024ull * 1024 * 1024)
+PVOID GartMapVa(ULONGLONG Addr, SIZE_T Bytes, PMDL *Mdl);    /* NULL if any page is not mapped */
+VOID  GartUnmapVa(PVOID Va, PMDL Mdl);
+
 /* ---- eng.c: commands in the DMA buffer private data ---- */
 #define TG_CMD_NOP          0
 #define TG_CMD_BLT          1                   /* Src rect -> Dst rect (+ sub rects) */
@@ -121,6 +128,8 @@ typedef struct _TG_CMD {
     PMDL              Mdl;
     SIZE_T            Pages;
     SIZE_T            Bytes;
+    ULONG             SrcSeg, DstSeg;           /* v0.30: final placement, written by DxgkDdiPatch */
+    ULONGLONG         SrcAddr, DstAddr;
 } TG_CMD;
 
 typedef VOID (*TG_FENCE_DONE)(PVOID Ctx, ULONG Fence);

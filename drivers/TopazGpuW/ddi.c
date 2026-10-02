@@ -457,6 +457,85 @@ static NTSTATUS APIENTRY TgDestroyContext(const HANDLE hContext)
     return STATUS_SUCCESS;
 }
 
+/* ---------------------------------------------------------------- aperture page table (v0.30) */
+
+#define GART_PAGES ((ULONG)(TGPU_APERTURE_SIZE / PAGE_SIZE))
+static PPFN_NUMBER g_Gart;                               /* 0 = not mapped */
+
+static VOID GartMap(SIZE_T OffsetInPages, PMDL Mdl, ULONG MdlOffset, SIZE_T Pages)
+{
+    PPFN_NUMBER pfn;
+    SIZE_T i;
+
+    if (g_Gart == NULL) {
+        g_Gart = (PPFN_NUMBER)ExAllocatePool2(POOL_FLAG_NON_PAGED, GART_PAGES * sizeof(PFN_NUMBER), TGPU_POOL_TAG);
+        if (g_Gart == NULL) {
+            return;
+        }
+    }
+    if (Mdl == NULL || OffsetInPages + Pages > GART_PAGES) {
+        return;
+    }
+    pfn = MmGetMdlPfnArray(Mdl);
+    for (i = 0; i < Pages; i++) {
+        g_Gart[OffsetInPages + i] = pfn[MdlOffset + i];
+    }
+}
+
+static VOID GartUnmap(SIZE_T OffsetInPages, SIZE_T Pages)
+{
+    if (g_Gart != NULL && OffsetInPages + Pages <= GART_PAGES) {
+        RtlZeroMemory(&g_Gart[OffsetInPages], Pages * sizeof(PFN_NUMBER));
+    }
+}
+
+PVOID GartMapVa(ULONGLONG Addr, SIZE_T Bytes, PMDL *Mdl)
+{
+    SIZE_T first, pages, i;
+    PMDL m;
+    PPFN_NUMBER pfn;
+    PVOID va;
+
+    *Mdl = NULL;
+    if (g_Gart == NULL || Addr < TGPU_APERTURE_BASE || (Addr & (PAGE_SIZE - 1)) != 0 || Bytes == 0) {
+        return NULL;
+    }
+    first = (SIZE_T)((Addr - TGPU_APERTURE_BASE) / PAGE_SIZE);
+    pages = ROUND_TO_PAGES(Bytes) / PAGE_SIZE;
+    if (first + pages > GART_PAGES) {
+        return NULL;
+    }
+    m = (PMDL)ExAllocatePool2(POOL_FLAG_NON_PAGED, MmSizeOfMdl(NULL, pages * PAGE_SIZE), TGPU_POOL_TAG);
+    if (m == NULL) {
+        return NULL;
+    }
+    MmInitializeMdl(m, NULL, pages * PAGE_SIZE);
+    pfn = MmGetMdlPfnArray(m);
+    for (i = 0; i < pages; i++) {
+        pfn[i] = g_Gart[first + i];
+        if (pfn[i] == 0) {
+            ExFreePoolWithTag(m, TGPU_POOL_TAG);
+            return NULL;
+        }
+    }
+    m->MdlFlags |= MDL_PAGES_LOCKED;
+    va = MmMapLockedPagesSpecifyCache(m, KernelMode, MmCached, NULL, FALSE, NormalPagePriority | MdlMappingNoExecute);
+    if (va == NULL) {
+        ExFreePoolWithTag(m, TGPU_POOL_TAG);
+        return NULL;
+    }
+    *Mdl = m;
+    return va;
+}
+
+VOID GartUnmapVa(PVOID Va, PMDL Mdl)
+{
+    if (Va != NULL && Mdl != NULL) {
+        MmUnmapLockedPages(Va, Mdl);
+        ExFreePoolWithTag(Mdl, TGPU_POOL_TAG);
+    }
+}
+
 /* ---------------------------------------------------------------- allocations (step C2)
  * Private data = struct topazgpu_alloc (topazgpu_escape.h). Allocations of the UMD name the BO
  * with their pixels; standard allocations of Dxgkrnl (shared primary, shadow, staging, GDI) are
@@ -769,10 +848,33 @@ static NTSTATUS APIENTRY TgPresent(const HANDLE hContext, DXGKARG_PRESENT *A)
     return STATUS_SUCCESS;
 }
 
+/* v0.30: final placement of the present source/destination into our commands */
 static NTSTATUS APIENTRY TgPatch(const HANDLE hAdapter, const DXGKARG_PATCH *A)
 {
+    ULONG off;
+    static ULONG count;
+
     UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(A);
+    if (A->pDmaBufferPrivateData == NULL || A->pAllocationList == NULL) {
+        return STATUS_SUCCESS;
+    }
+    for (off = A->DmaBufferPrivateDataSubmissionStartOffset;
+         off + sizeof(TG_CMD) <= A->DmaBufferPrivateDataSubmissionEndOffset; off += sizeof(TG_CMD)) {
+        TG_CMD *c = (TG_CMD *)((PUCHAR)A->pDmaBufferPrivateData + off);
+        if (c->Op != TG_CMD_BLT && c->Op != TG_CMD_FILL) {
+            continue;
+        }
+        if (A->AllocationListSize > DXGK_PRESENT_DESTINATION_INDEX) {
+            c->SrcSeg = A->pAllocationList[DXGK_PRESENT_SOURCE_INDEX].SegmentId;
+            c->SrcAddr = (ULONGLONG)A->pAllocationList[DXGK_PRESENT_SOURCE_INDEX].PhysicalAddress.QuadPart;
+            c->DstSeg = A->pAllocationList[DXGK_PRESENT_DESTINATION_INDEX].SegmentId;
+            c->DstAddr = (ULONGLONG)A->pAllocationList[DXGK_PRESENT_DESTINATION_INDEX].PhysicalAddress.QuadPart;
+        }
+        if (++count <= 10) {
+            LogPrint("Patch: op %u src seg %u %llx dst seg %u %llx (list %u)\n", c->Op, c->SrcSeg, c->SrcAddr, c->DstSeg,
+                     c->DstAddr, A->AllocationListSize);
+        }
+    }
     return STATUS_SUCCESS;
 }
 
@@ -818,10 +920,13 @@ static NTSTATUS APIENTRY TgBuildPagingBuffer(const HANDLE hAdapter, DXGKARG_BUIL
     UNREFERENCED_PARAMETER(hAdapter);
     switch (A->Operation) {
     case DXGK_OPERATION_MAP_APERTURE_SEGMENT:
+        GartMap(A->MapApertureSegment.OffsetInPages, A->MapApertureSegment.pMdl, A->MapApertureSegment.MdlOffset,
+                A->MapApertureSegment.NumberOfPages);
         AllocMapAperture((TGPU_ALLOCATION *)A->MapApertureSegment.hAllocation, A->MapApertureSegment.pMdl,
                          A->MapApertureSegment.MdlOffset, A->MapApertureSegment.NumberOfPages);
         break;
     case DXGK_OPERATION_UNMAP_APERTURE_SEGMENT:
+        GartUnmap(A->UnmapApertureSegment.OffsetInPages, A->UnmapApertureSegment.NumberOfPages);
         AllocUnmapAperture((TGPU_ALLOCATION *)A->UnmapApertureSegment.hAllocation);
         break;
     case DXGK_OPERATION_FILL:
@@ -845,7 +950,9 @@ static NTSTATUS APIENTRY TgBuildPagingBuffer(const HANDLE hAdapter, DXGKARG_BUIL
         break;
     }
     if (++count <= 60) {
-        LogPrint("BuildPagingBuffer: op %u alloc %p\n", A->Operation,
+        LogPrint("BuildPagingBuffer: op %u ap page %llx pages %llx alloc %p\n", A->Operation,
+                 A->Operation == DXGK_OPERATION_MAP_APERTURE_SEGMENT ? (ULONGLONG)A->MapApertureSegment.OffsetInPages : 0ull,
+                 A->Operation == DXGK_OPERATION_MAP_APERTURE_SEGMENT ? (ULONGLONG)A->MapApertureSegment.NumberOfPages : 0ull,
                  A->Operation == DXGK_OPERATION_MAP_APERTURE_SEGMENT ? A->MapApertureSegment.hAllocation :
                  A->Operation == DXGK_OPERATION_UNMAP_APERTURE_SEGMENT ? A->UnmapApertureSegment.hAllocation :
                  A->Operation == DXGK_OPERATION_FILL ? A->Fill.hAllocation : NULL);
@@ -1072,7 +1179,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, section-backed primary) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, aperture GART) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;

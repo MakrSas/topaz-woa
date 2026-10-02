@@ -457,3 +457,14 @@ TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11
 - Tools on the phone: `C:\topaz\ccd.ps1` (QueryDisplayConfig/SetDisplayConfig, run as the console
   user via the scheduled task TopazCcd, output C:\topaz\ccd.txt). DxgKrnl ETW gave no events in
   this boot (session started fine, 0 events) - to check.
+
+### v0.29 result (23:53, hot restart of ACPI\TPZG0610\0 worked, no PnP hang)
+- SectionBackedPrimary fixed the mode set: IsSupportedVidPn/EnumCofunc/RecommendMonitorModes, then
+  CommitVidPn 1 path 1080x2400 stride 4320 fmt 22, SetVidPnSourceAddress seg 1 pa 0xC0000000,
+  visibility 1, flip completed by the timer vsync, first scanout copy of the primary.
+- dwm.exe crashes (dwmcore.dll, 0x8898008d) - our UMD is opt-in, DWM gets no D3D device; the desktop
+  is then drawn by CDD: Present Blt from a shadow surface (standard alloc type 2) to the primary.
+- The shadow surface had no CPU view: VidMM mapped it with MAP_APERTURE_SEGMENT hAllocation == NULL.
+  v0.30: own aperture page table (PFN per aperture page from every MAP/UNMAP), DxgkDdiPatch writes the
+  final segment/address of the present source/destination into the TG_CMD, the engine maps
+  aperture ranges on demand (GartMapVa).
