@@ -174,3 +174,28 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   AcpiUid != 0 / an ACPI-enumerated adapter (internal connectors may need an ACPI _DOD child — the other session's
   ACPI GPU0 route), D3DKMDT_VOT_DISPLAYPORT_EMBEDDED (11).
 - Mac disk was full during this session (ENOSPC); other sessions' scratch files live in /private/tmp/claude-501.
+
+## Research agent report (dxgkrnl/monitor.sys 10.0.22621.1 disassembled with public PDBs, s8build ~/work/dxgre)
+- Root cause of the INTERNAL/LVDS failure: `dxgkrnl!DpiFdoEnumChildDevices` rejects INTERNAL, LVDS(6),
+  DISPLAYPORT_EMBEDDED(11) and UDI_EMBEDDED(13) children with STATUS_NOT_SUPPORTED (0xC00000BB) unless the adapter
+  is the POST device, or BasicDisplay on ROOT\BasicDisplay, or `InitialData.Version < 0x4000` (we build WDDM3_1),
+  or the adapter driver key has `SoftGPUAdapter != 0`. HPD awareness and AcpiUid are NOT part of the check, so
+  `6 1`, `11 4`, AcpiUid != 0 will not help. POST is detected by `DpiFdoDetectPostDevice` (VMBus device, or
+  resources covering the GOP framebuffer, or any ACPI device unless `GraphicsDrivers\DisableAutoAcpiPostDevice`);
+  our root adapter is none of these (hence AcquirePostDisplayOwnership returns zeros). An ACPI-enumerated adapter
+  would automatically be POST.
+- monitor.sys creates WmiMonitorBrightness / `\\.\LCD` if the connector type is INTERNAL/eDP/UDI-embedded **or the
+  monitor's driver key has `BrightnessControl` bit0 = 1**
+  (https://learn.microsoft.com/en-us/windows-hardware/drivers/display/supporting-brightness-controls-for-external-display-connectors).
+  dxgkrnl's brightness IOCTL handler does not check for an internal monitor.
+- GUIDs asked by DxgkCbs: 14f9db8b MIPI_DSI, 462bc153 GPU_PARTITION, 197a4a6e/148a3c98/fde5bba4 BRIGHTNESS v3/v2/v1,
+  2d09818e DP, 962639f3 DISPLAY_DIAGNOSTICS, 2564aa4f I2C; QAI 20 DISPLAYID_DESCRIPTOR, 29 WDDMDEVICECAPS, 34
+  PHYSICAL_MEMORY_CAPS — none decides "internal".
+- Plan: (1) `reg add HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e96e-e325-11ce-bfc1-08002be10318}\0001
+  /v BrightnessControl /t REG_DWORD /d 1` (0001 = driver key of DISPLAY\TPZ6225\1&28A6823A&0&UID0), then reboot;
+  success = WmiMonitorBrightness returns 101 levels, `WmiSetBrightness` logs "brightness N% ... done", slider in
+  Quick Settings. Undo: `reg delete ... /v BrightnessControl` + reboot. Durable form: own monitor INF for
+  MONITOR\TPZ6225 with `HKR,,BrightnessControl,0x00010001,1`. (2) Fallback: `InitialData.Version =
+  DXGKDDI_INTERFACE_VERSION_WIN8 (0x300E)` + `td.cfg` `6 4`. (3) Do not use SoftGPUAdapter. Then remove
+  TopazBacklight (two drivers on DSI0).
+- Step 1 applied on the phone at ~22:40 (value set, reboot pending user's OK).
