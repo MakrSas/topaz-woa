@@ -82,3 +82,44 @@ VOID LogHex(PCSTR Prefix, const UCHAR *Buf, ULONG Len)
     RtlStringCbLengthA(line, sizeof(line), &pos);
     LogWrite(line, pos);
 }
+
+/* Experiment knob: C:\topaz\td.cfg holds "<vot> <hpd>" in decimal (read at every device start). */
+VOID TopazReadCfg(_Out_ LONG *Vot, _Out_ LONG *Hpd)
+{
+    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\td.cfg");
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+    CHAR buf[40];
+    LONG v[2] = {0, 0};
+    ULONG i, k = 0;
+    BOOLEAN neg = FALSE, in = FALSE;
+
+    *Vot = (LONG)0x7FFFFFFF;                            /* 0x7FFFFFFF = no override */
+    *Hpd = 0x7FFFFFFF;
+    RtlZeroMemory(buf, sizeof(buf));
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateFile(&h, FILE_READ_DATA | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN,
+                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+        return;
+    }
+    if (NT_SUCCESS(ZwReadFile(h, NULL, NULL, NULL, &iosb, buf, sizeof(buf) - 1, NULL, NULL))) {
+        for (i = 0; i <= iosb.Information && k < 2; i++) {
+            CHAR c = i < iosb.Information ? buf[i] : ' ';
+            if (c >= '0' && c <= '9') {
+                v[k] = v[k] * 10 + (c - '0');
+                in = TRUE;
+            } else if (c == '-' && !in) {
+                neg = TRUE;
+            } else if (in) {
+                if (neg) v[k] = -v[k];
+                k++; in = FALSE; neg = FALSE;
+                if (k < 2) v[k] = 0;
+            }
+        }
+        if (k >= 1) *Vot = v[0];
+        if (k >= 2) *Hpd = v[1];
+    }
+    ZwClose(h);
+}

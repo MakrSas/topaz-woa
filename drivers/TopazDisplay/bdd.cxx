@@ -205,11 +205,20 @@ NTSTATUS BASIC_DISPLAY_DRIVER::QueryChildRelations(_Out_writes_bytes_(ChildRelat
     ULONG ChildRelationsCount = (ChildRelationsSize / sizeof(DXGK_CHILD_DESCRIPTOR)) - 1;
     BDD_ASSERT(ChildRelationsCount <= MAX_CHILDREN);
 
+    // topaz: DSI panel -> D3DKMDT_VOT_LVDS ("LVDS or MIPI DSI"); C:\topaz\td.cfg "<vot> <hpd>" overrides for experiments
+    LONG CfgVot, CfgHpd;
+    TopazReadCfg(&CfgVot, &CfgHpd);
+    LONG Vot = m_CurrentModes[0].Flags.IsInternal ? (LONG)D3DKMDT_VOT_LVDS : (LONG)D3DKMDT_VOT_OTHER;
+    LONG Hpd = (LONG)HpdAwarenessInterruptible;
+    if (CfgVot != 0x7FFFFFFF) Vot = CfgVot;
+    if (CfgHpd != 0x7FFFFFFF) Hpd = CfgHpd;
+    LogPrint("QueryChildRelations: count %u vot %d hpd %d\n", ChildRelationsCount, Vot, Hpd);
+
     for (UINT ChildIndex = 0; ChildIndex < ChildRelationsCount; ++ChildIndex)
     {
         pChildRelations[ChildIndex].ChildDeviceType = TypeVideoOutput;
-        pChildRelations[ChildIndex].ChildCapabilities.HpdAwareness = HpdAwarenessInterruptible;
-        pChildRelations[ChildIndex].ChildCapabilities.Type.VideoOutput.InterfaceTechnology = m_CurrentModes[0].Flags.IsInternal ? D3DKMDT_VOT_INTERNAL : D3DKMDT_VOT_OTHER;
+        pChildRelations[ChildIndex].ChildCapabilities.HpdAwareness = (DXGK_CHILD_DEVICE_HPD_AWARENESS)Hpd;
+        pChildRelations[ChildIndex].ChildCapabilities.Type.VideoOutput.InterfaceTechnology = (D3DKMDT_VIDEO_OUTPUT_TECHNOLOGY)Vot;
         pChildRelations[ChildIndex].ChildCapabilities.Type.VideoOutput.MonitorOrientationAwareness = D3DKMDT_MOA_NONE;
         pChildRelations[ChildIndex].ChildCapabilities.Type.VideoOutput.SupportsSdtvModes = FALSE;
         // TODO: Replace 0 with the actual ACPI ID of the child device, if available
