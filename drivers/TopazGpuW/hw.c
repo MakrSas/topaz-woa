@@ -57,7 +57,7 @@ typedef struct _KBUF {
     SIZE_T    Size;
 } KBUF;
 
-static volatile UCHAR *g_Gcc, *g_GpuCc, *g_Gpu, *g_Smmu;
+static volatile UCHAR *g_Gcc, *g_GpuCc, *g_Gpu, *g_Smmu, *g_Gmu;
 static BOOLEAN g_Ready, g_Failed, g_SmmuOn;
 static BOOLEAN g_Wedged;                                 /* v0.18: a fence timed out, GPU hung */
 static KMUTEX g_HwLock;          /* not FAST_MUTEX: file I/O (zap, SQE) at APC_LEVEL deadlocks */
@@ -160,6 +160,38 @@ static VOID PowerCycleIfOn(VOID)
     Rmw(g_GpuCc, 0x106c, 0, GDSC_COLLAPSE);              /* CX GDSC collapse (votable: may stay on) */
     KeStallExecutionProcessor(1000);
     LogPrint("  after collapse: GX %08x CX %08x\n", Rd(g_GpuCc, 0x100c), Rd(g_GpuCc, 0x1540));
+}
+
+/* v0.21: SP/TP RAM power (SPTPRAC) through the GMU wrapper (sm6115 DT: gmu@596a000). Linux does this
+   for the gmu-wrapper A619 (holi) only; bengal's A610 does not need it, but khaje (our SM6225) is not
+   upstream. Step B: blits work, every 3D draw hangs with SP/HLSQ busy. Read first, power on if off. */
+#define GMU_BASE            0x0596A000ULL
+#define GMU_SIZE            0x30000
+#define GMU_SPTPRAC_CLK     (4 * 0x80)                   /* GPU_GMU_GX_SPTPRAC_CLOCK_CONTROL */
+#define GMU_SPTPRAC_PWR     (4 * 0x81)                   /* GMU_GX_SPTPRAC_POWER_CONTROL */
+#define GMU_SPTPRAC_STATUS  (4 * 0x50d0)                 /* GMU_SPTPRAC_PWR_CLK_STATUS */
+
+static VOID Sptprac(VOID)
+{
+    ULONG st, i;
+
+    if (g_Gmu == NULL) {
+        g_Gmu = MapIo(GMU_BASE, GMU_SIZE);
+        if (g_Gmu == NULL) {
+            LogPrint("  sptprac: map failed\n");
+            return;
+        }
+    }
+    st = Rd(g_Gmu, GMU_SPTPRAC_STATUS);
+    LogPrint("  sptprac: status %08x pwr %08x clk %08x\n", st, Rd(g_Gmu, GMU_SPTPRAC_PWR), Rd(g_Gmu, GMU_SPTPRAC_CLK));
+    if ((st & 0x38) == 0x28) {
+        return;                                          /* GDSC power on + clock on */
+    }
+    Wr(g_Gmu, GMU_SPTPRAC_PWR, 0x778000);
+    for (i = 0; i < 100 && (Rd(g_Gmu, GMU_SPTPRAC_STATUS) & 0x38) != 0x28; i++) {
+        KeStallExecutionProcessor(1);
+    }
+    LogPrint("  sptprac: power on -> status %08x after %u us\n", Rd(g_Gmu, GMU_SPTPRAC_STATUS), i);
 }
 
 static BOOLEAN PowerUp(VOID)
@@ -848,6 +880,7 @@ BOOLEAN HwStart(VOID)
         goto fail;
     }
     LogPrint("  powered: RBBM_STATUS %08x\n", GpuRd(0x210));
+    Sptprac();
     if (!ZapLoad() || !SmmuSetup() || !CpStart()) {
         goto fail;
     }
