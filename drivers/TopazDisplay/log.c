@@ -9,6 +9,11 @@
 static HANDLE    g_LogFile;
 static KMUTEX    g_LogLock;  /* not FAST_MUTEX: ZwWriteFile needs PASSIVE_LEVEL */
 static BOOLEAN   g_LogInit;
+/* Lines logged at IRQL > PASSIVE (PresentDisplayOnly etc. may run at APC/DISPATCH) wait here until the
+ * next passive-level log call / LogFlush() writes them out. */
+static KSPIN_LOCK g_RingLock;
+static CHAR       g_Ring[4096];
+static ULONG      g_RingLen;
 
 VOID LogOpen(VOID)
 {
@@ -18,6 +23,7 @@ VOID LogOpen(VOID)
 
     if (!g_LogInit) {
         KeInitializeMutex(&g_LogLock, 0);
+        KeInitializeSpinLock(&g_RingLock);
         g_LogInit = TRUE;
     }
     if (g_LogFile != NULL || KeGetCurrentIrql() != PASSIVE_LEVEL) {
@@ -39,15 +45,54 @@ VOID LogClose(VOID)
     }
 }
 
+static VOID LogFlushPassive(VOID)
+{
+    IO_STATUS_BLOCK iosb;
+    CHAR tmp[sizeof(g_Ring)];
+    ULONG len;
+    KIRQL irql;
+
+    KeAcquireSpinLock(&g_RingLock, &irql);
+    len = g_RingLen;
+    RtlCopyMemory(tmp, g_Ring, len);
+    g_RingLen = 0;
+    KeReleaseSpinLock(&g_RingLock, irql);
+    if (len != 0 && g_LogFile != NULL) {
+        ZwWriteFile(g_LogFile, NULL, NULL, NULL, &iosb, tmp, len, NULL, NULL);
+    }
+}
+
+VOID LogFlush(VOID)
+{
+    if (g_LogFile != NULL && KeGetCurrentIrql() == PASSIVE_LEVEL) {
+        KeWaitForSingleObject(&g_LogLock, Executive, KernelMode, FALSE, NULL);
+        LogFlushPassive();
+        KeReleaseMutex(&g_LogLock, FALSE);
+    }
+}
+
 static VOID LogWrite(PCSTR Text, SIZE_T Len)
 {
     IO_STATUS_BLOCK iosb;
+    KIRQL irql;
 
     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "TopazDisplay: %s", Text);
-    if (g_LogFile == NULL || KeGetCurrentIrql() != PASSIVE_LEVEL) {
+    if (g_LogFile == NULL) {
+        return;
+    }
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
+        if (KeGetCurrentIrql() <= DISPATCH_LEVEL) {
+            KeAcquireSpinLock(&g_RingLock, &irql);
+            if (g_RingLen + Len <= sizeof(g_Ring)) {
+                RtlCopyMemory(g_Ring + g_RingLen, Text, Len);
+                g_RingLen += (ULONG)Len;
+            }
+            KeReleaseSpinLock(&g_RingLock, irql);
+        }
         return;
     }
     KeWaitForSingleObject(&g_LogLock, Executive, KernelMode, FALSE, NULL);
+    LogFlushPassive();
     ZwWriteFile(g_LogFile, NULL, NULL, NULL, &iosb, (PVOID)Text, (ULONG)Len, NULL, NULL);
     KeReleaseMutex(&g_LogLock, FALSE);
 }

@@ -27,7 +27,7 @@ DriverEntry(
     PAGED_CODE();
 
     LogOpen();
-    LogPrint("==== TopazDisplay v0.4 (KMDOD based, brightness, td.cfg) ====\n");
+    LogPrint("==== TopazDisplay v0.5 (KMDOD based, brightness, td.cfg, ring log) ====\n");
 
     // Initialize DDI function pointers and dxgkrnl
     KMDDOD_INITIALIZATION_DATA InitialData = {0};
@@ -158,6 +158,8 @@ BddDdiStopDevice(
     BDD_ASSERT_CHK(pDeviceContext != NULL);
 
     BASIC_DISPLAY_DRIVER* pBDD = reinterpret_cast<BASIC_DISPLAY_DRIVER*>(pDeviceContext);
+    LogPrint("StopDevice\n");
+    LogFlush();
     return pBDD->StopDevice();
 }
 
@@ -323,20 +325,24 @@ BddDdiPresentDisplayOnly(
     _In_ CONST DXGKARG_PRESENT_DISPLAYONLY* pPresentDisplayOnly)
 {
     PAGED_CODE();
-    BDD_ASSERT_CHK(hAdapter != NULL);
 
     BASIC_DISPLAY_DRIVER* pBDD = reinterpret_cast<BASIC_DISPLAY_DRIVER*>(hAdapter);
+    static LONG s_PresentLogs;
+    LONG n = InterlockedIncrement(&s_PresentLogs);
     if (!pBDD->IsDriverActive())
     {
-        LogPrint("PresentDisplayOnly: driver not active\n");
+        LogPrint("PresentDisplayOnly #%d: driver not active (irql %u)\n", n, (UINT)KeGetCurrentIrql());
         return STATUS_UNSUCCESSFUL;
     }
     NTSTATUS st = pBDD->PresentDisplayOnly(pPresentDisplayOnly);
-    static LONG s_PresentLogs;
-    if (!NT_SUCCESS(st) && InterlockedIncrement(&s_PresentLogs) <= 20)
+    if (n <= 20 || !NT_SUCCESS(st))
     {
-        LogPrint("PresentDisplayOnly: %08x (moves %u dirty %u bpp %u pitch %d)\n", st, pPresentDisplayOnly->NumMoves,
-                 pPresentDisplayOnly->NumDirtyRects, pPresentDisplayOnly->BytesPerPixel, pPresentDisplayOnly->Pitch);
+        if (n <= 40)
+        {
+            LogPrint("PresentDisplayOnly #%d: %08x (moves %u dirty %u bpp %u pitch %d irql %u)\n", n, st,
+                     pPresentDisplayOnly->NumMoves, pPresentDisplayOnly->NumDirtyRects,
+                     pPresentDisplayOnly->BytesPerPixel, pPresentDisplayOnly->Pitch, (UINT)KeGetCurrentIrql());
+        }
     }
     return st;
 }
