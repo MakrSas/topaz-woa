@@ -5,6 +5,7 @@
  * Shape follows viogpu3d (virtio-win PR #943, BSD-3) and the WDK samples.
  */
 #include "tgpu.h"
+#include <initguid.h>
 #include <wdmguid.h>
 #include <devpkey.h>
 
