@@ -64,9 +64,13 @@ subset) · `Pkt7`/`Emit`/`Submit` (ring, waits RPTR == WPTR, logs SMMU fault on 
 2. G2: WDDM render-only KMD (TopazDisplay stays display-only).
 3. G3: Mesa (d3d10umd + freedreno + new WDDM winsys) built for Windows ARM64 in CI.
 
-## Step B status (2026-10-02 evening) — see the end of P8_gpu.md
-UMD builds in CI (mesa.yml, DLL + PDB), loads, creates a D3D11 device + texture; submit pointer fix
-and TopazGpuW v0.17 (guard + a610 UBWC init) built but untested — phone was busy with a sound agent.
+## Step B status (2026-10-02 evening): DONE — see "STEP B DONE" at the end of P8_gpu.md
+D3D11 device + HLSL VS/PS draws render correctly on the Adreno (d3dtest tri/clear/copy). Phone:
+TopazGpuW v0.25 (wedge recovery without PnP restart), UMD in System32 (opt-in TOPAZGPU_ENABLE).
+Test: `C:\topaz\t.ps1 <tri|tricull|clear|copy|vsonly|nort> [FD_MESA_DEBUG]` (tools/gputest/t.ps1).
+Debug: FD_RD_DUMP=enable|full → C:\tmp\*.rd → cffdump on s8build (~/work/gpu/mesa-tools/...).
+Rules learned: never `devcon restart/update` TopazGpuW while DWM holds it (PnP lock → explorer,
+network, sshd hang); install a new KMD via guard file + normal reboot (see P8 notes).
 
 ## Still open (older)
 - Wi-Fi P6 HT/VHT (`docs/HANDOFF_p6_htvht.md`), then P7 (CE interrupts, real MAC, stats).

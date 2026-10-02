@@ -351,3 +351,15 @@ process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
   copy OK. `tri` (own VS/PS via d3d10umd DXBC→TGSI→NIR) completes but leaves 0 — next to debug.
 - Other UMD fixes on the way: tgsi_to_nir RET (d3d10umd ends every main with RET), no depth
   tracking without zsbuf, empty vertex elements for draws without an input layout.
+
+## STEP B DONE (2026-10-02 ~21:00): D3D11 draws with real HLSL shaders on the Adreno
+`d3dtest tri` (vs_4_0/ps_4_0 compiled by d3dcompiler_47 → DXBC → d3d10umd TGSI → NIR → ir3),
+`tricull`, `clear`, `copy`: all ff4080ff. UMD fixes after the enum-bitfield one:
+- d3d10umd: depth/stencil state variant with both off while no DSV is bound (D3D semantics);
+- tgsi_to_nir: VERTEXID_NOBASE → load_vertex_id (freedreno feeds only SYSTEM_VALUE_VERTEX_ID;
+  REGID4VTX was r63). DrawIndexed with BaseVertexLocation != 0 gets index+base (D3D: index) — TODO.
+- Known TODOs in the UMD: nested TGSI RET ignored; shader_info/glsl enum bitfields widened, other
+  enum bitfields in gallium headers checked (values fit).
+Next = **step C**: TopazGpuW as the display adapter (VidPN, primary scanout copy to 0x5C000000) and
+DWM on the GPU; before that: present path (DxgkDdiPresent/flush_frontbuffer), lift the
+TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11 app first).
