@@ -213,3 +213,23 @@ objects hold raw iovas written by the CPU), which WDDM 1.x patch lists cannot pr
   `freedreno_ringbuffer_sp.c` (softpin) reused; target `d3d10umd` creates `fd_screen` on it.
 - Present: DxgkDdiPresent/Blt from the source allocation's backing to the framebuffer (CPU copy first,
   GPU blit later). Flush waits for the fence at first (simple, correct), async later.
+
+### WDDM plan in safe steps (decided 2026-10-02)
+UMD side (mesa-overlay): freedreno's msm backend runs unchanged on a **libdrm shim over
+DxgkDdiEscape** (`src/freedreno/drm/wddm/fd_wddm.c`, protocol `topazgpu_escape.h`: one escape = one
+msm DRM ioctl with the Linux structs; extra VERSION / MMAP / MUNMAP). Sharing/present (later):
+shared + display-target resources also get a WDDM allocation whose private data carries the global
+BO name (KMD fills it in DxgkDdiGetStandardAllocationDriverData for runtime-created primaries);
+`flush_frontbuffer` → gdikmt present (pfnPresentCb) like virgl_gdi_winsys.
+- **Step A** — `TopazGpuW` (new WDDM KMD) installed as a **render-only second adapter**
+  (no VidPN sources; TopazDisplay keeps the screen, so a broken build cannot black out the desktop;
+  SSH is the safety net). KMD = GPU bring-up from TopazGpu G1 + SMMU LPAE page tables + the msm
+  ioctls (VERSION, GET_PARAM, GEM_NEW/INFO/CLOSE/FLINK/OPEN, MMAP/MUNMAP into the calling process,
+  GEM_CPU_PREP, GEM_MADVISE, SUBMITQUEUE_NEW/CLOSE/QUERY, GEM_SUBMIT → CP_INDIRECT_BUFFER on the
+  kernel ring + fence, WAIT_FENCE). Tested with a small user-mode tool calling D3DKMTEscape (GEM_NEW
+  → MMAP → write a CP_MEM_WRITE IB → SUBMIT → WAIT_FENCE → check).
+- **Step B** — Mesa UMD (`topazgpu_d3d10.dll`) on that adapter: a D3D11 test app (FL 10.0/10.1)
+  picks the adapter explicitly, renders into a texture, reads it back.
+- **Step C** — make TopazGpuW the display adapter too (VidPN: one 1080×2400 mode, primary scanout
+  by copying the primary allocation into the framebuffer 0x5C000000, later a GPU blit) and let DWM
+  move onto the GPU (viogpu3d proved DWM works on d3d10umd).
