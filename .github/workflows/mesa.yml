@@ -48,7 +48,7 @@ jobs:
           cpp = 'clang-cl'
           c_ld = 'link'
           cpp_ld = 'link'
-          ar = 'llvm-lib'
+          ar = ['python', '$($env:GITHUB_WORKSPACE -replace '\\','/')/tools/ci/arwrap.py']
           windres = 'rc'
           [built-in options]
           c_args = ['--target=aarch64-pc-windows-msvc', '-Wno-error=int-conversion', '-Wno-error=incompatible-pointer-types']
