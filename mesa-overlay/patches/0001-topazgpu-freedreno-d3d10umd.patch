@@ -185,10 +185,23 @@ index b455cd6..8cfeb57 100644
  endif
  
 diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
-index 44b81b8..a18b2b5 100644
+index 44b81b8..2a97506 100644
 --- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
 +++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
-@@ -2022,6 +2022,14 @@ ttn_emit_instruction(struct ttn_compile *c)
+@@ -587,7 +587,11 @@ ttn_src_for_file_and_index(struct ttn_compile *c, unsigned file, unsigned index,
+ 
+       switch (c->scan->system_value_semantic_name[index]) {
+       case TGSI_SEMANTIC_VERTEXID_NOBASE:
+-         load = nir_load_vertex_id_zero_base(b);
++         /* TopazGpu: freedreno only feeds SYSTEM_VALUE_VERTEX_ID to the VS (VFD_CNTL_1
++          * REGID4VTX); vertex_id_zero_base stayed r63 and every vertex read garbage. For
++          * Draw(count, start) load_vertex_id is exactly D3D's SV_VertexID (start + i); for
++          * DrawIndexed it is index + BaseVertexLocation (D3D: index) - known limitation. */
++         load = nir_load_vertex_id(b);
+          break;
+       case TGSI_SEMANTIC_VERTEXID:
+          load = nir_load_vertex_id(b);
+@@ -2022,6 +2026,14 @@ ttn_emit_instruction(struct ttn_compile *c)
        ttn_barrier(b);
        break;
  
