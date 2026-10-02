@@ -161,3 +161,7 @@ policy, use `powershell -ExecutionPolicy Bypass -File`).
   (no full power-off needed). On bengal the VA SoundWire master is clocked by the VA macro SWR
   gate (0xa730008), not by the TX macro as on agatti; VA/TX CGCR = 0xa7ec100 (agatti lpasscc @
   0xa7ec000). `tools/audio/lab/bringup.ps1` = reproducible bring-up from a fresh boot.
+- v0.5.3: GLINK remote intent table 64 → 256 (APM GRAPH_OPEN 296 B was stuck in txq). A one-module
+  CODEC_DMA_SINK graph on RX_CODEC_DMA_RX_0 opens/prepares/starts (status 0); SoundWire unchanged.
+- v0.5.4: lab PMIC read. **L14 (WCD937x vdd-buck) is OFF** (en 00, status 03, 1.80 V set), L9 on.
+  Next: RPM SMD client to vote L14 on (see HANDOFF_p9_audio.md).
