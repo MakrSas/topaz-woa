@@ -205,6 +205,27 @@ index 837013e..2e6c5d7 100644
        return E_FAIL;
     }
  
+diff --git a/src/gallium/frontends/d3d10umd/Debug.cpp b/src/gallium/frontends/d3d10umd/Debug.cpp
+index 17f7292..473dc95 100644
+--- a/src/gallium/frontends/d3d10umd/Debug.cpp
++++ b/src/gallium/frontends/d3d10umd/Debug.cpp
+@@ -3,6 +3,8 @@
+ #include <stdarg.h>
+ #include <stdio.h>
+ 
++extern "C" void TopazWddmLog(const char *text);   /* TopazGpu, topaz_wddm.cpp */
++
+ 
+ #if MESA_DEBUG
+ 
+@@ -34,6 +36,7 @@ DebugPrintf(const char *format, ...)
+     va_end(ap);
+ 
+     OutputDebugStringA(buf);
++    TopazWddmLog(buf);   /* TopazGpu */
+ }
+ 
+ 
 diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
 index 8bb09ba..08b0bf0 100644
 --- a/src/gallium/frontends/d3d10umd/Device.cpp
@@ -328,6 +349,26 @@ index 4eef1f8..3243fc3 100644
                             0, false, sampler_views);
  }
  
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 6f5006b..d80905d 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -2311,6 +2311,15 @@ Shader_tgsi_translate(const unsigned *code,
+    assert(tokens);
+    ureg_destroy(ureg);
+ 
++   {
++      extern bool topaz_log_tgsi;   /* TopazGpu: topaz_wddm.cpp */
++      if (topaz_log_tgsi) {
++         fprintf(stderr, "---- TGSI (%u tokens)\n", nr_tokens);
++         tgsi_dump_to_file(tokens, 0, stderr);
++         fflush(stderr);
++      }
++   }
++
+    if (st_debug & ST_DEBUG_TGSI) {
+       tgsi_dump(tokens, 0);
+    }
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
 index 19de592..0ba603d 100644
 --- a/src/gallium/frontends/d3d10umd/State.h
@@ -378,10 +419,10 @@ index 83bc243..b48f556 100644
    cpp_args : _c_args_d3d10umd,
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 new file mode 100644
-index 0000000..d97b49f
+index 0000000..2b4a066
 --- /dev/null
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,229 @@
 +/*
 + * TopazGpu step C2: the WDDM side of resources that leave the UMD (docs/P8_gpu.md in topaz-woa).
 + *
@@ -570,10 +611,44 @@ index 0000000..d97b49f
 +   return pDevice->device.base.present(pDevice->topazCtx, pSrc->hAllocation, pDXGIContext, NULL);
 +}
 +
++/* Debug log for processes without a console (DWM): if C:\ProgramData\topaz\umd.log.enable exists,
++ * stderr (Mesa's fprintf) and DebugPrintf go to C:\ProgramData\topaz\umd-<pid>.log; with
++ * umd.tgsi also every translated shader is dumped (the last one before a hang is the culprit). */
++extern "C" { bool topaz_log_tgsi; }
++static bool topaz_log_on;
++
++static void
++TopazWddmLogInit(void)
++{
++   static bool done;
++   char path[MAX_PATH];
++
++   if (done)
++      return;
++   done = true;
++   if (GetFileAttributesA("C:\\ProgramData\\topaz\\umd.log.enable") == INVALID_FILE_ATTRIBUTES)
++      return;
++   snprintf(path, sizeof(path), "C:\\ProgramData\\topaz\\umd-%lu.log", (unsigned long)GetCurrentProcessId());
++   if (freopen(path, "a", stderr)) {
++      setvbuf(stderr, NULL, _IONBF, 0);
++      topaz_log_on = true;
++      topaz_log_tgsi = GetFileAttributesA("C:\\ProgramData\\topaz\\umd.tgsi") != INVALID_FILE_ATTRIBUTES;
++      fprintf(stderr, "==== topazgpu UMD log, pid %lu ====\n", (unsigned long)GetCurrentProcessId());
++   }
++}
++
++extern "C" void
++TopazWddmLog(const char *text)
++{
++   if (topaz_log_on)
++      fputs(text, stderr);
++}
++
 +/* opt-in while experimental: env TOPAZGPU_ENABLE or C:\topaz\umd.enable (needed for DWM) */
 +bool
 +TopazWddmEnabled(void)
 +{
++   TopazWddmLogInit();
 +   return GetEnvironmentVariableA("TOPAZGPU_ENABLE", NULL, 0) != 0 ||
 +          GetFileAttributesA("C:\\topaz\\umd.enable") != INVALID_FILE_ATTRIBUTES;
 +}
