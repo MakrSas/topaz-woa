@@ -159,7 +159,7 @@ index 83bc243..b48f556 100644
    cpp_args : _c_args_d3d10umd,
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 new file mode 100644
-index 0000000..4ea602d
+index 0000000..d97b49f
 --- /dev/null
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 @@ -0,0 +1,195 @@
@@ -318,7 +318,7 @@ index 0000000..4ea602d
 +   templat.bind = PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET | PIPE_BIND_LINEAR | PIPE_BIND_SHARED;
 +   memset(&wh, 0, sizeof(wh));
 +   wh.type = WINSYS_HANDLE_TYPE_SHARED;
-+   wh.handle = a->bo;
++   wh.handle = (HANDLE)(uintptr_t)a->bo;
 +   wh.stride = a->pitch;
 +   wh.offset = a->bo_offset;
 +   *phAllocation = pOpen->pOpenAllocationInfo[0].hAllocation;
