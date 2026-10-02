@@ -23,18 +23,42 @@ static struct {
    int refs;
 } fds[FD_WDDM_MAX];
 
+/* DWM creates/destroys D3D devices from several threads */
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+static SRWLOCK fds_lock = SRWLOCK_INIT;
+
 int
 fd_wddm_open(fd_wddm_escape_fn escape, void *ctx)
 {
+   int ret = -1;
+   AcquireSRWLockExclusive(&fds_lock);
    for (int i = 0; i < FD_WDDM_MAX; i++) {
       if (fds[i].refs == 0) {
          fds[i].escape = escape;
          fds[i].ctx = ctx;
          fds[i].refs = 1;
-         return FD_WDDM_BASE + i;
+         ret = FD_WDDM_BASE + i;
+         break;
       }
    }
-   return -1;
+   ReleaseSRWLockExclusive(&fds_lock);
+   return ret;
+}
+
+void
+fd_wddm_detach(void *ctx)
+{
+   AcquireSRWLockExclusive(&fds_lock);
+   for (int i = 0; i < FD_WDDM_MAX; i++) {
+      if (fds[i].refs > 0 && fds[i].ctx == ctx) {
+         fds[i].refs = 0;
+         fds[i].escape = NULL;
+         fds[i].ctx = NULL;
+      }
+   }
+   ReleaseSRWLockExclusive(&fds_lock);
 }
 
 static int
@@ -60,9 +84,17 @@ esc(int fd, unsigned nr, void *data, unsigned size)
 {
    struct topazgpu_escape *e;
    int i = slot(fd), ret;
+   fd_wddm_escape_fn fn;
+   void *ctx;
 
    if (i < 0 || size > TOPAZGPU_ESC_MAX_DATA)
       return -EINVAL;
+   AcquireSRWLockShared(&fds_lock);
+   fn = fds[i].escape;
+   ctx = fds[i].ctx;
+   ReleaseSRWLockShared(&fds_lock);
+   if (!fn)
+      return -EBADF;
    e = calloc(1, sizeof(*e));
    if (!e)
       return -ENOMEM;
@@ -71,7 +103,7 @@ esc(int fd, unsigned nr, void *data, unsigned size)
    e->size = size;
    if (size)
       memcpy(e->data, data, size);
-   ret = fds[i].escape(fds[i].ctx, e, sizeof(*e));
+   ret = fn(ctx, e, sizeof(*e));
    if (ret == 0) {
       ret = e->ret;
       if (size)
@@ -188,9 +220,6 @@ munmap(void *addr, size_t length)
 }
 
 /* ---- POSIX bits freedreno needs on Windows (see include/) ---- */
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
 #include <time.h>
 #include "pthread.h"
 #include "poll.h"

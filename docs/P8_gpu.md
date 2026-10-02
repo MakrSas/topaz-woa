@@ -531,3 +531,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   PRESENT|RT|SRV) failed `is_format_supported` because fd6 refuses any bind bit it does not confirm
   (LINEAR/SHARED added by us; MISC_SHARED resources had the same problem before). Fixed: format check
   without LINEAR/SHARED/SCANOUT.
+- Next (01:18): DWM creates its primaries (pPrimaryDesc, MISC 0x20000), opens a shared resource and
+  creates textures; then AV in d3d10_fd_escape from munmap: freedreno never closes the fd it was given,
+  so the fd_wddm slot of a destroyed D3D device kept a dangling escape context and munmap (which tries
+  every open slot) called into it. Fix: fd_wddm_detach(ctx) in DestroyDevice after the screen is gone,
+  slot table under an SRW lock (DWM creates devices from several threads).

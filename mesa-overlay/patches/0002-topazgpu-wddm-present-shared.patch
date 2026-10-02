@@ -227,10 +227,19 @@ index 17f7292..473dc95 100644
  
  
 diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
-index 8bb09ba..08b0bf0 100644
+index 8bb09ba..fd61721 100644
 --- a/src/gallium/frontends/d3d10umd/Device.cpp
 +++ b/src/gallium/frontends/d3d10umd/Device.cpp
-@@ -370,11 +370,11 @@ DestroyDevice(D3D10DDI_HDEVICE hDevice)   // IN
+@@ -44,6 +44,8 @@
+ 
+ #include "Debug.h"
+ 
++extern "C" void fd_wddm_detach(void *ctx);   /* TopazGpu: freedreno/drm/wddm/fd_wddm.c */
++
+ #include "util/u_sampler.h"
+ 
+ #include "gdikmt/gdikmt.h"
+@@ -370,14 +372,15 @@ DestroyDevice(D3D10DDI_HDEVICE hDevice)   // IN
     static struct pipe_sampler_view * sampler_views[PIPE_MAX_SHADER_SAMPLER_VIEWS];
     memset(sampler_views, 0, sizeof sampler_views);
     pipe->set_sampler_views(pipe, PIPE_SHADER_FRAGMENT, 0,
@@ -245,6 +254,10 @@ index 8bb09ba..08b0bf0 100644
  
     pipe->destroy(pipe);
     pDevice->screen->destroy(pDevice->screen);
++   fd_wddm_detach(&pDevice->device.base);   /* TopazGpu: its escape context dies with the device */
+ 
+    mtx_destroy(&pDevice->CreateResourceMtx);
+ }
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 index 53ef690..65e674a 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
