@@ -66,8 +66,12 @@ static VOID GuardThread(PVOID Ctx)
     UNREFERENCED_PARAMETER(Ctx);
     d.QuadPart = -10000000LL * 60;
     KeDelayExecutionThread(KernelMode, FALSE, &d);
-    GuardFile(FALSE, TRUE);
-    LogPrint("guard: 60 s stable, guard file removed\n");
+    if (g_Adapter != NULL && g_Adapter->LastCompletedFence != 0) {
+        GuardFile(FALSE, TRUE);
+        LogPrint("guard: scheduler works (fence %u completed), guard file removed\n", g_Adapter->LastCompletedFence);
+    } else {
+        LogPrint("guard: no DMA buffer completed in 60 s -> guard kept, next boot will not start the adapter\n");
+    }
     PsTerminateSystemThread(STATUS_SUCCESS);
 }
 
