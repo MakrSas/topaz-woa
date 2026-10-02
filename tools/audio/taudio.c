@@ -11,6 +11,7 @@
  *   taudio rd <pa> [count]                        MMIO read32 (LPASS / TLMM / apps SMMU only)
  *   taudio wr <pa> <value>                        MMIO write32
  *   taudio i2c <addr> [wbytes..] [rN]             QUP0 SE1 transaction (write, then read N)
+ *   taudio pmic <sid> <addr> [count]              PMIC read (SPMI observer), addr = periph<<8|reg
  */
 #include <windows.h>
 #include <winioctl.h>
@@ -224,6 +225,19 @@ int main(int argc, char **argv)
             printf("  i2c %02x: %s", t.Addr, t.Result <= 4 ? res[t.Result] : "?");
             for (i = 0; t.Result == 0 && i < t.RLen; i++) {
                 printf(" %02x", t.R[i]);
+            }
+            printf("\n");
+        }
+    } else if (strcmp(c, "pmic") == 0 && argc >= 4) {
+        TAUDIO_PMIC p;
+        memset(&p, 0, sizeof(p));
+        p.Sid = Num(argv[2]);
+        p.Addr = Num(argv[3]);
+        p.Count = argc > 4 ? Num(argv[4]) : 1;
+        if (Ioctl(IOCTL_TAUDIO_PMIC, &p, sizeof(p), &p, sizeof(p), NULL)) {
+            printf("  pmic sid %u %04x:", p.Sid, p.Addr);
+            for (i = 0; i < p.Count && i < 32; i++) {
+                printf(p.Value[i] > 0xFF ? " ??" : " %02x", p.Value[i]);
             }
             printf("\n");
         }

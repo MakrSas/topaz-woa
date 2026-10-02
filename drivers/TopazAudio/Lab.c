@@ -184,6 +184,60 @@ STATIC NTSTATUS DoBuf(TAUDIO_BUF *B, UINT8 *Data, UINT32 DataMax, UINT32 *DataOu
   return STATUS_INVALID_PARAMETER;
 }
 
+/* ---------------- PMIC (read only, SPMI arbiter v5 observer) ---------------- */
+
+#define SPMI_CORE_PA     0x01C40000u
+#define SPMI_CORE_SIZE   0x1100u
+#define SPMI_APID_MAP    0x900u
+#define SPMI_OBS_PA      0x03E00000u            /* + 0x80 * apid (EE 0 = apps) */
+#define SPMI_OBS_STRIDE  0x80u
+
+STATIC NTSTATUS DoPmic(TAUDIO_PMIC *P)
+{
+  UINT8 *core, *obs;
+  UINT32 ppid = ((P->Sid & 0xF) << 8) | ((P->Addr >> 8) & 0xFF), apid = MAX_UINT32, n, v, i, st;
+
+  if (P->Count == 0 || P->Count > 32 || (P->Addr & 0xFF) + P->Count > 0x100) {
+    return STATUS_INVALID_PARAMETER;
+  }
+  core = MapPhys (SPMI_CORE_PA, SPMI_CORE_SIZE, FALSE);
+  if (core == NULL) {
+    return STATUS_INSUFFICIENT_RESOURCES;
+  }
+  for (n = 0; n < (SPMI_CORE_SIZE - SPMI_APID_MAP) / 4; n++) {
+    v = MmioRead32 ((UINTN)core + SPMI_APID_MAP + 4 * n);
+    if (v != 0 && ((v >> 8) & 0xFFF) == ppid) {
+      apid = n;
+      break;
+    }
+  }
+  UnmapPhys (core, SPMI_CORE_SIZE);
+  if (apid == MAX_UINT32) {
+    return STATUS_NOT_FOUND;
+  }
+  obs = MapPhys (SPMI_OBS_PA + (UINT64)apid * SPMI_OBS_STRIDE, SPMI_OBS_STRIDE, FALSE);
+  if (obs == NULL) {
+    return STATUS_INSUFFICIENT_RESOURCES;
+  }
+  for (n = 0; n < P->Count; n++) {
+    /* observer: cmd = read (opcode 1 << 27) | reg << 4, poll status, data in RDATA0 */
+    MmioWrite32 ((UINTN)obs + 0x00, (1u << 27) | (((P->Addr + n) & 0xFF) << 4));
+    P->Value[n] = 0x1EE;
+    for (i = 0; i < 1000; i++) {
+      st = MmioRead32 ((UINTN)obs + 0x08);
+      if (st & 1) {
+        if ((st & 0xE) == 0) {
+          P->Value[n] = (UINT16)(MmioRead32 ((UINTN)obs + 0x18) & 0xFF);
+        }
+        break;
+      }
+      KeStallExecutionProcessor (1);
+    }
+  }
+  UnmapPhys (obs, SPMI_OBS_STRIDE);
+  return STATUS_SUCCESS;
+}
+
 /*
  * IOCTL dispatcher (PASSIVE_LEVEL, sequential queue). In = Out = the METHOD_BUFFERED system
  * buffer. Returns the number of bytes to copy back in *Info.
@@ -270,6 +324,13 @@ NTSTATUS LabIoctl(ULONG Code, VOID *Buf, UINT32 InLen, UINT32 OutLen, UINT32 *In
     *Info = NT_SUCCESS (st) ? sizeof (*b) + data : 0;
     break;
   }
+  case IOCTL_TAUDIO_PMIC:
+    if (InLen < sizeof (TAUDIO_PMIC) || OutLen < sizeof (TAUDIO_PMIC)) {
+      return STATUS_BUFFER_TOO_SMALL;
+    }
+    st = DoPmic (Buf);
+    *Info = NT_SUCCESS (st) ? sizeof (TAUDIO_PMIC) : 0;
+    break;
   default:
     st = STATUS_INVALID_DEVICE_REQUEST;
     break;

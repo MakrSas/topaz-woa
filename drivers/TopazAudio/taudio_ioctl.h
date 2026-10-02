@@ -16,6 +16,7 @@
 #define IOCTL_TAUDIO_MMIO     TAUDIO_IOCTL (3)   /* in/out: TAUDIO_MMIO */
 #define IOCTL_TAUDIO_I2C      TAUDIO_IOCTL (4)   /* in/out: TAUDIO_I2C */
 #define IOCTL_TAUDIO_BUF      TAUDIO_IOCTL (5)   /* in/out: TAUDIO_BUF (+ data for write) */
+#define IOCTL_TAUDIO_PMIC     TAUDIO_IOCTL (6)   /* in/out: TAUDIO_PMIC (read only) */
 
 #define TAUDIO_GPR_MAX       4096
 
@@ -51,3 +52,10 @@ typedef struct {
   unsigned int Op, Id, Offset, Size;
   unsigned long long Pa;
 } TAUDIO_BUF;
+
+/* PMIC register read through the SPMI arbiter v5 observer channel (EE 0, read only, like
+   TopazModem pmic.c). Sid: 0 = PM6125 main, 1 = PM6125 regulators. Result per byte: 0x1EE error. */
+typedef struct {
+  unsigned int Sid, Addr, Count;   /* Addr = periph << 8 | reg, Count <= 32, same peripheral */
+  unsigned short Value[32];
+} TAUDIO_PMIC;
