@@ -44,6 +44,21 @@ index ce95c9f..06222a2 100644
     int dup_fd = os_dupfd_cloexec(fd);
     struct fd_device *dev = fd_device_new(dup_fd);
     if (dev)
+diff --git a/src/freedreno/drm/freedreno_priv.h b/src/freedreno/drm/freedreno_priv.h
+index b2e7604..07353ff 100644
+--- a/src/freedreno/drm/freedreno_priv.h
++++ b/src/freedreno/drm/freedreno_priv.h
+@@ -511,8 +511,8 @@ bool fd_dbg(void);
+       mesa_loge("%s:%d: " fmt, __func__, __LINE__, ##__VA_ARGS__);             \
+    } while (0)
+ 
+-#define U642VOID(x) ((void *)(unsigned long)(x))
+-#define VOID2U64(x) ((uint64_t)(unsigned long)(x))
++#define U642VOID(x) ((void *)(uintptr_t)(x))
++#define VOID2U64(x) ((uint64_t)(uintptr_t)(x))
+ 
+ #ifdef HAVE_VALGRIND
+ #include <memcheck.h>
 diff --git a/src/freedreno/drm/meson.build b/src/freedreno/drm/meson.build
 index ffaf6c9..edd8412 100644
 --- a/src/freedreno/drm/meson.build
