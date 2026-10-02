@@ -60,6 +60,9 @@ int main(int argc, char **argv)
     // tri:    full-screen triangle, constant-color pixel shader, then read back
     bool vsonly = argc > 1 && strcmp(argv[1], "vsonly") == 0;
     bool tri = argc > 1 && strcmp(argv[1], "tri") == 0;
+    // nort: like vsonly but with no render target bound at all (RB has no MRT)
+    bool nort = argc > 1 && strcmp(argv[1], "nort") == 0;
+    vsonly = vsonly || nort;
     setvbuf(stdout, nullptr, _IONBF, 0);
     SetEnvironmentVariableA("TOPAZGPU_ENABLE", "1");  // the UMD refuses other processes
     if (argc > 2) {
@@ -155,7 +158,7 @@ int main(int argc, char **argv)
         printf("shaders: vs %p ps %p\n", (void *)vs, (void *)ps);
         D3D11_VIEWPORT vp = { 0, 0, 64, 64, 0, 1 };
         ctx->RSSetViewports(1, &vp);
-        ctx->OMSetRenderTargets(1, &rtv, nullptr);
+        ctx->OMSetRenderTargets(nort ? 0 : 1, nort ? nullptr : &rtv, nullptr);
         D3D11_DEPTH_STENCIL_DESC dsd = {};               // default state has depth on (no DSV here)
         ID3D11DepthStencilState *dss = nullptr;
         dev->CreateDepthStencilState(&dsd, &dss);
