@@ -322,3 +322,16 @@ process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
 - v0.21: SPTPRAC through the GMU wrapper (0x596A000 + 4*0x50d0, as Linux does for A619 holi) →
   **bugcheck 0x101**: reading that region hangs the bus on khaje. Never touch 0x596A000+ again.
   v0.22 = v0.20 behaviour.
+- **Half-dead system after tests (19:25, and once before):** taskbar/explorer, "This PC", Task
+  Manager, network, sshd hang while the desktop works. Cause (most likely): `devcon restart/update`
+  of TopazGpuW waits for DWM to release the adapter and holds the PnP lock meanwhile. Earlier a
+  disable only completed after killing dwm. → v0.25 recovers a wedged GPU inside the KMD on the next
+  submit (power-cycle, zap, SMMU, CP; earlier fences marked complete); `t.ps1` no longer restarts the
+  device. KMD updates still need a stop: run devcon in the background, kill dwm if it is stuck >10 s.
+- Tried without effect on the draw hang: linux-firmware SQE (34188 B, on the phone as
+  `C:\topaz\fw\gpu\a630_sqe.linux.fw`, vendor copy `a630_sqe.vendor.fw`; the active file is the linux
+  one), FD_MESA_DEBUG direct / nofp16 / sysmem / nolrz / noubwc. KGSL a6xx_start (LineageOS sm6150
+  tree) matches our init. Markers (v0.23): hang inside the draw (CP_SCRATCH7 = before-draw marker),
+  RBBM_STATUS 00e70585 = RB, CCU, LRZ, VPC, UCHE, SP, HLSQ busy; RAS/TSE/PC idle.
+- Next experiment (v0.24+): GMEM size override `C:\topaz\gpu.gmem` (hex) — CCU's sysmem cache is
+  placed at the end of GMEM by Mesa; a smaller khaje GMEM would wedge RB/CCU.

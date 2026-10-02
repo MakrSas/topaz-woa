@@ -59,8 +59,8 @@ typedef struct _KBUF {
 
 static volatile UCHAR *g_Gcc, *g_GpuCc, *g_Gpu, *g_Smmu, *g_Gmu;
 static BOOLEAN g_Ready, g_Failed, g_SmmuOn;
-static BOOLEAN g_Wedged;
-static ULONG g_GmemSize = 0x21000;                       /* 128K + 4K (bengal); v0.24: C:\topaz\gpu.gmem overrides */                                 /* v0.18: a fence timed out, GPU hung */
+static BOOLEAN g_Wedged;                                 /* v0.18: a fence timed out, GPU hung */
+static ULONG g_GmemSize = 0x21000;                       /* 128K + 4K (bengal); v0.24: C:\topaz\gpu.gmem overrides */
 static KMUTEX g_HwLock;          /* not FAST_MUTEX: file I/O (zap, SQE) at APC_LEVEL deadlocks */
 static KBUF g_Ring, g_Sqe, g_Mem;               /* g_Mem: fence at +0 */
 static ULONG g_Wptr, g_Seqno;
@@ -843,8 +843,13 @@ static BOOLEAN CpStart(VOID)
     ULONG fwSize = 0;
 
     fw = ReadWholeFile(L"\\??\\C:\\topaz\\fw\\gpu\\a630_sqe.fw", &fwSize);
-    if (fw == NULL || fwSize <= 4 || !KBufAlloc(&g_Sqe, fwSize - 4) || !KBufAlloc(&g_Ring, RB_BYTES) ||
-        !KBufAlloc(&g_Mem, PAGE_SIZE)) {
+    /* v0.25: buffers survive HwRecover (fence readers may race with it), only the SQE copy is
+       reallocated if the firmware file grew */
+    if (fw != NULL && g_Sqe.Va != NULL && g_Sqe.Size < fwSize - 4) {
+        KBufFree(&g_Sqe);
+    }
+    if (fw == NULL || fwSize <= 4 || (g_Sqe.Va == NULL && !KBufAlloc(&g_Sqe, fwSize - 4)) ||
+        (g_Ring.Va == NULL && !KBufAlloc(&g_Ring, RB_BYTES)) || (g_Mem.Va == NULL && !KBufAlloc(&g_Mem, PAGE_SIZE))) {
         LogPrint("  CP buffers/firmware failed\n");
         if (fw != NULL) {
             ExFreePoolWithTag(fw, TGPU_POOL_TAG);
@@ -925,6 +930,35 @@ BOOLEAN HwStart(VOID)
 fail:
     g_Failed = TRUE;                                     /* never retried until reboot */
     LogPrint("--- GPU start FAILED\n");
+out:
+    KeReleaseMutex(&g_HwLock, FALSE);
+    return ok;
+}
+
+/* v0.25: bring a wedged GPU back without restarting the WDDM device (a PnP restart waits for DWM to
+   release the adapter and holds the PnP lock meanwhile -> explorer/network hung). Called by the next
+   submit after a hang. All earlier fences are marked complete: their work is lost. */
+BOOLEAN HwRecover(VOID)
+{
+    BOOLEAN ok = FALSE;
+
+    KeWaitForSingleObject(&g_HwLock, Executive, KernelMode, FALSE, NULL);
+    if (!g_Wedged) {
+        ok = g_Ready;
+        goto out;
+    }
+    LogPrint("--- GPU recover after hang (seqno %u, completed %u)\n", g_Seqno, HwCompletedFence());
+    g_Ready = FALSE;
+    if (!PowerUp() || !ZapLoad() || !SmmuSetup() || !CpStart()) {
+        g_Failed = TRUE;
+        LogPrint("--- GPU recover FAILED\n");
+        goto out;
+    }
+    *(volatile ULONG *)g_Mem.Va = g_Seqno;
+    g_Wedged = FALSE;
+    g_Ready = TRUE;
+    ok = TRUE;
+    LogPrint("--- GPU recovered\n");
 out:
     KeReleaseMutex(&g_HwLock, FALSE);
     return ok;

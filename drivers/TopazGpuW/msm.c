@@ -221,6 +221,9 @@ static NTSTATUS Submit(struct drm_msm_gem_submit *A)
     NTSTATUS st = STATUS_SUCCESS;
     TGPU_BO *bo;
 
+    if (HwWedged() && !HwRecover()) {
+        return STATUS_DEVICE_HARDWARE_ERROR;
+    }
     if (A->nr_cmds == 0 || A->nr_cmds > 64 || A->nr_bos > 65536) {
         return STATUS_INVALID_PARAMETER;
     }

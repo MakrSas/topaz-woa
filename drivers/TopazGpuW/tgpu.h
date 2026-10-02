@@ -17,7 +17,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.24"
+#define TGPU_VERSION        "v0.25"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
@@ -67,6 +67,7 @@ NTSTATUS  HwSubmit(const ULONGLONG *IbIova, const ULONG *IbDwords, ULONG Count, 
 ULONG     HwCompletedFence(VOID);
 BOOLEAN   HwWaitFence(ULONG Fence, ULONG TimeoutMs);
 BOOLEAN   HwWedged(VOID);
+BOOLEAN   HwRecover(VOID);
 ULONG     HwGmemSize(VOID);
 ULONGLONG HwTimestamp(VOID);
 
