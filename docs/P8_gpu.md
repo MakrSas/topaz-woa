@@ -174,3 +174,24 @@ test buffer: c0ffee00 (0xC0FFEE00 = the GPU wrote to memory)
 - G2: WDDM render-only KMD (DXGKDDI for allocation, submit, fences on the ring above, IRQ, reset),
   TopazDisplay stays the display-only adapter.
 - G3: Mesa d3d10umd + freedreno + WDDM winsys built for Windows ARM64 in CI.
+
+## G2/G3 architecture (decided 2026-10-02)
+Template found: **viogpu3d** (virtio-win PR #943, KMD branch `max8rr8/kvm-guest-drivers-windows`
+`viogpu3d`, dir `viogpu/viogpu3d`, BSD-3, ~7000 lines: driver.cpp, viogpu_adapter.cpp,
+viogpu_allocation.cpp, viogpu_command.cpp, viogpu_device.cpp, viogpu_vidpn.cpp) + Mesa branch
+`max8rr8/mesa viogpu_win` = upstream d3d10umd + virgl gallium driver + a WDDM winsys
+(`src/gallium/winsys/virgl/gdi/virgl_gdi_winsys.c`, 1124 lines) that talks to the KMD only through
+the D3DKMT thunks: D3DKMTCreateAllocation / Lock / CreateContext / Render (cmd buffer + allocation
+list + patch list) / Escape / QueryAdapterInfo. With it **DWM works** (glitches in WinUI3, VS Code
+needs PIPE_QUERY_TIMESTAMP_DISJOINT). KMD: WDDM 1.3, one **aperture segment** (GPU reaches system
+pages through a GPU-side mapping programmed from DxgkDdiBuildPagingBuffer), paging buffer in
+segment 1, preemption disabled system-wide.
+- Our version: **KMD** = viogpu3d structure with virtio replaced by the TopazGpu G1 code (power,
+  zap, SQE, ring) + aperture mapping = **real SMMU stage-1 page tables** in CB0 (ARMv8 LPAE, 4 KB
+  granule, TTBR0) instead of the identity bank + display = the fixed 1080×2400 framebuffer at
+  0x5C000000 (replaces TopazDisplay; one adapter does render + scanout). **UMD** = Mesa 25.3.0 (last
+  release with d3d10umd; removed on main) + freedreno gallium (A610 = GPUId(610) in
+  freedreno_devices.py) + a new **WDDM backend for src/freedreno/drm** modelled on
+  virgl_gdi_winsys.c, built for Windows ARM64 in CI (meson, d3d10 dll name e.g. `topazgpu_d3d10`).
+- Local sources (Mac): `~/work-gpu/mesa` (25.3.0 sparse), `~/work-gpu/mesa-viogpu`,
+  `~/work-gpu/viogpu-kmd`. s8build `~/work/gpu/` has firmware + vendor image.
