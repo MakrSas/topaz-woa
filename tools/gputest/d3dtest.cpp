@@ -30,10 +30,20 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep)
         printf("  access %llu addr %llx\n", (unsigned long long)ep->ExceptionRecord->ExceptionInformation[0],
                (unsigned long long)ep->ExceptionRecord->ExceptionInformation[1]);
     }
-    void *frames[48];
-    USHORT n = CaptureStackBackTrace(0, 48, frames, nullptr);
-    for (USHORT i = 0; i < n; i++) {
-        print_addr(frames[i]);
+    // unwind from the faulting context (CaptureStackBackTrace skips the UMD frames)
+    CONTEXT c = *ep->ContextRecord;
+    for (int i = 0; i < 48 && c.Pc; i++) {
+        print_addr((void *)c.Pc);
+        DWORD64 image = 0;
+        PRUNTIME_FUNCTION f = RtlLookupFunctionEntry(c.Pc, &image, nullptr);
+        if (!f) {
+            c.Pc = c.Lr;                                // leaf function
+            c.Lr = 0;
+            continue;
+        }
+        void *handler_data;
+        DWORD64 frame;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, c.Pc, f, &c, &handler_data, &frame, nullptr);
     }
     fflush(stdout);
     return EXCEPTION_CONTINUE_SEARCH;
