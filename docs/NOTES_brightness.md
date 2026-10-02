@@ -97,3 +97,19 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   the log, no new 4113. Win32_VideoController lists only "Redmi Note 12 Display (topaz)"; monitors:
   "Generic Monitor" (current), "Generic Monitor (Topaz Panel)" (ghost, DISPLAY\TPZ6225). WmiMonitorBrightness
   is still "not supported" (BasicDisplay is still the active adapter for DWM). Open: why it is not started at boot.
+
+## BasicDisplay disable attempt #1 (2026-10-02 ~21:50) — FAILED, reverted
+- Method: `ConfigFlags=1` on `HKLM\SYSTEM\CurrentControlSet\Enum\ROOT\BASICDISPLAY\0000` + reboot (a hot
+  `devcon disable` of an adapter DWM holds risks a PnP hang). Result: the panel **froze on the boot logo**
+  (the bootloader's "scanning disk" screen) — nobody scans out; Windows itself booted (SSH ok).
+- At boot TopazDisplay fails to start: Kernel-PnP/Configuration event **411, problem status 0xC00000E5
+  (STATUS_INTERNAL_ERROR)** for ROOT\DISPLAY\0000 (seen after every reboot with v0.3 and v0.4); a manual
+  `devcon restart Root\TopazDisplay` afterwards starts it (Status OK), but even then the screen stayed on the
+  logo — TopazDisplay does not draw anything (DWM is not moved to it / no Present reaches the framebuffer).
+- Recovery that worked over SSH: `Set-ItemProperty ...Enum\ROOT\BASICDISPLAY\0000 ConfigFlags 0` and
+  `devcon enable "@ROOT\BASICDISPLAY\0000"` (BasicDisplay came back OK without a reboot; running a .ps1 needs
+  `-ExecutionPolicy Bypass`).
+- Boot-time DxgKrnl ETW autologger installed: `HKLM\...\Control\WMI\Autologger\TopazDxg` → `C:\topaz\boot.etl`
+  (provider {802EC45A-1E99-4B83-9920-87C98277BA9D}, level 5), to see why the first start returns 0xC00000E5.
+- ScanDisk at boot disabled by the user's request: `chkntfs /x C:` → BootExecute `autocheck autochk /k:C *`
+  (C: is flagged dirty from the forced reboots; never ntfsfix it).
