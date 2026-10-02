@@ -259,32 +259,49 @@ index 8bb09ba..fd61721 100644
     mtx_destroy(&pDevice->CreateResourceMtx);
  }
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-index 53ef690..65e674a 100644
+index 53ef690..681d19f 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 +++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-@@ -66,6 +66,9 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+@@ -66,6 +66,16 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
     struct Device *device = CastDevice(pPresentData->hDevice);
     Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
  
 +   if (pSrcResource->hAllocation) {
-+      return TopazWddmPresent(device, pSrcResource, pPresentData->pDXGIContext);
++      Resource *pDst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource) : NULL;
++      HRESULT hr = TopazWddmPresent(device, pSrcResource, pDst, pPresentData->pDXGIContext);
++      static unsigned n;
++      if (++n <= 20 || FAILED(hr))
++         TopazWddmLogf("DXGI Present #%u alloc 0x%x dst %p flags 0x%x -> 0x%08lx\n", n, pSrcResource->hAllocation,
++                       pPresentData->hDstResource, pPresentData->Flags.Value, (unsigned long)hr);
++      return hr;
 +   }
++   TopazWddmLogf("DXGI Present of a resource without allocation (flush_frontbuffer path)\n");
     device->pipe->screen->flush_frontbuffer(device->pipe->screen, device->pipe, 
        pSrcResource->resource, 0, 0, pPresentData->pDXGIContext, 0, NULL);
  
-@@ -123,6 +126,11 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
+@@ -123,6 +133,13 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
     Device* device = CastDevice(SetDisplayMode->hDevice);
     Resource *res = CastResource(SetDisplayMode->hResource);
  
 +   if (res->hAllocation) {
-+      device->device.base.setDisplayMode(&device->device.base, res->hAllocation);
-+      return S_OK;
++      HRESULT hr = device->device.base.setDisplayMode(&device->device.base, res->hAllocation);
++      TopazWddmLogf("DXGI SetDisplayMode alloc 0x%x -> 0x%08lx\n", res->hAllocation, (unsigned long)hr);
++      return hr;
 +   }
++   TopazWddmLogf("DXGI SetDisplayMode without allocation\n");
 +
     if(!device->screen->resource_get_handle) {
        LOG_UNSUPPORTED_ENTRYPOINT();
        return S_OK;
-@@ -204,14 +212,17 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -197,6 +214,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+ {
+    LOG_ENTRYPOINT();
+ 
++   TopazWddmLogf("DXGI RotateResourceIdentities %u\n", RotateResourceIdentities->Resources);
+    if (RotateResourceIdentities->Resources <= 1) {
+       return S_OK;
+    }
+@@ -204,14 +222,17 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
     const DXGI_DDI_HRESOURCE *hResources = RotateResourceIdentities->pResources;
  
     struct pipe_resource *firstResource = CastPipeResource(hResources[0]);
@@ -302,6 +319,14 @@ index 53ef690..65e674a 100644
  
     return S_OK;
  }
+@@ -231,6 +252,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+ HRESULT APIENTRY
+ _Blt(DXGI_DDI_ARG_BLT *Blt)
+ {
++   TopazWddmLogf("DXGI Blt (unsupported)\n");
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ 
+    return S_OK;
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
 index 24131e5..0991241 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
@@ -419,7 +444,7 @@ index 6f5006b..d80905d 100644
        tgsi_dump(tokens, 0);
     }
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
-index 19de592..59946ad 100644
+index 19de592..d922002 100644
 --- a/src/gallium/frontends/d3d10umd/State.h
 +++ b/src/gallium/frontends/d3d10umd/State.h
 @@ -94,6 +94,7 @@ struct Device
@@ -468,7 +493,7 @@ index 19de592..59946ad 100644
 +HRESULT TopazWddmCreateAllocation(Device *pDevice, Resource *pResource, const D3D10DDIARG_CREATERESOURCE *pCreate);
 +void TopazWddmDestroyAllocation(Device *pDevice, Resource *pResource);
 +struct pipe_resource *TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HANDLE *phAllocation);
-+HRESULT TopazWddmPresent(Device *pDevice, Resource *pSrc, void *pDXGIContext);
++HRESULT TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGIContext);
 +bool TopazWddmEnabled(void);
 diff --git a/src/gallium/frontends/d3d10umd/meson.build b/src/gallium/frontends/d3d10umd/meson.build
 index 83bc243..b48f556 100644
@@ -486,10 +511,10 @@ index 83bc243..b48f556 100644
    cpp_args : _c_args_d3d10umd,
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 new file mode 100644
-index 0000000..c94d723
+index 0000000..149749c
 --- /dev/null
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,253 @@
 +/*
 + * TopazGpu step C2: the WDDM side of resources that leave the UMD (docs/P8_gpu.md in topaz-woa).
 + *
@@ -656,7 +681,7 @@ index 0000000..c94d723
 +
 +/* DXGI Present: finish the GPU work on the source, then let the KMD blt/flip it */
 +HRESULT
-+TopazWddmPresent(Device *pDevice, Resource *pSrc, void *pDXGIContext)
++TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGIContext)
 +{
 +   struct pipe_context *pipe = pDevice->pipe;
 +   struct pipe_screen *screen = pDevice->screen;
@@ -677,7 +702,17 @@ index 0000000..c94d723
 +         return E_FAIL;
 +      }
 +   }
-+   return pDevice->device.base.present(pDevice->topazCtx, pSrc->hAllocation, pDXGIContext, NULL);
++   /* not gdikmt's present(): it never passes a destination; a DXGI blt present with hDstResource
++      (DWM to its primary) needs hDstAllocation */
++   {
++      DXGIDDICB_PRESENT p;
++      memset(&p, 0, sizeof(p));
++      p.hSrcAllocation = pSrc->hAllocation;
++      p.hDstAllocation = pDst ? pDst->hAllocation : 0;
++      p.pDXGIContext = pDXGIContext;
++      p.hContext = ((struct gdikmt_context_d3dddi *)pDevice->topazCtx)->hContext;
++      return pDevice->device.pDXGIBaseCallbacks->pfnPresentCb(pDevice->device.hRTDevice, &p);
++   }
 +}
 +
 +/* Debug log for processes without a console (DWM): if C:\ProgramData\topaz\umd.log.enable exists,
