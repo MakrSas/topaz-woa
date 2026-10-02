@@ -6,9 +6,43 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <stdio.h>
+#include <psapi.h>
+
+// Crash report: exception code/PC and the call stack as module+offset (symbolize the UMD frames
+// with llvm-symbolizer and the CI PDB).
+static void print_addr(void *a)
+{
+    HMODULE m = nullptr;
+    char name[MAX_PATH] = "?";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)a, &m)) {
+        GetModuleFileNameA(m, name, sizeof(name));
+    }
+    const char *base = strrchr(name, '\\');
+    printf("  %s+0x%llx\n", base ? base + 1 : name, (unsigned long long)((char *)a - (char *)m));
+}
+
+static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep)
+{
+    printf("EXCEPTION %08lx at", (unsigned long)ep->ExceptionRecord->ExceptionCode);
+    print_addr(ep->ExceptionRecord->ExceptionAddress);
+    if (ep->ExceptionRecord->NumberParameters >= 2) {
+        printf("  access %llu addr %llx\n", (unsigned long long)ep->ExceptionRecord->ExceptionInformation[0],
+               (unsigned long long)ep->ExceptionRecord->ExceptionInformation[1]);
+    }
+    void *frames[48];
+    USHORT n = CaptureStackBackTrace(0, 48, frames, nullptr);
+    for (USHORT i = 0; i < n; i++) {
+        print_addr(frames[i]);
+    }
+    fflush(stdout);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
 
 int main(void)
 {
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    AddVectoredExceptionHandler(1, crash_handler);
     IDXGIFactory1 *factory = nullptr;
     IDXGIAdapter1 *adapter = nullptr, *pick = nullptr;
     DXGI_ADAPTER_DESC1 desc;
