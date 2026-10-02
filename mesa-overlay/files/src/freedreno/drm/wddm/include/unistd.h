@@ -7,8 +7,13 @@
 extern "C" {
 #endif
 int fd_wddm_close(int fd);
+int fd_wddm_usleep(unsigned usec);
 #ifdef __cplusplus
 }
 #endif
 #define close(fd) fd_wddm_close(fd)
+#define usleep(us) fd_wddm_usleep(us)
+#ifndef getpid
+#define getpid() _getpid()
+#endif
 #endif

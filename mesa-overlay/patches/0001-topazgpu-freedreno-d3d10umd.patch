@@ -1,8 +1,8 @@
 diff --git a/meson.build b/meson.build
-index 1b1f5b8..45145cc 100644
+index 1b1f5b8..c000ab2 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -783,13 +783,21 @@ if with_gallium_st_nine
+@@ -783,13 +783,22 @@ if with_gallium_st_nine
    endif
  endif
  
@@ -10,6 +10,7 @@ index 1b1f5b8..45145cc 100644
 +if with_gallium_freedreno and host_machine.system() == 'windows'
 +  pre_args += ['-I' + (meson.current_source_dir() / 'src' / 'freedreno' / 'drm' / 'wddm' / 'include'),
 +               '-I' + (meson.current_source_dir() / 'src' / 'freedreno' / 'drm' / 'wddm'),
++               '-FI' + (meson.current_source_dir() / 'src' / 'freedreno' / 'drm' / 'wddm' / 'fd_wddm_compat.h'),
 +               '-DFD_WDDM']
 +endif
 +
@@ -81,16 +82,26 @@ index b455cd6..8cfeb57 100644
  endif
  
 diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
-index b8ab9f5..db17fa6 100644
+index b8ab9f5..a7d1491 100644
 --- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
 +++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
-@@ -34,6 +34,18 @@
+@@ -34,6 +34,28 @@
  #include "softpipe/sp_public.h"
  #include "sw/gdi/gdi_sw_winsys.h"
  #include "virgl/gdi/virgl_gdi_public.h"
 +#ifdef GALLIUM_FREEDRENO
-+#include "freedreno/freedreno_screen.h"
 +#include "xf86drm.h"
++#include "util/xmlconfig.h"
++#include "pipe/p_screen.h"
++
++struct pipe_screen *fd_screen_create(int fd, const struct pipe_screen_config *config, struct renderonly *ro);
++
++/* freedreno reads driconf options in fd_screen_create(): give it its defaults */
++static const driOptionDescription fd_driconf[] = {
++#include "freedreno/driinfo_freedreno.h"
++};
++static driOptionCache fd_options;
++static struct pipe_screen_config fd_config;
 +
 +/* TopazGpu: DRM ioctls of freedreno travel as escapes through the D3D10 device callbacks */
 +static int
@@ -103,7 +114,7 @@ index b8ab9f5..db17fa6 100644
  
  #include "winddk_compat.h"
  #include <d3dkmthk.h>
-@@ -66,6 +78,15 @@ d3d10_create_screen(struct gdikmt_device* device)
+@@ -66,6 +88,20 @@ d3d10_create_screen(struct gdikmt_device* device)
  #ifdef GALLIUM_VIRGL
     return virgl_gdi_screen_create(device);
  #endif
@@ -112,7 +123,12 @@ index b8ab9f5..db17fa6 100644
 +      int fd = fd_wddm_open(d3d10_fd_escape, device);
 +      if (fd < 0)
 +         return NULL;
-+      screen = fd_screen_create(fd, NULL, NULL);
++      if (!fd_config.options) {
++         driParseOptionInfo(&fd_options, fd_driconf, ARRAY_SIZE(fd_driconf));
++         fd_config.options = &fd_options;
++         fd_config.options_info = &fd_options;
++      }
++      screen = fd_screen_create(fd, &fd_config, NULL);
 +      return screen ? debug_screen_wrap(screen) : NULL;
 +   }
 +#endif
@@ -132,3 +148,16 @@ index 686e5f9..d5dce2e 100644
    ],
    name_prefix: '',
    install : true,
+diff --git a/src/util/os_mman.h b/src/util/os_mman.h
+index 1567ee7..de7a1a4 100644
+--- a/src/util/os_mman.h
++++ b/src/util/os_mman.h
+@@ -40,7 +40,7 @@
+ 
+ #include "util/detect_os.h"
+ 
+-#if DETECT_OS_POSIX
++#if DETECT_OS_POSIX || defined(FD_WDDM)
+ #  include <sys/mman.h>
+ #else
+ #  error Unsupported OS

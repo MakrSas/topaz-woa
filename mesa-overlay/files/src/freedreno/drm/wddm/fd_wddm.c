@@ -185,3 +185,46 @@ munmap(void *addr, size_t length)
    }
    return -1;
 }
+
+/* ---- POSIX bits freedreno needs on Windows (see include/) ---- */
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <time.h>
+#include "pthread.h"
+#include "poll.h"
+#include "sys/sysinfo.h"
+
+int fd_wddm_mutex_lock(pthread_mutex_t *m) { AcquireSRWLockExclusive((PSRWLOCK)m); return 0; }
+int fd_wddm_mutex_unlock(pthread_mutex_t *m) { ReleaseSRWLockExclusive((PSRWLOCK)m); return 0; }
+int fd_wddm_cond_wait(pthread_cond_t *c, pthread_mutex_t *m)
+{
+   return SleepConditionVariableSRW((PCONDITION_VARIABLE)c, (PSRWLOCK)m, INFINITE, 0) ? 0 : -1;
+}
+int fd_wddm_cond_broadcast(pthread_cond_t *c) { WakeAllConditionVariable((PCONDITION_VARIABLE)c); return 0; }
+int fd_wddm_poll(struct pollfd *fds, unsigned long nfds, int timeout) { (void)fds; (void)nfds; (void)timeout; return -1; }
+long fd_wddm_syscall(long n) { (void)n; return (long)GetCurrentThreadId(); }
+int fd_wddm_usleep(unsigned usec) { Sleep((usec + 999) / 1000); return 0; }
+
+int fd_wddm_sysinfo(struct sysinfo *si)
+{
+   MEMORYSTATUSEX ms = { sizeof(ms) };
+   GlobalMemoryStatusEx(&ms);
+   si->totalram = ms.ullTotalPhys;
+   si->freeram = ms.ullAvailPhys;
+   si->mem_unit = 1;
+   return 0;
+}
+
+int fd_wddm_clock_gettime(int clk, struct timespec *ts)
+{
+   static LARGE_INTEGER freq;
+   LARGE_INTEGER now;
+   (void)clk;
+   if (!freq.QuadPart)
+      QueryPerformanceFrequency(&freq);
+   QueryPerformanceCounter(&now);
+   ts->tv_sec = (time_t)(now.QuadPart / freq.QuadPart);
+   ts->tv_nsec = (long)((now.QuadPart % freq.QuadPart) * 1000000000ll / freq.QuadPart);
+   return 0;
+}

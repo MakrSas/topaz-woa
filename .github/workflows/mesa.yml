@@ -44,8 +44,10 @@ jobs:
         run: |
           @"
           [binaries]
-          c = 'cl'
-          cpp = 'cl'
+          c = ['clang-cl', '--target=aarch64-pc-windows-msvc']
+          cpp = ['clang-cl', '--target=aarch64-pc-windows-msvc']
+          c_ld = 'link'
+          cpp_ld = 'link'
           ar = 'lib'
           windres = 'rc'
           [host_machine]
@@ -59,7 +61,7 @@ jobs:
             -Dvulkan-drivers= -Dplatforms=windows -Db_vscrt=mt -Dllvm=disabled -Dzstd=disabled `
             -Dshared-glapi=enabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dbuild-tests=false 2>&1 | Tee-Object configure.log
           if ($LASTEXITCODE) { throw "meson setup failed" }
-          ninja -C build -k 0 2>&1 | Tee-Object build.log
+          ninja -C build -k 0 src/gallium/targets/d3d10umd/topazgpu_d3d10.dll 2>&1 | Tee-Object build.log
           if ($LASTEXITCODE) { throw "ninja failed" }
 
       - if: always()
