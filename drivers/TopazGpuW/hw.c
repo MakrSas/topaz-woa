@@ -140,8 +140,30 @@ static BOOLEAN GdscOn(ULONG Gdscr, ULONG Bcr, ULONG Clamp, ULONG Status)
     return Poll(g_GpuCc, Status, GDSC_PWR_ON, GDSC_PWR_ON, 500);
 }
 
+/* A previous (failed) start can leave the GPU powered with a wedged CP: collapse GX then CX first so
+   PowerUp starts from reset state. */
+static VOID PowerCycleIfOn(VOID)
+{
+    if ((Rd(g_GpuCc, 0x100c) & GDSC_PWR_ON) == 0 && (Rd(g_GpuCc, 0x1540) & GDSC_PWR_ON) == 0) {
+        return;
+    }
+    LogPrint("  GPU already powered (GX %08x CX %08x): power cycling\n", Rd(g_GpuCc, 0x100c), Rd(g_GpuCc, 0x1540));
+    if (Rd(g_GpuCc, 0x100c) & GDSC_PWR_ON) {
+        Wr(g_Gpu, 4 * 0x808, 0);                         /* CP_SQE_CNTL: stop */
+    }
+    Rmw(g_GpuCc, 0x1054, CBCR_EN, 0);                    /* gx_gfx3d off */
+    Rmw(g_GpuCc, 0x100c, 0, GDSC_COLLAPSE);              /* GX GDSC collapse */
+    Rmw(g_GpuCc, 0x1508, 0, 1);                          /* GX clamp */
+    Poll(g_GpuCc, 0x100c, GDSC_PWR_ON, 0, 1000);
+    Rmw(g_GpuCc, 0x1098, CBCR_EN, 0);
+    Rmw(g_GpuCc, 0x106c, 0, GDSC_COLLAPSE);              /* CX GDSC collapse (votable: may stay on) */
+    KeStallExecutionProcessor(1000);
+    LogPrint("  after collapse: GX %08x CX %08x\n", Rd(g_GpuCc, 0x100c), Rd(g_GpuCc, 0x1540));
+}
+
 static BOOLEAN PowerUp(VOID)
 {
+    PowerCycleIfOn();
     Rmw(g_Gcc, 0x79004, 0, 1u << 15);                    /* GPLL0 to the GPU CC */
     BranchOn(g_Gcc, 0x71154, "gcc_bimc_gpu_axi");
     BranchOn(g_Gcc, 0x3600c, "gcc_gpu_memnoc_gfx");      /* voted: may read off */
