@@ -15,12 +15,17 @@
  * v0.2 experiments: C:\topaz\dsicmd = hex bytes "<DT> <payload...>" (05 = DCS short write, 15 = short
  * write + 1 parameter, 39 = DCS long write), sent once, then the file is deleted.
  *
+ * v0.3: the TPG FIFO path reports CMD_DMA_DONE but nothing reaches the panel (display off/on had no
+ * effect). With C:\topaz\dsi.dma present the packet goes the way Linux sends it instead: a
+ * contiguous buffer below 4 GB, DSI_DMA_CMD_OFFSET = its physical address (MDSS must reach it
+ * through the apps SMMU; its GFSR is logged before/after).
+ *
  * Control: C:\topaz\brightness = 0..100 (text). Polled 3x a second; nothing is sent while the
  * file is absent (v0.1 then only logs the DSI registers). Log: C:\TopazBacklight.log.
  */
 #include "driver.h"
 
-#define TOPAZ_BL_VERSION    "v0.2"
+#define TOPAZ_BL_VERSION    "v0.3"
 
 #define DSI0_PA             0x05E94000ULL
 #define DSI0_SIZE           0x400
@@ -29,6 +34,7 @@
 #define DSI_STATUS          0x008
 #define DSI_VIDEO_MODE_CTRL 0x010
 #define DSI_CMD_DMA_CTRL    0x03C           /* DSI_COMMAND_MODE_DMA_CTRL */
+#define DSI_DMA_CMD_OFFSET  0x048
 #define DSI_DMA_CMD_LENGTH  0x04C
 #define DSI_TRIG_CTRL       0x084
 #define DSI_DMA_SW_TRIGGER  0x090           /* DSI_CMD_MODE_DMA_SW_TRIGGER */
@@ -47,8 +53,15 @@
 #define BL_MAX              0x7FF
 #define POLL_MS             330
 
+#define APPS_SMMU_PA        0x0C600000ULL
+#define SMMU_GFSR           0x048
+
 typedef struct _DEVICE_CONTEXT {
     volatile UCHAR *Dsi;
+    volatile UCHAR *Smmu;                   /* apps SMMU, read only (GFSR) */
+    PUCHAR     DmaVa;                       /* v0.3 DMA command buffer */
+    PHYSICAL_ADDRESS DmaPa;
+    BOOLEAN    UseDma;
     BOOLEAN    HwReady;
     LONG       LastPct;                     /* -1 = nothing sent yet */
     PKTHREAD   Thread;
@@ -145,18 +158,26 @@ static BOOLEAN DsiSend(PDEVICE_CONTEXT C, UCHAR Dt, const UCHAR *Payload, ULONG 
     Wr(C, DSI_CTRL, ctrl | CTRL_CMD_MODE_EN | CTRL_ENABLE);
     Wr(C, DSI_INT_CTRL, Rd(C, DSI_INT_CTRL) | INT_CMD_DMA_DONE);      /* ack a stale DONE */
 
-    Wr(C, DSI_TPG_CTRL, (1u << 1) | (1u << 2) | (3u << 16));          /* CMD_DMA_TPG_EN, FIFO mode, custom */
-    for (i = 0; i < size; i += 4) {
-        Wr(C, DSI_TPG_DMA_INIT, (ULONG)pkt[i] | ((ULONG)pkt[i + 1] << 8) | ((ULONG)pkt[i + 2] << 16) |
-                                ((ULONG)pkt[i + 3] << 24));
+    if (C->UseDma && C->DmaVa != NULL) {
+        RtlCopyMemory(C->DmaVa, pkt, size);
+        KeMemoryBarrier();
+        Wr(C, DSI_TPG_CTRL, 0);
+        Wr(C, DSI_DMA_CMD_OFFSET, C->DmaPa.LowPart);
+        Wr(C, DSI_DMA_CMD_LENGTH, size);
+    } else {
+        Wr(C, DSI_TPG_CTRL, (1u << 1) | (1u << 2) | (3u << 16));      /* CMD_DMA_TPG_EN, FIFO mode, custom */
+        for (i = 0; i < size; i += 4) {
+            Wr(C, DSI_TPG_DMA_INIT, (ULONG)pkt[i] | ((ULONG)pkt[i + 1] << 8) | ((ULONG)pkt[i + 2] << 16) |
+                                    ((ULONG)pkt[i + 3] << 24));
+        }
+        if ((size / 4) & 1) {
+            Wr(C, DSI_TPG_DMA_INIT, 0);             /* the FIFO wants an even dword count */
+        }
+        Wr(C, DSI_TPG_FIFO_RESET, 1);
+        KeStallExecutionProcessor(1);
+        Wr(C, DSI_TPG_FIFO_RESET, 0);
+        Wr(C, DSI_DMA_CMD_LENGTH, size);
     }
-    if ((size / 4) & 1) {
-        Wr(C, DSI_TPG_DMA_INIT, 0);                 /* the FIFO wants an even dword count */
-    }
-    Wr(C, DSI_TPG_FIFO_RESET, 1);
-    KeStallExecutionProcessor(1);
-    Wr(C, DSI_TPG_FIFO_RESET, 0);
-    Wr(C, DSI_DMA_CMD_LENGTH, size);
     dmaCtrl = Rd(C, DSI_CMD_DMA_CTRL);
     Wr(C, DSI_CMD_DMA_CTRL, dmaCtrl & ~DMA_CTRL_LOW_POWER);           /* HS, as the DT doze commands */
     Wr(C, DSI_DMA_SW_TRIGGER, 1);
@@ -175,8 +196,10 @@ static BOOLEAN DsiSend(PDEVICE_CONTEXT C, UCHAR Dt, const UCHAR *Payload, ULONG 
     if (trig != Rd(C, DSI_TRIG_CTRL)) {
         Wr(C, DSI_TRIG_CTRL, trig);
     }
-    LogPrint("DSI dt %02x cmd %02x len %u: %s after %u ms (status %08x fifo %08x)\n", Dt, Len ? Payload[0] : 0, Len,
-             done ? "done" : "NO DONE", waited, Rd(C, DSI_STATUS), Rd(C, DSI_TPG_FIFO_STATUS));
+    LogPrint("DSI %s dt %02x cmd %02x len %u: %s after %u ms (status %08x fifo %08x smmu gfsr %08x)\n",
+             C->UseDma ? "DMA" : "FIFO", Dt, Len ? Payload[0] : 0, Len, done ? "done" : "NO DONE", waited,
+             Rd(C, DSI_STATUS), Rd(C, DSI_TPG_FIFO_STATUS),
+             C->Smmu ? READ_REGISTER_ULONG((volatile ULONG *)(C->Smmu + SMMU_GFSR)) : 0);
     return done;
 }
 
@@ -270,6 +293,34 @@ static NTSTATUS HwInit(PDEVICE_CONTEXT Ctx)
     LogPrint("DSI0: hw %08x ctrl %08x status %08x video %08x dma_ctrl %08x trig %08x int %08x tpg %08x\n",
              Rd(Ctx, DSI_HW_VERSION), Rd(Ctx, DSI_CTRL), Rd(Ctx, DSI_STATUS), Rd(Ctx, DSI_VIDEO_MODE_CTRL),
              Rd(Ctx, DSI_CMD_DMA_CTRL), Rd(Ctx, DSI_TRIG_CTRL), Rd(Ctx, DSI_INT_CTRL), Rd(Ctx, DSI_TPG_CTRL));
+    pa.QuadPart = (LONGLONG)APPS_SMMU_PA;
+    Ctx->Smmu = (volatile UCHAR *)MmMapIoSpaceEx(pa, 0x1000, PAGE_READWRITE | PAGE_NOCACHE);
+    {
+        PHYSICAL_ADDRESS lo, hi, skip;
+        lo.QuadPart = 0;
+        hi.QuadPart = 0xFFFFFFFF;
+        skip.QuadPart = 0;
+        UNREFERENCED_PARAMETER(skip);
+        Ctx->DmaVa = (PUCHAR)MmAllocateContiguousMemorySpecifyCache(PAGE_SIZE, lo, hi, skip, MmNonCached);
+        if (Ctx->DmaVa != NULL) {
+            Ctx->DmaPa = MmGetPhysicalAddress(Ctx->DmaVa);
+        }
+    }
+    {
+        UNICODE_STRING fn = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\dsi.dma");
+        OBJECT_ATTRIBUTES oa;
+        IO_STATUS_BLOCK iosb;
+        HANDLE h;
+        InitializeObjectAttributes(&oa, &fn, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+        if (NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, 0, FILE_SHARE_READ,
+                                    FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0))) {
+            ZwClose(h);
+            Ctx->UseDma = TRUE;
+        }
+    }
+    LogPrint("DMA buffer %p pa %llx, smmu gfsr %08x, path %s\n", Ctx->DmaVa, Ctx->DmaPa.QuadPart,
+             Ctx->Smmu ? READ_REGISTER_ULONG((volatile ULONG *)(Ctx->Smmu + SMMU_GFSR)) : 0,
+             Ctx->UseDma ? "DMA (C:\\topaz\\dsi.dma)" : "TPG FIFO");
     if (!(Rd(Ctx, DSI_CTRL) & CTRL_ENABLE)) {
         LogPrint("DSI0 not enabled: leaving the panel alone\n");
         return STATUS_DEVICE_NOT_READY;
@@ -284,6 +335,14 @@ static VOID HwDeinit(PDEVICE_CONTEXT Ctx)
     if (Ctx->Dsi != NULL) {
         MmUnmapIoSpace((PVOID)Ctx->Dsi, DSI0_SIZE);
         Ctx->Dsi = NULL;
+    }
+    if (Ctx->Smmu != NULL) {
+        MmUnmapIoSpace((PVOID)Ctx->Smmu, 0x1000);
+        Ctx->Smmu = NULL;
+    }
+    if (Ctx->DmaVa != NULL) {
+        MmFreeContiguousMemorySpecifyCache(Ctx->DmaVa, PAGE_SIZE, MmNonCached);
+        Ctx->DmaVa = NULL;
     }
 }
 
