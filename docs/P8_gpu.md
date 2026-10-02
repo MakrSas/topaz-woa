@@ -363,3 +363,20 @@ process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
 Next = **step C**: TopazGpuW as the display adapter (VidPN, primary scanout copy to 0x5C000000) and
 DWM on the GPU; before that: present path (DxgkDdiPresent/flush_frontbuffer), lift the
 TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11 app first).
+
+## Step C1 (2026-10-02 late): Dxgkrnl scheduler + ACPI GPU device
+- `tgputest render` (D3DKMTRender ×20 on the root-enumerated adapter): Dxgkrnl built 2 paging
+  buffers, **never called SubmitCommand**, TDR after 2 s → **bugcheck 0x116** (recovery failed).
+- Our UEFI DSDT now has `GPU0` (_HID TPZG0610, Memory32Fixed 0x5900000/0x90000, Interrupt GSIV 209,
+  uefi/acpi/tapas-DSDT-xhci.dsl). Built from the s8build tree as
+  `~/work/win/uefi/Mu-topaz-v4-GPU0-RELEASE.img` (sha256 1da973fc…), **RAM-boot only**
+  (`fastboot boot`); boot_b = `~/work/topaz-poweroff.img` (verified by hashing PhysicalDrive4
+  partition 35 from Windows), not touched. Windows enumerates ACPI\TPZG0610\0 with both resources;
+  TopazGpuW.inf has the ACPI id; Root\TopazGpuW was removed (`devcon remove`, no DWM stall).
+- First start on the ACPI device: StartDevice OK (no c0000034 any more), 4× BuildPagingBuffer, still
+  no SubmitCommand, then StopDevice → CM_PROB_FAILED_POST_START. **The screen went black** at that
+  moment (BasicDisplay still OK, DWM restart did not help) → hard reboot. After the reboot Wi-Fi had
+  no networks until one more normal reboot (modem).
+- Next: DxgKrnl ETW trace of the ACPI adapter start to see the post-start failure; make
+  BuildPagingBuffer emit real (non-empty) DMA content; find out why VidSch never submits.
+  Note: after the flashed-UEFI reboot neither TopazGpuW instance exists (root removed, no GPU0).
