@@ -273,3 +273,14 @@ BO name (KMD fills it in DxgkDdiGetStandardAllocationDriverData for runtime-crea
   deadlock, unkillable process, later system stalls. The DxgKrnl trace also shows the adapter is
   fine (StartDevice status 0; the 2 "paging buffers" are just Dxgkrnl mapping its paging-buffer
   allocations; processes try to open the missing UMD DLL). v0.12: KMUTEX instead of FAST_MUTEX.
+
+## STEP A DONE — TopazGpuW v0.16 (2026-10-02): user mode → WDDM KMD → GPU
+`tgputest` (D3DKMTEnumAdapters2 → our adapter by UMDRIVERPRIVATE magic → D3DKMTEscape msm ioctls):
+VERSION msm 1.9; GET_PARAM gpu_id 610, gmem 0x21000, chip 0x06010001, max_freq 300 MHz, gmem_base
+0x100000, VA 0x1000000+0xef000000; GEM_NEW ×2 + MMAP (user VAs), IB with CP_MEM_WRITE written by the
+process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
+- Fixes on the way: KMUTEX instead of FAST_MUTEX (file I/O at APC_LEVEL deadlocked, v0.12); GPU
+  power-cycle if a previous start left it on (v0.14); **identity SMMU** (v0.16, TGPU_IDENTITY=1):
+  contiguous WC buffers below 4 GB, GPU VA = PA. The LPAE page-table path still faults on the first
+  CP fetch (FSR 0x402 TF, FSYNR0 0x40 level 0, tables verified correct, also below 4 GB) — open item.
+- Next: Step B = Mesa UMD (topazgpu_d3d10.dll) on this adapter.
