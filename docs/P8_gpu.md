@@ -510,3 +510,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   view, sampler_index = sampler, lod/bias/compare from src[3], ddx/ddy src[3]/src[4], txl lod 0 for
   implicit-lod samples outside the FS, ld -> txf/txf_ms), SVIEW sources ignored like SAMPLER ones,
   unknown opcodes -> warning + 0 instead of abort(). SVIEWINFO (resinfo) still unsupported.
+- Next DWM crash (0xc0000005): fd_set_sampler_views -> pipe_sampler_view_reference. d3d10umd always
+  passes PIPE_MAX_SHADER_SAMPLER_VIEWS (128) views, freedreno's fd_texture_stateobj has
+  textures[PIPE_MAX_SAMPLERS = 32] -> overflow. Fixed in 0002 (32 views). Dump tip: a dump written right
+  after a DLL swap may still come from a process that loaded the old DLL - check the module
+  timestamp in the WER event before symbolizing with the new PDB.

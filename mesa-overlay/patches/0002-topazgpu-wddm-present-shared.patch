@@ -205,6 +205,25 @@ index 837013e..2e6c5d7 100644
        return E_FAIL;
     }
  
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 8bb09ba..08b0bf0 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -370,11 +370,11 @@ DestroyDevice(D3D10DDI_HDEVICE hDevice)   // IN
+    static struct pipe_sampler_view * sampler_views[PIPE_MAX_SHADER_SAMPLER_VIEWS];
+    memset(sampler_views, 0, sizeof sampler_views);
+    pipe->set_sampler_views(pipe, PIPE_SHADER_FRAGMENT, 0,
+-                           PIPE_MAX_SHADER_SAMPLER_VIEWS, 0, false, sampler_views);
++                           PIPE_MAX_SAMPLERS, 0, false, sampler_views);   /* TopazGpu */
+    pipe->set_sampler_views(pipe, PIPE_SHADER_VERTEX, 0,
+-                           PIPE_MAX_SHADER_SAMPLER_VIEWS, 0, false, sampler_views);
++                           PIPE_MAX_SAMPLERS, 0, false, sampler_views);   /* TopazGpu */
+    pipe->set_sampler_views(pipe, PIPE_SHADER_GEOMETRY, 0,
+-                           PIPE_MAX_SHADER_SAMPLER_VIEWS, 0, false, sampler_views);
++                           PIPE_MAX_SAMPLERS, 0, false, sampler_views);   /* TopazGpu */
+ 
+    pipe->destroy(pipe);
+    pDevice->screen->destroy(pDevice->screen);
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 index 53ef690..65e674a 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
@@ -292,6 +311,21 @@ index 24131e5..cecabd7 100644
  
 +   TopazWddmDestroyAllocation(CastDevice(hDevice), pResource);
     pipe_resource_reference(&pResource->resource, NULL);
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 4eef1f8..3243fc3 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -270,7 +270,9 @@ SetShaderResources(enum pipe_shader_type shader_type,                  // IN
+     * XXX: Now that the semantics are actually the same in gallium, should
+     * probably think about not updating all always... It should just work.
+     */
+-   pipe->set_sampler_views(pipe, shader_type, 0, PIPE_MAX_SHADER_SAMPLER_VIEWS,
++   /* TopazGpu: freedreno keeps PIPE_MAX_SAMPLERS (32) views per stage; passing 128 overflowed
++    * fd_texture_stateobj::textures[] and crashed DWM */
++   pipe->set_sampler_views(pipe, shader_type, 0, PIPE_MAX_SAMPLERS,
+                            0, false, sampler_views);
  }
  
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
