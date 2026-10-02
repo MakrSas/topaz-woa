@@ -195,3 +195,21 @@ segment 1, preemption disabled system-wide.
   virgl_gdi_winsys.c, built for Windows ARM64 in CI (meson, d3d10 dll name e.g. `topazgpu_d3d10`).
 - Local sources (Mac): `~/work-gpu/mesa` (25.3.0 sparse), `~/work-gpu/mesa-viogpu`,
   `~/work-gpu/viogpu-kmd`. s8build `~/work/gpu/` has firmware + vendor image.
+
+### Memory/submit model (decided 2026-10-02)
+freedreno a6xx needs **stable GPU VAs from BO creation** (softpin: texture descriptors and state
+objects hold raw iovas written by the CPU), which WDDM 1.x patch lists cannot provide. So:
+- Every fd_bo is a WDDM allocation (like virgl_gdi_winsys), but its **real backing and GPU VA are
+  owned by our KMD**: DxgkDdiCreateAllocation allocates pages (MmAllocatePagesForMdlEx, CPU side
+  write-combined), maps them into **our own SMMU stage-1 page tables** (CB0, ARMv8 LPAE, 4 KB
+  granule, 39-bit VA, GPU VA < 4 GB for ADRENO_QUIRK_4GB_VA) at a KMD-chosen VA. VidMM only sees the
+  allocation in one big aperture segment whose paging ops are no-ops.
+- UMD↔KMD private interface = **DxgkDdiEscape mirroring the Linux msm DRM ioctls**: GET_PARAM
+  (chip id 0x06010001, GMEM size/base, max freq, timestamp), GEM_INFO (iova, map into the calling
+  process), GEM_CPU_PREP (wait idle for a BO), SUBMIT (IB list = iova+size, BO list, returns fence),
+  WAIT_FENCE. Submission writes CP_INDIRECT_BUFFER packets into the kernel ring (G1 code) + a fence
+  CP_MEM_WRITE / CP_EVENT_WRITE; completion first by polling, then the GPU IRQ (SPI 177).
+- Mesa: new `src/freedreno/drm/wddm/` backend = copy of `msm/` with drmIoctl → gdikmt escape;
+  `freedreno_ringbuffer_sp.c` (softpin) reused; target `d3d10umd` creates `fd_screen` on it.
+- Present: DxgkDdiPresent/Blt from the source allocation's backing to the framebuffer (CPU copy first,
+  GPU blit later). Flush waits for the fence at first (simple, correct), async later.
