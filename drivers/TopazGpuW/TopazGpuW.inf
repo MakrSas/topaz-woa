@@ -32,6 +32,14 @@ TopazGpuW.sys = 1,,
 FeatureScore = F8
 CopyFiles = TopazGpuW_Files
 
+[TopazGpuW_Inst.LogConfigOverride]
+LogConfig = TopazGpuW_LC
+
+; GPU interrupt: GIC SPI 177 (kgsl_3d0_irq) = GSIV 209, level triggered
+[TopazGpuW_LC]
+ConfigPriority = HARDRECONFIG
+IRQConfig = L:209
+
 [TopazGpuW_Files]
 TopazGpuW.sys
 

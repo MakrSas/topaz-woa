@@ -81,6 +81,20 @@ static NTSTATUS TgStartDevice(const PVOID Ctx, PDXGK_START_INFO StartInfo, PDXGK
 
     UNREFERENCED_PARAMETER(StartInfo);
     RtlCopyMemory(&a->Dxgk, Dxgk, sizeof(a->Dxgk));
+    {
+        DXGK_DEVICE_INFO di;
+        NTSTATUS st = a->Dxgk.DxgkCbGetDeviceInformation(a->Dxgk.DeviceHandle, &di);
+        LogPrint("GetDeviceInformation: %08x\n", st);
+        if (NT_SUCCESS(st) && di.TranslatedResourceList != NULL) {
+            PCM_PARTIAL_RESOURCE_LIST pl = &di.TranslatedResourceList->List[0].PartialResourceList;
+            ULONG i;
+            for (i = 0; di.TranslatedResourceList->Count > 0 && i < pl->Count; i++) {
+                PCM_PARTIAL_RESOURCE_DESCRIPTOR r = &pl->PartialDescriptors[i];
+                LogPrint("  resource %u: type %u flags %x %08x %08x %08x\n", i, r->Type, r->Flags,
+                         r->u.Generic.Start.LowPart, r->u.Generic.Start.HighPart, r->u.Generic.Length);
+            }
+        }
+    }
     *NumSources = 0;                                     /* render-only (step A) */
     *NumChildren = 0;
     a->Started = TRUE;
