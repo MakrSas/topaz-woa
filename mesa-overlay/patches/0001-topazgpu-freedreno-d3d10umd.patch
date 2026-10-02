@@ -44,7 +44,7 @@ index ce95c9f..06222a2 100644
     struct fd_device *dev = fd_device_new(dup_fd);
     if (dev)
 diff --git a/src/freedreno/drm/meson.build b/src/freedreno/drm/meson.build
-index ffaf6c9..5ceacb9 100644
+index ffaf6c9..edd8412 100644
 --- a/src/freedreno/drm/meson.build
 +++ b/src/freedreno/drm/meson.build
 @@ -46,6 +46,10 @@ libfreedreno_drm_msm_files = files(
@@ -58,6 +58,15 @@ index ffaf6c9..5ceacb9 100644
  libfreedreno_drm_virtio_files = files(
    'virtio/virtio_bo.c',
    'virtio/virtio_device.c',
+@@ -73,7 +77,7 @@ libfreedreno_drm = static_library(
+   gnu_symbol_visibility : 'hidden',
+   dependencies : libfreedreno_drm_deps,
+   # TODO
+-  link_with : [libvdrm],
++  link_with : (host_machine.system() == 'windows') ? [] : [libvdrm],
+   build_by_default : false,
+ )
+ 
 diff --git a/src/freedreno/meson.build b/src/freedreno/meson.build
 index b455cd6..8cfeb57 100644
 --- a/src/freedreno/meson.build
