@@ -977,6 +977,9 @@ static VOID HangDump(VOID)
              ib1, GpuRd(0x92A), ib2, GpuRd(0x92D), GpuRd(0x821), GpuRd(0x823), GpuRd(0x201));
     LogPrint("  hang: RBBM_STATUS %08x STATUS1 %08x STATUS2 %08x STATUS3 %08x CP_STATUS_1 %08x\n",
              GpuRd(0x210), GpuRd(0x211), GpuRd(0x212), GpuRd(0x213), GpuRd(0x825));
+    LogPrint("  hang: CP_SCRATCH0-7 %08x %08x %08x %08x %08x %08x %08x %08x (freedreno markers: 5 emit, 6 pass, 7 draw/blit)\n",
+             GpuRd(0x883), GpuRd(0x884), GpuRd(0x885), GpuRd(0x886), GpuRd(0x887), GpuRd(0x888), GpuRd(0x889),
+             GpuRd(0x88A));
     MsmDumpIova("IB1", ib1, 64, 16);
     if (GpuRd(0x92D) != 0 || ib2 != 0) {
         MsmDumpIova("IB2", ib2, 64, 16);

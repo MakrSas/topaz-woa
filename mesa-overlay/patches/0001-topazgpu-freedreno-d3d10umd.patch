@@ -180,6 +180,24 @@ index ad3374c..329a4b1 100644
     return MAX2(1, (draw->count * info->instance_count) / vtx_per_prim);
  }
  
+diff --git a/src/gallium/drivers/freedreno/freedreno_util.h b/src/gallium/drivers/freedreno/freedreno_util.h
+index 7ff8576..f236535 100644
+--- a/src/gallium/drivers/freedreno/freedreno_util.h
++++ b/src/gallium/drivers/freedreno/freedreno_util.h
+@@ -402,11 +402,9 @@ __OUT_IB5(struct fd_ringbuffer *ring, struct fd_ringbuffer *target)
+  */
+ #define HW_QUERY_BASE_REG REG_AXXX_CP_SCRATCH_REG4
+ 
+-#if MESA_DEBUG
++/* TopazGpu bring-up: markers (WFI + CP_SCRATCH write around draws/passes) always on, the KMD
++ * hang dump reads CP_SCRATCH_REG5..7 to locate a hang */
+ #define __EMIT_MARKER 1
+-#else
+-#define __EMIT_MARKER 0
+-#endif
+ 
+ static inline void
+ emit_marker(struct fd_ringbuffer *ring, int scratch_idx)
 diff --git a/src/gallium/frontends/d3d10umd/Adapter.cpp b/src/gallium/frontends/d3d10umd/Adapter.cpp
 index 9078a80..837013e 100644
 --- a/src/gallium/frontends/d3d10umd/Adapter.cpp
