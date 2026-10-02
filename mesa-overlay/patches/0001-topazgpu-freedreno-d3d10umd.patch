@@ -26,6 +26,39 @@ index 1b1f5b8..c000ab2 100644
    endif
    if with_gallium_softpipe and with_gallium_virgl
      warning('The d3d10umd state trackes is built with both softpipe/llvmpipe and virgl, only virgl will be used.')
+diff --git a/src/compiler/shader_info.h b/src/compiler/shader_info.h
+index 6d4fdae..dd0f463 100644
+--- a/src/compiler/shader_info.h
++++ b/src/compiler/shader_info.h
+@@ -410,7 +410,7 @@ typedef struct shader_info {
+          bool untyped_color_outputs:1;
+ 
+          /** gl_FragDepth layout for ARB_conservative_depth. */
+-         enum gl_frag_depth_layout depth_layout:3;
++         enum gl_frag_depth_layout depth_layout:4; /* TopazGpu: +1 bit, enum bitfields are signed on MSVC ABI */
+ 
+          /**
+           * Interpolation qualifiers for drivers that lowers color inputs
+@@ -432,8 +432,8 @@ typedef struct shader_info {
+           * Defined by AMD_shader_early_and_late_fragment_tests.
+           */
+          bool early_and_late_fragment_tests:1;
+-         enum gl_frag_stencil_layout stencil_front_layout:3;
+-         enum gl_frag_stencil_layout stencil_back_layout:3;
++         enum gl_frag_stencil_layout stencil_front_layout:4;
++         enum gl_frag_stencil_layout stencil_back_layout:4;
+       } fs;
+ 
+       struct {
+@@ -445,7 +445,7 @@ typedef struct shader_info {
+           * Arrangement of invocations used to calculate derivatives in a compute
+           * shader.  From NV_compute_shader_derivatives.
+           */
+-         enum gl_derivative_group derivative_group:2;
++         enum gl_derivative_group derivative_group:3;
+ 
+          /*
+           * If the shader might run with shared mem on top of `shared_size`.
 diff --git a/src/freedreno/drm/freedreno_device.c b/src/freedreno/drm/freedreno_device.c
 index ce95c9f..06222a2 100644
 --- a/src/freedreno/drm/freedreno_device.c
@@ -125,6 +158,19 @@ index a7c3955..c098b7e 100644
  }
  
  void
+diff --git a/src/freedreno/ir3/ir3_shader.h b/src/freedreno/ir3/ir3_shader.h
+index 4a403dd..fdfb672 100644
+--- a/src/freedreno/ir3/ir3_shader.h
++++ b/src/freedreno/ir3/ir3_shader.h
+@@ -809,7 +809,7 @@ struct ir3_shader_variant {
+ 
+          /** The number of vertices in the TCS output patch. */
+          uint8_t tcs_vertices_out;
+-         enum gl_tess_spacing spacing:2; /*gl_tess_spacing*/
++         enum gl_tess_spacing spacing:3; /*gl_tess_spacing; TopazGpu: :3, signed on MSVC ABI */
+ 
+          /** Is the vertex order counterclockwise? */
+          bool ccw:1;
 diff --git a/src/freedreno/meson.build b/src/freedreno/meson.build
 index b455cd6..8cfeb57 100644
 --- a/src/freedreno/meson.build
@@ -186,6 +232,68 @@ index df79a7c..707ed76 100644
  trace_framebuffer_state(struct u_trace *ut, void *cs, const struct pipe_framebuffer_state *pfb)
  {
     if (likely(!u_trace_enabled(ut->utctx)))
+diff --git a/src/gallium/drivers/freedreno/a6xx/fd6_context.h b/src/gallium/drivers/freedreno/a6xx/fd6_context.h
+index 1ab3fc0..93cc8fd 100644
+--- a/src/gallium/drivers/freedreno/a6xx/fd6_context.h
++++ b/src/gallium/drivers/freedreno/a6xx/fd6_context.h
+@@ -41,14 +41,17 @@
+ struct fd6_lrz_state {
+    union {
+       struct {
+-         bool enable : 1;
+-         bool write : 1;
+-         bool test : 1;
+-         bool z_bounds_enable : 1;
+-         enum fd_lrz_direction direction : 2;
++         /* TopazGpu: uint32_t, not bool/enum: under the MSVC ABI enum bitfields are signed
++          * (z_mode 3 read back as -1 -> 0xffffffff in RB/GRAS_SU_DEPTH_PLANE_CNTL hung RB) and
++          * bitfields of different types are not packed together (val would not cover them). */
++         uint32_t enable : 1;
++         uint32_t write : 1;
++         uint32_t test : 1;
++         uint32_t z_bounds_enable : 1;
++         uint32_t direction : 2;   /* enum fd_lrz_direction */
+ 
+          /* this comes from the fs program state, rather than zsa: */
+-         enum a6xx_ztest_mode z_mode : 2;
++         uint32_t z_mode : 2;      /* enum a6xx_ztest_mode */
+       };
+       uint32_t val : 8;
+    };
+diff --git a/src/gallium/drivers/freedreno/a6xx/fd6_emit.cc b/src/gallium/drivers/freedreno/a6xx/fd6_emit.cc
+index 660b5bd..006dcf8 100644
+--- a/src/gallium/drivers/freedreno/a6xx/fd6_emit.cc
++++ b/src/gallium/drivers/freedreno/a6xx/fd6_emit.cc
+@@ -99,7 +99,7 @@ static enum a6xx_ztest_mode
+ compute_ztest_mode(struct fd6_emit *emit, bool lrz_valid) assert_dt
+ {
+    if (emit->prog->lrz_mask.z_mode != A6XX_INVALID_ZTEST)
+-      return emit->prog->lrz_mask.z_mode;
++      return (enum a6xx_ztest_mode)emit->prog->lrz_mask.z_mode;
+ 
+    struct fd_context *ctx = emit->ctx;
+    struct pipe_framebuffer_state *pfb = &ctx->batch->framebuffer;
+@@ -225,7 +225,7 @@ compute_lrz_state(struct fd6_emit *emit) assert_dt
+     * to the point where the overly-conservative test is incorrect.
+     */
+    if (zsa->base.depth_writemask) {
+-      rsc->lrz_direction = lrz.direction;
++      rsc->lrz_direction = (enum fd_lrz_direction)lrz.direction;
+    }
+ 
+    return lrz;
+@@ -280,9 +280,9 @@ build_lrz(struct fd6_emit *emit) assert_dt
+    }
+    OUT_REG(ring, A6XX_RB_LRZ_CNTL(.enable = lrz.enable, ));
+ 
+-   OUT_REG(ring, A6XX_RB_DEPTH_PLANE_CNTL(.z_mode = lrz.z_mode, ));
++   OUT_REG(ring, A6XX_RB_DEPTH_PLANE_CNTL(.z_mode = (enum a6xx_ztest_mode)lrz.z_mode, ));
+ 
+-   OUT_REG(ring, A6XX_GRAS_SU_DEPTH_PLANE_CNTL(.z_mode = lrz.z_mode, ));
++   OUT_REG(ring, A6XX_GRAS_SU_DEPTH_PLANE_CNTL(.z_mode = (enum a6xx_ztest_mode)lrz.z_mode, ));
+ 
+    return ring;
+ }
 diff --git a/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc b/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc
 index ad3374c..329a4b1 100644
 --- a/src/gallium/drivers/freedreno/a6xx/fd6_vsc.cc
@@ -222,6 +330,19 @@ index cce1c81..884be75 100644
           if (fd_resource(pfb->zsbuf->texture)->valid) {
              restore_buffers |= FD_BUFFER_STENCIL;
              /* storing packed d/s stencil also stores depth, so we need
+diff --git a/src/gallium/drivers/freedreno/freedreno_resource.h b/src/gallium/drivers/freedreno/freedreno_resource.h
+index bbb7ebf..e4fb5e1 100644
+--- a/src/gallium/drivers/freedreno/freedreno_resource.h
++++ b/src/gallium/drivers/freedreno/freedreno_resource.h
+@@ -164,7 +164,7 @@ struct fd_resource {
+     * fdl_layout
+     */
+    bool lrz_valid : 1;
+-   enum fd_lrz_direction lrz_direction : 2;
++   enum fd_lrz_direction lrz_direction : 3; /* TopazGpu: signed enum bitfields on MSVC ABI */
+    uint16_t lrz_width; // for lrz clear, does this differ from lrz_pitch?
+    uint16_t lrz_height;
+    uint16_t lrz_pitch;
 diff --git a/src/gallium/drivers/freedreno/freedreno_util.h b/src/gallium/drivers/freedreno/freedreno_util.h
 index 7ff8576..f236535 100644
 --- a/src/gallium/drivers/freedreno/freedreno_util.h
