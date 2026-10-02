@@ -126,33 +126,6 @@ static VOID TgDpcRoutine(const PVOID Ctx)
     a->Dxgk.DxgkCbNotifyDpc(a->Dxgk.DeviceHandle);
 }
 
-static NTSTATUS TgQueryChildRelations(const PVOID Ctx, PDXGK_CHILD_DESCRIPTOR Rel, ULONG Size)
-{
-    LogPrint("%s\n", "TgQueryChildRelations");
-    UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(Rel);
-    UNREFERENCED_PARAMETER(Size);
-    return STATUS_SUCCESS;
-}
-
-static NTSTATUS TgQueryChildStatus(const PVOID Ctx, PDXGK_CHILD_STATUS St, BOOLEAN NonDestructive)
-{
-    LogPrint("%s\n", "TgQueryChildStatus");
-    UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(St);
-    UNREFERENCED_PARAMETER(NonDestructive);
-    return STATUS_NOT_SUPPORTED;
-}
-
-static NTSTATUS TgQueryDeviceDescriptor(const PVOID Ctx, ULONG Uid, PDXGK_DEVICE_DESCRIPTOR Desc)
-{
-    LogPrint("%s\n", "TgQueryDeviceDescriptor");
-    UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(Uid);
-    UNREFERENCED_PARAMETER(Desc);
-    return STATUS_MONITOR_NO_MORE_DESCRIPTOR_DATA;
-}
-
 static NTSTATUS TgSetPowerState(const PVOID Ctx, ULONG Uid, DEVICE_POWER_STATE Ps, POWER_ACTION Action)
 {
     LogPrint("%s\n", "TgSetPowerState");
@@ -511,9 +484,8 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     d.DxgkDdiDispatchIoRequest = TgDispatchIoRequest;
     d.DxgkDdiInterruptRoutine = TgInterruptRoutine;
     d.DxgkDdiDpcRoutine = TgDpcRoutine;
-    d.DxgkDdiQueryChildRelations = TgQueryChildRelations;
-    d.DxgkDdiQueryChildStatus = TgQueryChildStatus;
-    d.DxgkDdiQueryDeviceDescriptor = TgQueryDeviceDescriptor;
+    /* render-only: every display DDI must stay NULL (v0.2: with the child DDIs set, Dxgkrnl stopped
+       the adapter right after StartDevice) */
     d.DxgkDdiSetPowerState = TgSetPowerState;
     d.DxgkDdiResetDevice = TgResetDevice;
     d.DxgkDdiUnload = TgUnload;
