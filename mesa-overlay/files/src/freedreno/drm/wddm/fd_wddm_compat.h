@@ -21,6 +21,13 @@ FILE *fd_wddm_open_memstream(char **ptr, size_t *size);
 #define strndup fd_wddm_strndup
 #define ftruncate fd_wddm_ftruncate
 #define open_memstream fd_wddm_open_memstream
+#ifndef _PID_T_DEFINED
+#define _PID_T_DEFINED
+typedef int pid_t;
+#endif
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
 #ifndef PATH_MAX
 #define PATH_MAX 260
 #endif

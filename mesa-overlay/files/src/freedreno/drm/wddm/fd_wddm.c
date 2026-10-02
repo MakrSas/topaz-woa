@@ -5,6 +5,7 @@
  * callback of the D3D10 UMD device (gdikmt).
  */
 #include <errno.h>
+#include <io.h>
 #include <stdlib.h>
 #include <string.h>
 
