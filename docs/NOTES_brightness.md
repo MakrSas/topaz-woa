@@ -160,3 +160,17 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   Undo (if the screen ever stays on the logo): over SSH `Set-ItemProperty ...Enum\ROOT\BASICDISPLAY\0000
   ConfigFlags 0 -Type DWord` + `devcon enable "@ROOT\BASICDISPLAY\0000"`.
 - Still open: slider (WmiMonitorBrightness needs an internal connector type) → retry LVDS (td.cfg removed).
+
+## LVDS retest with the working Present (2026-10-02 ~22:20) — FAILED again
+- BasicDisplay disabled, `td.cfg` = `6 4` (LVDS, HPD interruptible) → at boot the adapter is stopped right after
+  QueryChildRelations (log: `QueryChildRelations: vot 6 hpd 4` then `StopDevice`), screen frozen on the logo. A
+  `devcon restart Root\TopazDisplay` returns the device to OK but DWM does not get the display back; a reboot is
+  needed (the first `shutdown /r` after that hung for minutes in "shutdown in progress").
+- ETW comparison: with technology OTHER no "StartDevice completed 0xC00000BB" message is produced at all; with
+  LVDS/INTERNAL DxgKrnl itself fails StartDevice with **STATUS_NOT_SUPPORTED right after the child relations**
+  (so that message *is* the failure for non-OTHER types; my earlier "benign" note applies only to manual
+  restarts with BasicDisplay present).
+- Ideas to try (each needs a reboot; recovery = `td.cfg` `-1 4` over SSH + reboot): HPD AlwaysConnected (`6 1`),
+  AcpiUid != 0 / an ACPI-enumerated adapter (internal connectors may need an ACPI _DOD child — the other session's
+  ACPI GPU0 route), D3DKMDT_VOT_DISPLAYPORT_EMBEDDED (11).
+- Mac disk was full during this session (ENOSPC); other sessions' scratch files live in /private/tmp/claude-501.
