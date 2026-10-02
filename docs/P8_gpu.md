@@ -499,3 +499,14 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   allocation private data, so DWM can open them as textures on the Adreno.
 - Known gaps: R8G8B8A8 sources are copied without R/B swap; GDI CPU-visible types still live in
   VidMM memory (not importable by the UMD); every present waits for the GPU (no async yet).
+
+### DWM on the UMD, first try (00:28, KMD still v0.31, UMD with patch 0002, C:\topaz\umd.enable)
+- dwm.exe now loads topazgpu_d3d10.dll and dies in it: 0xc0000409 = abort(). WER LocalDumps for
+  dwm.exe (C:\topaz\dumps, DumpType 1) + own ARM64 minidump stack scan (scratch md.py) + llvm-symbolizer
+  with the CI PDB: Shader_tgsi_translate -> tgsi_to_nir "unknown TGSI opcode: SAMPLE" -> abort().
+  d3d10umd translates SM4 sample instructions to TGSI SAMPLE/SAMPLE_B/_L/_C/_C_LZ/_D/_I (explicit SVIEW +
+  SAMPLER registers) which tgsi_to_nir never supported - our step-B tests had no textures.
+- Patch 0002 now also: ttn_sample() in tgsi_to_nir (target from the SVIEW declaration, texture_index =
+  view, sampler_index = sampler, lod/bias/compare from src[3], ddx/ddy src[3]/src[4], txl lod 0 for
+  implicit-lod samples outside the FS, ld -> txf/txf_ms), SVIEW sources ignored like SAMPLER ones,
+  unknown opcodes -> warning + 0 instead of abort(). SVIEWINFO (resinfo) still unsupported.
