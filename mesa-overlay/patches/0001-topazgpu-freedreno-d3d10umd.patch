@@ -270,6 +270,35 @@ index 9078a80..837013e 100644
     HRESULT hr = OpenAdapterCommon(pOpenData);
  
     if (SUCCEEDED(hr)) {
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index b22f602..e423259 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -155,6 +155,7 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+    pDevice->cso = cso_create_context(pipe, CSO_NO_VBUF);
+ 
+    pDevice->empty_vs = CreateEmptyShader(pDevice, PIPE_SHADER_VERTEX);
++   pDevice->velems_changed = true;   /* TopazGpu: bind (empty) vertex elements before the first draw */
+    pDevice->empty_fs = CreateEmptyShader(pDevice, PIPE_SHADER_FRAGMENT);
+ 
+    pipe->bind_vs_state(pipe, pDevice->empty_vs);
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index 6f651f8..56c10b1 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -64,6 +64,12 @@ update_velems(Device *pDevice)
+       for (unsigned i = 0; i < state->count; i++)
+          state->velems[i].src_stride = pDevice->vertex_strides[state->velems[i].vertex_buffer_index];
+       cso_set_vertex_elements(pDevice->cso, state);
++   } else {
++      /* TopazGpu: D3D draws without an input layout (SV_VertexID only) are legal; gallium drivers
++       * (freedreno) need a vertex elements state bound anyway. */
++      struct cso_velems_state empty;
++      memset(&empty, 0, sizeof(empty));
++      cso_set_vertex_elements(pDevice->cso, &empty);
+    }
+ 
+    pDevice->velems_changed = false;
 diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
 index b8ab9f5..168218b 100644
 --- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
