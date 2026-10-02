@@ -199,3 +199,18 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   DXGKDDI_INTERFACE_VERSION_WIN8 (0x300E)` + `td.cfg` `6 4`. (3) Do not use SoftGPUAdapter. Then remove
   TopazBacklight (two drivers on DSI0).
 - Step 1 applied on the phone at ~22:40 (value set, reboot pending user's OK).
+
+## RESULT (2026-10-02 ~22:50): Windows brightness slider WORKS
+- `BrightnessControl=1` in the monitor's driver key (`Class\{4d36e96e-...}\0001`, monitor DISPLAY\TPZ6225) + reboot,
+  TopazDisplay v0.6 with child technology OTHER (`td.cfg` `-1 4`), BasicDisplay disabled: the slider appeared in
+  Windows (user confirmed). `WmiMonitorBrightness`: 101 levels, current 100. Moving the slider logs
+  `brightness N% -> level 0x... : done` in C:\TopazDisplay.log (0 % -> level 1, 100 % -> 0x7FF).
+- TopazBacklight (Root\TopazBacklight, ROOT\SYSTEM\0005) disabled with `devcon disable` so that only
+  TopazDisplay drives DSI0 (re-enable: `devcon enable Root\TopazBacklight`; file control via C:\topaz\brightness
+  works again then, but then both write DSI0).
+- Not yet durable: `BrightnessControl` and `td.cfg` are manual. TODO: (a) default child technology = OTHER in code
+  (LVDS/INTERNAL is rejected by dxgkrnl for non-POST root adapters, see research report) and drop the td.cfg
+  need; (b) monitor INF for MONITOR\TPZ6225 with `HKR,,BrightnessControl,0x00010001,1` (or set the value from the
+  installer) so a monitor re-enumeration keeps the slider; (c) TopazBacklight v0.4 = DMA path by default, kept as
+  a fallback for adapters without TopazDisplay; (d) installer step: disable BasicDisplay (ConfigFlags=1) —
+  recovery over SSH documented above.
