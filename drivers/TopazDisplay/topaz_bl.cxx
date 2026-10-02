@@ -170,7 +170,7 @@ NTSTATUS TopazBlQueryInterface(PQUERY_INTERFACE Qi)
     if (Qi == NULL || Qi->InterfaceType == NULL) {
         return STATUS_NOT_SUPPORTED;
     }
-    if (!IsEqualGUID(*Qi->InterfaceType, GUID_DEVINTERFACE_BRIGHTNESS)) {
+    if (RtlCompareMemory(Qi->InterfaceType, &GUID_DEVINTERFACE_BRIGHTNESS, sizeof(GUID)) != sizeof(GUID)) {
         LogPrint("QueryInterface: %08x-... v%u size %u: not supported\n", Qi->InterfaceType->Data1, Qi->Version,
                  Qi->Size);
         return STATUS_NOT_SUPPORTED;
