@@ -184,7 +184,8 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
     switch (Q->Type) {
     case DXGKQAITYPE_DRIVERCAPS: {
         DXGK_DRIVERCAPS *c = (DXGK_DRIVERCAPS *)Q->pOutputData;
-        if (Q->OutputDataSize < sizeof(*c)) {
+        /* WDDM 1.3 caps are shorter than the current header's struct (552 bytes on 22621) */
+        if (Q->OutputDataSize < FIELD_OFFSET(DXGK_DRIVERCAPS, SupportSmoothRotation)) {
             return STATUS_BUFFER_TOO_SMALL;
         }
         RtlZeroMemory(c, Q->OutputDataSize);
