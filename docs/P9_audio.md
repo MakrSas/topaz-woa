@@ -11,7 +11,7 @@ the user before installing anything that could take Wi-Fi/SSH down.
 | A1 | ADSP boot via TZ PAS + SMP2P ready | **done** (v0.3, READY+handover 58 ms after auth_and_reset) |
 | A2 | GLINK lpass edge: IPCRTR (QRTR, pd-mapper), adsp_apps (GPR) | **done** (v0.3) |
 | A3 | GPR: APM `GET_SPF_STATE` = 1 (AudioReach up) | **done** (v0.3, READY on the 2nd ask, 1 s) |
-| A4 | Find the fitted speaker amp (I2C probe on QUP0 SE1: fs16xx 0x34 / aw87xxx 0x59 / sia81xx 0x2b) | |
+| A4 | Find the fitted speaker amp (I2C probe on QUP0 SE1: fs16xx 0x34 / aw87xxx 0x59 / sia81xx 0x2b) | **done**: SI-in sia81xx @0x2b (reg 0x00 = 0x60) |
 | A5 | AudioReach graph for speaker: PCM shared mem → codec DMA RX → RX macro → SoundWire → WCD937x / amp | |
 | A6 | Tone from the driver (no Windows audio stack) | |
 | A7 | ACX render endpoint (Windows sees a speaker) | |
@@ -96,3 +96,11 @@ lose SSH (ask the user before).
   QUP0 SE1, no shared lock), waits for the end of a TopazBattery burst (active → 30 ms idle),
   then three register reads at DISPATCH (< 2 ms): 0x34 reg 3, 0x59 reg 0, 0x2b reg 0.
   Reset GPIO 106 is not touched yet (its TLMM tile is unknown; amps in reset may NACK).
+- **v0.4 result: the amp is the SI-in sia81xx at 0x2b** (ACK, reg 0x00 = 0x60); 0x34 and 0x59
+  NACK. Reset GPIO 106 was not touched, so the sia81xx answers in its current state. Window was
+  found after a TopazBattery burst; TopazBattery.log shows only its normal Type-C toggling after
+  the probe (no I2C errors). Unloading v0.3 stopped the ADSP cleanly (stop-ack, slave-kernel
+  0x0e after 10 ms, PAS shutdown) — the next ADSP boot needs a full power-off.
+  Next (A5): the sia81xx is an analog-input amp fed from WCD937x AUX_OUT (routing IN3_AUX →
+  AUX_OUT), so the speaker path is: AudioReach graph → codec DMA RX → RX macro → SoundWire →
+  WCD937x AUX → sia81xx (enable + mode via I2C, reg map from the SI-in sia81xx Linux driver).
