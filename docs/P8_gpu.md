@@ -481,3 +481,21 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - With the patch locations VidMM maps CDD's shadow surface into the aperture (MAP_APERTURE_SEGMENT
   with its hAllocation, 0x9e4 pages at aperture page 0x9f4); Patch: src seg 1 0xC09F4000, dst seg 1
   0xC0000000; blts copy the dirty rects (boot spinner) into the primary and to the panel.
+
+### v0.31 on screen + next: DWM on the UMD (KMD v0.32, Mesa patch 0002)
+- User photo (00:08): black screen with the CDD-drawn bits only - taskbar line, ShareX tray icon,
+  keyboard icon, mouse cursor. So POST takeover + mode set + CPU present engine + scanout copy work.
+  The rest stays black because dwm.exe crash-loops (dwmcore 0x8898008d): the UMD refuses DWM (opt-in)
+  and CDD only presents dirty rects.
+- Mesa patch `mesa-overlay/patches/0002-topazgpu-wddm-present-shared.patch` (new
+  src/gallium/frontends/d3d10umd/topaz_wddm.cpp): resources with pPrimaryDesc / MISC_SHARED /
+  BIND_PRESENT are created linear and get a WDDM allocation (pfnAllocateCb, private data =
+  topazgpu_alloc with the BO flink name from resource_get_handle(SHARED)); Present = flush + fence wait
+  + pfnPresentCb(hSrcAllocation) on a lazily created context; SetDisplayMode uses the allocation;
+  RotateResourceIdentities rotates the allocation handles too; OpenResource imports the BO by name;
+  DestroyResource deallocates. Opt-in now also by the file `C:\topaz\umd.enable` (DWM has no env).
+- KMD v0.32: GDI texture surfaces (standard GDISURFACE, type TEXTURE: window redirection bitmaps that
+  CDD fills with Present blts) are backed by a KMD-created BO and the BO name is written back into the
+  allocation private data, so DWM can open them as textures on the Adreno.
+- Known gaps: R8G8B8A8 sources are copied without R/B swap; GDI CPU-visible types still live in
+  VidMM memory (not importable by the UMD); every present waits for the GPU (no async yet).

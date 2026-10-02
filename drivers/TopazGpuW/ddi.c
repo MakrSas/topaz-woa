@@ -648,7 +648,17 @@ static NTSTATUS APIENTRY TgCreateAllocation(const HANDLE hAdapter, DXGKARG_CREAT
             al->Desc.size = al->Desc.pitch * al->Desc.height;
         }
         al->Size = ROUND_TO_PAGES(al->Desc.size != 0 ? al->Desc.size : PAGE_SIZE);
-        if (al->Desc.bo != 0) {
+        /* v0.32: GDI texture surfaces (window redirection) get a BO so DWM on the UMD can sample them;
+           CDD fills them with Present blts, which write into the BO */
+        if (al->Desc.bo == 0 && al->Desc.kind == TOPAZGPU_ALLOC_GDI && al->Desc.reserved[0] == D3DKMDT_GDISURFACE_TEXTURE &&
+            d != NULL && ai->pPrivateDriverData != NULL && ai->PrivateDriverDataSize >= sizeof(*d)) {
+            al->Bo = MsmBoCreate(al->Size);
+            if (al->Bo != NULL) {
+                al->Desc.bo = al->Bo->Handle;
+                al->Desc.bo_offset = 0;
+                ((struct topazgpu_alloc *)ai->pPrivateDriverData)->bo = al->Desc.bo;
+            }
+        } else if (al->Desc.bo != 0) {
             al->Bo = MsmBoAcquire(al->Desc.bo);
             if (al->Bo == NULL || al->Bo->Size < al->Desc.bo_offset + al->Desc.size) {
                 LogPrint("CreateAllocation: bo %u missing/too small\n", al->Desc.bo);
@@ -744,6 +754,7 @@ static NTSTATUS APIENTRY TgGetStandardAllocationDriverData(const HANDLE hAdapter
         d.width = A->pCreateGdiSurfaceData->Width;
         d.height = A->pCreateGdiSurfaceData->Height;
         d.format = A->pCreateGdiSurfaceData->Format;
+        d.reserved[0] = A->pCreateGdiSurfaceData->Type;  /* D3DKMDT_GDISURFACETYPE */
         A->pCreateGdiSurfaceData->Pitch = d.width * 4;
         break;
     default:
@@ -1196,7 +1207,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, aperture GART, present patch list) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, GDI textures in BOs) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;

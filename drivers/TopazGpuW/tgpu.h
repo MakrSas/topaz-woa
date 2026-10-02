@@ -19,7 +19,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.31"
+#define TGPU_VERSION        "v0.32"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
@@ -79,6 +79,7 @@ VOID     MsmCleanup(VOID);
 NTSTATUS MsmEscape(struct topazgpu_escape *Esc);
 VOID     MsmDumpIova(PCSTR Tag, ULONGLONG Iova, ULONG Before, ULONG After);
 
+TGPU_BO *MsmBoCreate(SIZE_T Size);             /* refs 1, NULL on failure */
 TGPU_BO *MsmBoAcquire(ULONG Name);              /* +1 reference, NULL if no such BO */
 VOID     MsmBoRelease(TGPU_BO *Bo);
 

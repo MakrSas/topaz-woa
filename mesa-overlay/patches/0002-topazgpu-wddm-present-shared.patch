@@ -1,0 +1,360 @@
+diff --git a/src/gallium/frontends/d3d10umd/Adapter.cpp b/src/gallium/frontends/d3d10umd/Adapter.cpp
+index 837013e..2e6c5d7 100644
+--- a/src/gallium/frontends/d3d10umd/Adapter.cpp
++++ b/src/gallium/frontends/d3d10umd/Adapter.cpp
+@@ -106,7 +106,7 @@ OpenAdapter10(__inout D3D10DDIARG_OPENADAPTER *pOpenData)   // IN
+ 
+    /* TopazGpu: opt-in only while the driver is experimental. Our adapter is DXGI adapter 0, so
+     * without this explorer/DWM render on it and a GPU hang freezes the desktop. */
+-   if (GetEnvironmentVariableA("TOPAZGPU_ENABLE", NULL, 0) == 0) {
++   if (!TopazWddmEnabled()) {
+       return E_FAIL;
+    }
+ 
+@@ -231,7 +231,7 @@ OpenAdapter10_2(__inout D3D10DDIARG_OPENADAPTER *pOpenData)   // IN
+ 
+    /* TopazGpu: opt-in only while the driver is experimental. Our adapter is DXGI adapter 0, so
+     * without this explorer/DWM render on it and a GPU hang freezes the desktop. */
+-   if (GetEnvironmentVariableA("TOPAZGPU_ENABLE", NULL, 0) == 0) {
++   if (!TopazWddmEnabled()) {
+       return E_FAIL;
+    }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 53ef690..65e674a 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -66,6 +66,9 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+    struct Device *device = CastDevice(pPresentData->hDevice);
+    Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
+ 
++   if (pSrcResource->hAllocation) {
++      return TopazWddmPresent(device, pSrcResource, pPresentData->pDXGIContext);
++   }
+    device->pipe->screen->flush_frontbuffer(device->pipe->screen, device->pipe, 
+       pSrcResource->resource, 0, 0, pPresentData->pDXGIContext, 0, NULL);
+ 
+@@ -123,6 +126,11 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
+    Device* device = CastDevice(SetDisplayMode->hDevice);
+    Resource *res = CastResource(SetDisplayMode->hResource);
+ 
++   if (res->hAllocation) {
++      device->device.base.setDisplayMode(&device->device.base, res->hAllocation);
++      return S_OK;
++   }
++
+    if(!device->screen->resource_get_handle) {
+       LOG_UNSUPPORTED_ENTRYPOINT();
+       return S_OK;
+@@ -204,14 +212,17 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+    const DXGI_DDI_HRESOURCE *hResources = RotateResourceIdentities->pResources;
+ 
+    struct pipe_resource *firstResource = CastPipeResource(hResources[0]);
++   D3DKMT_HANDLE firstAllocation = CastResource(hResources[0])->hAllocation;
+ 
+    for (UINT i = 0; i < (NumResources - 1); ++i) {
+       Resource* resource = CastResource(hResources[i]);
+       resource->resource = CastPipeResource(hResources[i + 1]);
++      resource->hAllocation = CastResource(hResources[i + 1])->hAllocation;   /* TopazGpu C2 */
+    }
+ 
+    Resource *lastResource = CastResource(hResources[NumResources - 1]);
+    lastResource->resource = firstResource;
++   lastResource->hAllocation = firstAllocation;
+ 
+    return S_OK;
+ }
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 24131e5..cecabd7 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -306,6 +306,9 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+    if ((pCreateResource->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED)) {
+       templat.bind |= PIPE_BIND_SHARED;
+    }
++   if (templat.target != PIPE_BUFFER && TopazWddmWanted(pCreateResource)) {
++      TopazWddmTemplate(&templat);
++   }
+ 
+    if (templat.target != PIPE_BUFFER) {
+       if (!screen->is_format_supported(screen,
+@@ -332,6 +335,12 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+    pResource->transfers = (struct pipe_transfer **)calloc(pResource->NumSubResources,
+                                                           sizeof *pResource->transfers);
+ 
++   if (pResource->resource && templat.target != PIPE_BUFFER && TopazWddmWanted(pCreateResource)) {
++      if (FAILED(TopazWddmCreateAllocation(device, pResource, pCreateResource))) {
++         SetError(hDevice, E_OUTOFMEMORY);
++      }
++   }
++
+    if (pCreateResource->pInitialDataUP) {
+       if (pResource->buffer) {
+          assert(pResource->NumSubResources == 1);
+@@ -457,6 +466,9 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+    whandle.type = WINSYS_HANDLE_TYPE_WIN32_HANDLE;
+    whandle.handle = (HANDLE)pOpenResource->hKMResource.handle;
+    
++   /* TopazGpu C2: the allocation's private data names the BO */
++   pResource->resource = TopazWddmOpen(pDevice, pOpenResource, &pResource->hAllocation);
++   if (!pResource->resource)
+    pResource->resource =
+       pDevice->screen->resource_from_handle(pDevice->screen, NULL, &whandle, 0);
+    
+@@ -518,6 +530,7 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+    }
+    free(pResource->transfers);
+ 
++   TopazWddmDestroyAllocation(CastDevice(hDevice), pResource);
+    pipe_resource_reference(&pResource->resource, NULL);
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 19de592..0ba603d 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -94,6 +94,7 @@ struct Device
+    void *empty_vs;
+ 
+    struct DepthStencilState *dss;   /* TopazGpu: current D3D depth-stencil state */
++   struct gdikmt_context *topazCtx; /* TopazGpu C2: WDDM context for pfnPresentCb */
+ 
+    enum mesa_prim primitive;
+ 
+@@ -170,6 +171,7 @@ struct Resource
+    struct pipe_resource *resource;
+    struct pipe_transfer **transfers;
+    struct pipe_stream_output_target *so_target;
++   D3DKMT_HANDLE hAllocation;       /* TopazGpu C2: WDDM allocation naming the BO (0 = none) */
+ };
+ 
+ 
+@@ -421,3 +423,13 @@ CastPipeQuery(D3D10DDI_HQUERY hQuery)
+    return pQuery ? pQuery->handle : NULL;
+ }
+ 
++
++
++/* TopazGpu step C2 (topaz_wddm.cpp) */
++bool TopazWddmWanted(const D3D10DDIARG_CREATERESOURCE *pCreate);
++void TopazWddmTemplate(struct pipe_resource *templat);
++HRESULT TopazWddmCreateAllocation(Device *pDevice, Resource *pResource, const D3D10DDIARG_CREATERESOURCE *pCreate);
++void TopazWddmDestroyAllocation(Device *pDevice, Resource *pResource);
++struct pipe_resource *TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HANDLE *phAllocation);
++HRESULT TopazWddmPresent(Device *pDevice, Resource *pSrc, void *pDXGIContext);
++bool TopazWddmEnabled(void);
+diff --git a/src/gallium/frontends/d3d10umd/meson.build b/src/gallium/frontends/d3d10umd/meson.build
+index 83bc243..b48f556 100644
+--- a/src/gallium/frontends/d3d10umd/meson.build
++++ b/src/gallium/frontends/d3d10umd/meson.build
+@@ -24,7 +24,8 @@ libd3d10umd = static_library(
+     'ShaderParse.c',
+     'ShaderTGSI.c',
+     'D3DKMT.cpp',
+-    'gdikmt_d3dddi.cpp'
++    'gdikmt_d3dddi.cpp',
++    'topaz_wddm.cpp'
+   ),
+   c_args : _c_args_d3d10umd,
+   cpp_args : _c_args_d3d10umd,
+diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
+new file mode 100644
+index 0000000..4ea602d
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
+@@ -0,0 +1,195 @@
++/*
++ * TopazGpu step C2: the WDDM side of resources that leave the UMD (docs/P8_gpu.md in topaz-woa).
++ *
++ * freedreno renders into BOs owned by the TopazGpuW KMD (msm escapes). Resources that Dxgkrnl, DWM or
++ * other processes must see (primaries, swapchain buffers, shared surfaces) also get a WDDM allocation
++ * whose private data (struct topazgpu_alloc) names the BO: the KMD then scans out / blts / opens the
++ * same pages. Such resources are created linear. Present goes through pfnPresentCb after the GPU work
++ * finished (the KMD copies with the CPU). Same model as viogpu3d + virgl_gdi_winsys, but the BO stays
++ * a freedreno BO.
++ */
++
++#include "Device.h"
++#include "State.h"
++#include "Debug.h"
++#include "Format.h"
++
++#include "frontend/winsys_handle.h"
++#include "pipe/p_defines.h"
++#include "util/u_inlines.h"
++#include "util/os_time.h"
++
++#include "../../../freedreno/drm/wddm/topazgpu_escape.h"
++
++static unsigned
++TopazD3dFormat(enum pipe_format f)
++{
++   switch (f) {
++   case PIPE_FORMAT_B8G8R8A8_UNORM:
++   case PIPE_FORMAT_B8G8R8A8_SRGB:
++      return 21;                                   /* D3DDDIFMT_A8R8G8B8 */
++   case PIPE_FORMAT_B8G8R8X8_UNORM:
++   case PIPE_FORMAT_B8G8R8X8_SRGB:
++      return 22;                                   /* D3DDDIFMT_X8R8G8B8 */
++   case PIPE_FORMAT_R8G8B8A8_UNORM:
++   case PIPE_FORMAT_R8G8B8A8_SRGB:
++      return 32;                                   /* D3DDDIFMT_A8B8G8R8 */
++   default:
++      return 0;
++   }
++}
++
++static enum pipe_format
++TopazPipeFormat(unsigned d3d)
++{
++   switch (d3d) {
++   case 22:
++      return PIPE_FORMAT_B8G8R8X8_UNORM;
++   case 32:
++      return PIPE_FORMAT_R8G8B8A8_UNORM;
++   default:
++      return PIPE_FORMAT_B8G8R8A8_UNORM;
++   }
++}
++
++bool
++TopazWddmWanted(const D3D10DDIARG_CREATERESOURCE *pCreate)
++{
++   return pCreate->pPrimaryDesc != NULL ||
++          (pCreate->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED) ||
++          (pCreate->BindFlags & D3D10_DDI_BIND_PRESENT);
++}
++
++void
++TopazWddmTemplate(struct pipe_resource *templat)
++{
++   /* the KMD reads/writes these pixels with the CPU: no UBWC/tiling */
++   templat->bind |= PIPE_BIND_LINEAR | PIPE_BIND_SHARED;
++}
++
++HRESULT
++TopazWddmCreateAllocation(Device *pDevice, Resource *pResource, const D3D10DDIARG_CREATERESOURCE *pCreate)
++{
++   struct pipe_screen *screen = pDevice->screen;
++   struct pipe_resource *res = pResource->resource;
++   struct winsys_handle wh;
++   struct topazgpu_alloc a;
++   D3DDDI_ALLOCATIONINFO ai;
++   struct gdikmt_createallocation opts;
++   NTSTATUS st;
++
++   memset(&wh, 0, sizeof(wh));
++   wh.type = WINSYS_HANDLE_TYPE_SHARED;
++   if (!screen->resource_get_handle(screen, pDevice->pipe, res, &wh, 0)) {
++      DebugPrintf("topaz: resource_get_handle failed\n");
++      return E_OUTOFMEMORY;
++   }
++
++   memset(&a, 0, sizeof(a));
++   a.magic = TOPAZGPU_ALLOC_MAGIC;
++   a.kind = TOPAZGPU_ALLOC_UMD;
++   a.width = res->width0;
++   a.height = res->height0;
++   a.pitch = wh.stride;
++   a.format = TopazD3dFormat(res->format);
++   a.bo = (unsigned)(uintptr_t)wh.handle;
++   a.bo_offset = wh.offset;
++   a.size = wh.stride * res->height0;
++   if (pCreate->pPrimaryDesc) {
++      a.flags |= TOPAZGPU_ALLOC_F_PRIMARY;
++      a.vidpn = pCreate->pPrimaryDesc->VidPnSourceId;
++      pDevice->device.allocationVidPn = pCreate->pPrimaryDesc->VidPnSourceId;
++   }
++
++   memset(&ai, 0, sizeof(ai));
++   ai.pPrivateDriverData = &a;
++   ai.PrivateDriverDataSize = sizeof(a);
++   memset(&opts, 0, sizeof(opts));
++   opts.NumAllocations = 1;
++   opts.pAllocationInfo = &ai;
++   st = pDevice->device.base.createAllocation(&pDevice->device.base, &opts);
++   if (st < 0) {
++      DebugPrintf("topaz: AllocateCb failed 0x%08lx\n", (unsigned long)st);
++      return E_OUTOFMEMORY;
++   }
++   pResource->hAllocation = ai.hAllocation;
++   return S_OK;
++}
++
++void
++TopazWddmDestroyAllocation(Device *pDevice, Resource *pResource)
++{
++   if (pResource->hAllocation) {
++      pDevice->device.base.destroyAllocation(&pDevice->device.base, NULL, pResource->hAllocation);
++      pResource->hAllocation = 0;
++   }
++}
++
++/* OpenResource of a resource created by another process / the kernel: import its BO by name */
++struct pipe_resource *
++TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HANDLE *phAllocation)
++{
++   const struct topazgpu_alloc *a;
++   struct pipe_resource templat;
++   struct winsys_handle wh;
++
++   if (pOpen->NumAllocations < 1 || pOpen->pOpenAllocationInfo == NULL) {
++      return NULL;
++   }
++   a = (const struct topazgpu_alloc *)pOpen->pOpenAllocationInfo[0].pPrivateDriverData;
++   if (a == NULL || pOpen->pOpenAllocationInfo[0].PrivateDriverDataSize < sizeof(*a) ||
++       a->magic != TOPAZGPU_ALLOC_MAGIC || a->bo == 0) {
++      DebugPrintf("topaz: OpenResource without a BO (kind %u)\n", a ? a->kind : ~0u);
++      return NULL;
++   }
++   memset(&templat, 0, sizeof(templat));
++   templat.target = PIPE_TEXTURE_2D;
++   templat.format = TopazPipeFormat(a->format);
++   templat.width0 = a->width;
++   templat.height0 = a->height;
++   templat.depth0 = 1;
++   templat.array_size = 1;
++   templat.last_level = 0;
++   templat.bind = PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET | PIPE_BIND_LINEAR | PIPE_BIND_SHARED;
++   memset(&wh, 0, sizeof(wh));
++   wh.type = WINSYS_HANDLE_TYPE_SHARED;
++   wh.handle = a->bo;
++   wh.stride = a->pitch;
++   wh.offset = a->bo_offset;
++   *phAllocation = pOpen->pOpenAllocationInfo[0].hAllocation;
++   return pDevice->screen->resource_from_handle(pDevice->screen, &templat, &wh, 0);
++}
++
++/* DXGI Present: finish the GPU work on the source, then let the KMD blt/flip it */
++HRESULT
++TopazWddmPresent(Device *pDevice, Resource *pSrc, void *pDXGIContext)
++{
++   struct pipe_context *pipe = pDevice->pipe;
++   struct pipe_screen *screen = pDevice->screen;
++   struct pipe_fence_handle *fence = NULL;
++
++   if (!pSrc->hAllocation) {
++      DebugPrintf("topaz: Present of a resource without allocation\n");
++      return S_OK;
++   }
++   pipe->flush(pipe, &fence, 0);
++   if (fence) {
++      screen->fence_finish(screen, NULL, fence, OS_TIMEOUT_INFINITE);
++      screen->fence_reference(screen, &fence, NULL);
++   }
++   if (!pDevice->topazCtx) {
++      if (pDevice->device.base.createContext(&pDevice->device.base, &pDevice->topazCtx) < 0) {
++         pDevice->topazCtx = NULL;
++         return E_FAIL;
++      }
++   }
++   return pDevice->device.base.present(pDevice->topazCtx, pSrc->hAllocation, pDXGIContext, NULL);
++}
++
++/* opt-in while experimental: env TOPAZGPU_ENABLE or C:\topaz\umd.enable (needed for DWM) */
++bool
++TopazWddmEnabled(void)
++{
++   return GetEnvironmentVariableA("TOPAZGPU_ENABLE", NULL, 0) != 0 ||
++          GetFileAttributesA("C:\\topaz\\umd.enable") != INVALID_FILE_ATTRIBUTES;
++}

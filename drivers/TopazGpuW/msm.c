@@ -464,3 +464,20 @@ VOID MsmBoRelease(TGPU_BO *Bo)
     }
     KeReleaseMutex(&g_BoLock, FALSE);
 }
+
+/* step C2 (v0.32): a BO created by the KMD itself (GDI texture surfaces DWM must sample) */
+TGPU_BO *MsmBoCreate(SIZE_T Size)
+{
+    struct drm_msm_gem_new n;
+    TGPU_BO *bo = NULL;
+
+    RtlZeroMemory(&n, sizeof(n));
+    n.size = Size;
+    n.flags = MSM_BO_WC;
+    KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
+    if (NT_SUCCESS(GemNew(&n))) {
+        bo = BoGet(n.handle);
+    }
+    KeReleaseMutex(&g_BoLock, FALSE);
+    return bo;
+}
