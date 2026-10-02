@@ -250,3 +250,15 @@ BO name (KMD fills it in DxgkDdiGetStandardAllocationDriverData for runtime-crea
   IRQ in the INF was not applied to the root device: no LogConf key.)
 - Note: when the phone's screen locks it sleeps and Wi-Fi (TopazWifi) pauses → SSH times out until
   the user unlocks.
+- **v0.6/v0.7 (2026-10-02): the adapter STARTS** (UMD registry values fixed the c0000034; DRIVERCAPS
+  must accept the 552-byte WDDM 1.3 struct). Dxgkrnl then: QueryAdapterInfo DRIVERCAPS ok →
+  GetNodeMetadata → CreateDevice → CreateContext → QUERYSEGMENT ×2 → **BuildPagingBuffer ×2, but
+  never SubmitCommand** → QueryAdapterInfo type 10 (not supported) → UMDRIVERPRIVATE ok. The first
+  D3DKMTEscape from tgputest **never reached DxgkDdiEscape** (no log line) and the process became
+  unkillable; a second test + ETW trace froze the whole phone (hard reboot). Hypothesis: Dxgkrnl's
+  scheduler/VidMM waits for the two paging buffers to complete, holding the adapter lock that the
+  escape needs — the root-enumerated device has **no interrupt** (LogConfigOverride ignored), so
+  the usual DMA-completed path never runs. The device was removed afterwards; the phone is fine.
+- Next (v0.8): boot/hang guard file (adapter refuses to start if the previous start never reached
+  "stable"), log every scheduling DDI (BuildPagingBuffer operation, SubmitCommand fence, Preempt,
+  QueryCurrentFence, ControlInterrupt, Dpc, Escape entry), and complete paging work without an IRQ.
