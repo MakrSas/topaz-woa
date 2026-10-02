@@ -156,6 +156,10 @@ int main(int argc, char **argv)
         D3D11_VIEWPORT vp = { 0, 0, 64, 64, 0, 1 };
         ctx->RSSetViewports(1, &vp);
         ctx->OMSetRenderTargets(1, &rtv, nullptr);
+        D3D11_DEPTH_STENCIL_DESC dsd = {};               // default state has depth on (no DSV here)
+        ID3D11DepthStencilState *dss = nullptr;
+        dev->CreateDepthStencilState(&dsd, &dss);
+        ctx->OMSetDepthStencilState(dss, 0);
         ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         ctx->VSSetShader(vs, nullptr, 0);
         ctx->PSSetShader(ps, nullptr, 0);
