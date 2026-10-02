@@ -8,9 +8,9 @@ the user before installing anything that could take Wi-Fi/SSH down.
 ## Plan
 | Step | What | State |
 |---|---|---|
-| A1 | ADSP boot via TZ PAS + SMP2P ready | v0.1 written, untested |
-| A2 | GLINK lpass edge: IPCRTR (QRTR, pd-mapper), adsp_apps (GPR) | v0.1 written, untested |
-| A3 | GPR: APM `GET_SPF_STATE` = 1 (AudioReach up) | v0.1 written, untested |
+| A1 | ADSP boot via TZ PAS + SMP2P ready | **done** (v0.3, READY+handover 58 ms after auth_and_reset) |
+| A2 | GLINK lpass edge: IPCRTR (QRTR, pd-mapper), adsp_apps (GPR) | **done** (v0.3) |
+| A3 | GPR: APM `GET_SPF_STATE` = 1 (AudioReach up) | **done** (v0.3, READY on the 2nd ask, 1 s) |
 | A4 | Find the fitted speaker amp (I2C probe on QUP0 SE1: fs16xx 0x34 / aw87xxx 0x59 / sia81xx 0x2b) | |
 | A5 | AudioReach graph for speaker: PCM shared mem → codec DMA RX → RX macro → SoundWire → WCD937x / amp | |
 | A6 | Tone from the driver (no Windows audio stack) | |
@@ -76,3 +76,12 @@ lose SSH (ask the user before).
   state) → SoC reset. **Never restart the ADSP over stale SMEM state.**
 - v0.3: items fixed (out 429 / in 443); refuses to boot if item 443 or 480 already exists
   (= the ADSP ran since SMEM init → full power-off needed).
+- **2026-10-02 v0.3 WORKS** (cold SMEM after the v0.2 reset): items 429/443/480/606/611 appear
+  within 40 ms, slave-kernel = 6 (READY + handover) at 58 ms. GLINK VERSION features 7 → 1.
+  The ADSP opens IPCRTR, glink_ssr, adsp_apps, fastrpcglink-apps-dsp, LOOPBACK_CTL_LPASS.
+  QRTR node 5; services: 0x42 servreg-notif (inst 0x4a = 74), 0x2B ssctl, 0x0F x3, 0x33 x2,
+  0x18, 0x190, 0x1004 (v0x10), 0x301. pd-mapper asked only "tms/pdr_enabled" and
+  "tms/pddump_disabled" (answered with 0 domains, fine). GPR: the 1st GET_SPF_STATE got
+  GPR_BASIC_RSP_RESULT status 1 (not ready yet), the 2nd → **APM SPF state = 1 READY** at
+  t = 1.07 s. Stable at t = 30 s (wdog 0, no FATAL). Note: the ADSP keeps running with this
+  driver; reinstalling TopazAudio needs a full power-off before the next ADSP boot (v0.3 refuses).
