@@ -671,6 +671,57 @@ static BOOLEAN RingIdle(ULONG Ms)
     return FALSE;
 }
 
+/* v0.20: hardware clock gating as Linux a6xx_set_hwcg(gpu, true) does for a610. Step B hung in the
+   shader pipeline (SP/HLSQ busy) with the reset-default CGC settings. */
+static const ULONG g_A612Hwcg[][2] = {        /* Linux a6xx_catalog.c a612_hwcg (a610 uses it) */
+    { 0x000B0, 0x22222222 },     /* RBBM_CLOCK_CNTL_SP0 */
+    { 0x000B4, 0x02222220 },     /* RBBM_CLOCK_CNTL2_SP0 */
+    { 0x000B8, 0x00000081 },     /* RBBM_CLOCK_DELAY_SP0 */
+    { 0x000BC, 0x0000f3cf },     /* RBBM_CLOCK_HYST_SP0 */
+    { 0x000C0, 0x22222222 },     /* RBBM_CLOCK_CNTL_TP0 */
+    { 0x000C4, 0x22222222 },     /* RBBM_CLOCK_CNTL2_TP0 */
+    { 0x000C8, 0x22222222 },     /* RBBM_CLOCK_CNTL3_TP0 */
+    { 0x000CC, 0x00022222 },     /* RBBM_CLOCK_CNTL4_TP0 */
+    { 0x000D0, 0x11111111 },     /* RBBM_CLOCK_DELAY_TP0 */
+    { 0x000D4, 0x11111111 },     /* RBBM_CLOCK_DELAY2_TP0 */
+    { 0x000D8, 0x11111111 },     /* RBBM_CLOCK_DELAY3_TP0 */
+    { 0x000DC, 0x00011111 },     /* RBBM_CLOCK_DELAY4_TP0 */
+    { 0x000E0, 0x77777777 },     /* RBBM_CLOCK_HYST_TP0 */
+    { 0x000E4, 0x77777777 },     /* RBBM_CLOCK_HYST2_TP0 */
+    { 0x000E8, 0x77777777 },     /* RBBM_CLOCK_HYST3_TP0 */
+    { 0x000EC, 0x00077777 },     /* RBBM_CLOCK_HYST4_TP0 */
+    { 0x000F0, 0x22222222 },     /* RBBM_CLOCK_CNTL_RB0 */
+    { 0x000F4, 0x01202222 },     /* RBBM_CLOCK_CNTL2_RB0 */
+    { 0x000F8, 0x00002220 },     /* RBBM_CLOCK_CNTL_CCU0 */
+    { 0x00100, 0x00040f00 },     /* RBBM_CLOCK_HYST_RB_CCU0 */
+    { 0x00104, 0x05522022 },     /* RBBM_CLOCK_CNTL_RAC */
+    { 0x00105, 0x00005555 },     /* RBBM_CLOCK_CNTL2_RAC */
+    { 0x00106, 0x00000011 },     /* RBBM_CLOCK_DELAY_RAC */
+    { 0x00107, 0x00445044 },     /* RBBM_CLOCK_HYST_RAC */
+    { 0x00108, 0x04222222 },     /* RBBM_CLOCK_CNTL_TSE_RAS_RBBM */
+    { 0x00111, 0x00002222 },     /* RBBM_CLOCK_MODE_VFD */
+    { 0x00114, 0x02222222 },     /* RBBM_CLOCK_MODE_GPC */
+    { 0x00117, 0x00000002 },     /* RBBM_CLOCK_DELAY_HLSQ_2 */
+    { 0x0011B, 0x00002222 },     /* RBBM_CLOCK_MODE_HLSQ */
+    { 0x00109, 0x00004000 },     /* RBBM_CLOCK_DELAY_TSE_RAS_RBBM */
+    { 0x00112, 0x00002222 },     /* RBBM_CLOCK_DELAY_VFD */
+    { 0x00115, 0x00000200 },     /* RBBM_CLOCK_DELAY_GPC */
+    { 0x0011C, 0x00000000 },     /* RBBM_CLOCK_DELAY_HLSQ */
+    { 0x0010A, 0x00000000 },     /* RBBM_CLOCK_HYST_TSE_RAS_RBBM */
+    { 0x00113, 0x00000000 },     /* RBBM_CLOCK_HYST_VFD */
+    { 0x00116, 0x04104004 },     /* RBBM_CLOCK_HYST_GPC */
+    { 0x0011D, 0x00000000 },     /* RBBM_CLOCK_HYST_HLSQ */
+    { 0x0010B, 0x22222222 },     /* RBBM_CLOCK_CNTL_UCHE */
+    { 0x00110, 0x00000004 },     /* RBBM_CLOCK_HYST_UCHE */
+    { 0x0010F, 0x00000002 },     /* RBBM_CLOCK_DELAY_UCHE */
+    { 0x0533, 0x00000182 },      /* RBBM_ISDB_CNT */
+    { 0x00044, 0x00000000 },     /* RBBM_RAC_THRESHOLD_CNT */
+    { 0x00042, 0x00000000 },     /* RBBM_SP_HYST_CNT */
+    { 0x00118, 0x00000222 },     /* RBBM_CLOCK_CNTL_GMU_GX */
+    { 0x00119, 0x00000111 },     /* RBBM_CLOCK_DELAY_GMU_GX */
+    { 0x0011A, 0x00000555 },     /* RBBM_CLOCK_HYST_GMU_GX */
+};
+
 static VOID HwInitRegs(VOID)
 {
     ULONG i;
@@ -687,6 +738,11 @@ static VOID HwInitRegs(VOID)
     for (i = 0; i < ARRAYSIZE(addrMode); i++) {
         GpuWr(addrMode[i], 1);
     }
+    LogPrint("  RBBM_CLOCK_CNTL was %08x\n", GpuRd(0xAE));
+    for (i = 0; i < ARRAYSIZE(g_A612Hwcg); i++) {
+        GpuWr(g_A612Hwcg[i][0], g_A612Hwcg[i][1]);
+    }
+    GpuWr(0xAE, 0xaaa8aa82);                             /* RBBM_CLOCK_CNTL: a610 clock_cntl_on */
     for (i = 0; i < 4; i++) {
         GpuWr(0x3c03 + i, 0x00071620);
     }
