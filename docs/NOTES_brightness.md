@@ -43,3 +43,19 @@ trigger = SW, DMA_CTRL has bits 28 and 26 (LOW_POWER).
   15 = short + 1 param, 39 = long. Display off/on test: `05 28` then `05 29`.
 - Windows brightness slider needs the brightness interface of the display adapter
   (DXGK_BRIGHTNESS_INTERFACE) → later in TopazGpuW (step C2); until then the file/tool.
+
+## Built-in Windows slider (2026-10-02 ~21:35)
+- Brightness 10 % → 100 % via the DMA path verified by the user. The level now comes from
+  `C:\topaz\brightness`; the Windows slider needs the display adapter's DXGK brightness interface.
+- The display adapter today is Microsoft Basic Display (no brightness). Our display-only driver
+  **TopazDisplay** (KMDOD sample, fixed framebuffer 0x5C000000) is disabled by Windows on every boot
+  (System event 4113). DxgKrnl ETW of a restart: StartDevice OK, then
+  **`DdiPresentDisplayOnly return 0xC0000001`** → StopDevice; also
+  `QueryDeviceDescriptor` for EDID offset 128 returns 0xC00000BB ("invalid NTSTATUS"; must be
+  STATUS_MONITOR_NO_MORE_DESCRIPTOR_DATA) and "Failed to get preferred mode from monitor EDID".
+  Present returns 0xC0000001 either from `IsDriverActive() == FALSE` or from the blt worker path
+  (blthw.cxx); BasicDisplay is still enabled and scans out of the same memory.
+- Plan: fix TopazDisplay (log the present path, EDID descriptor status, preferred timing), give it
+  DXGK_BRIGHTNESS_INTERFACE that sends DCS 0x51 through the DSI DMA path (code from
+  TopazBacklight), then disable BasicDisplay → native slider. Risk: a broken TopazDisplay with
+  BasicDisplay disabled = black screen until `devcon enable` over SSH or a reboot.
