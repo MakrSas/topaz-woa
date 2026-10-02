@@ -515,3 +515,12 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   textures[PIPE_MAX_SAMPLERS = 32] -> overflow. Fixed in 0002 (32 views). Dump tip: a dump written right
   after a DLL swap may still come from a process that loaded the old DLL - check the module
   timestamp in the WER event before symbolizing with the new PDB.
+- UMD file log: `C:\ProgramData\topaz\umd.log.enable` -> stderr/DebugPrintf of every UMD process in
+  `C:\ProgramData\topaz\umd-<pid>.log` (dir granted to Everyone, DWM runs as DWM-n); `umd.tgsi` also
+  dumps each translated shader. Helper flow (scratch umdloop.sh): install DLL, kill dwm, wait for the
+  WER dump, symbolize pc/lr + stack scan with the CI PDB.
+- After the sampler fix DWM died differently each time (fd_bo_heap_alloc -> fd_bo_ref NULL in
+  CreateDevice, heap exhaustion): every crashed DWM leaked its BOs in the KMD (handles are global,
+  nobody closed them) until contiguous memory ran out. KMD v0.33: BO references are owned by the WDDM
+  device that made the escape (GEM_NEW/GEM_OPEN; GEM_CLOSE drops one) and released in
+  DxgkDdiDestroyDevice (also called when the process dies); GEM_NEW failures are logged with totals.

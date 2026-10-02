@@ -10,6 +10,18 @@
 #define BO_MAX              65536
 
 static KMUTEX g_BoLock;          /* keeps IRQL at PASSIVE (logging, user mappings) */
+
+/* v0.33: every reference a WDDM device takes (GEM_NEW / GEM_OPEN) is recorded and dropped at
+   DestroyDevice, which Dxgkrnl also calls when the process dies: crash-looping DWM leaked all its
+   (contiguous) BOs before. */
+typedef struct _BO_OWN {
+    LIST_ENTRY Link;
+    PVOID      Owner;
+    ULONG      Handle;
+} BO_OWN;
+static LIST_ENTRY g_Owns;
+static ULONG g_BoCount;
+static ULONGLONG g_BoBytes;
 static LIST_ENTRY g_Bos;
 static TGPU_BO *g_BoTable[BO_MAX];
 static ULONG g_NextHandle = 1;
@@ -20,6 +32,7 @@ VOID MsmInit(VOID)
 {
     KeInitializeMutex(&g_BoLock, 0);
     InitializeListHead(&g_Bos);
+    InitializeListHead(&g_Owns);
     HwInit();
 }
 
@@ -54,7 +67,63 @@ static VOID BoFree(TGPU_BO *Bo)
     TgFreePages(Bo->Mdl, Bo->KernelVa, Bo->Size, Bo->Iova);
     g_BoTable[Bo->Handle] = NULL;
     RemoveEntryList(&Bo->Link);
+    g_BoCount--;
+    g_BoBytes -= Bo->Size;
     ExFreePoolWithTag(Bo, TGPU_POOL_TAG);
+}
+
+static VOID OwnAdd(PVOID Owner, ULONG Handle)
+{
+    BO_OWN *o;
+
+    if (Owner == NULL || (o = (BO_OWN *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*o), TGPU_POOL_TAG)) == NULL) {
+        return;
+    }
+    o->Owner = Owner;
+    o->Handle = Handle;
+    InsertTailList(&g_Owns, &o->Link);
+}
+
+static VOID OwnDel(PVOID Owner, ULONG Handle)
+{
+    PLIST_ENTRY e;
+
+    for (e = g_Owns.Flink; e != &g_Owns; e = e->Flink) {
+        BO_OWN *o = CONTAINING_RECORD(e, BO_OWN, Link);
+        if (o->Owner == Owner && o->Handle == Handle) {
+            RemoveEntryList(&o->Link);
+            ExFreePoolWithTag(o, TGPU_POOL_TAG);
+            return;
+        }
+    }
+}
+
+VOID MsmReleaseOwner(PVOID Owner)
+{
+    PLIST_ENTRY e, next;
+    ULONG n = 0, freed = 0;
+
+    KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
+    for (e = g_Owns.Flink; e != &g_Owns; e = next) {
+        BO_OWN *o = CONTAINING_RECORD(e, BO_OWN, Link);
+        next = e->Flink;
+        if (o->Owner != Owner) {
+            continue;
+        }
+        TGPU_BO *bo = BoGet(o->Handle);
+        if (bo != NULL && --bo->Refs == 0) {
+            BoFree(bo);
+            freed++;
+        }
+        n++;
+        RemoveEntryList(&o->Link);
+        ExFreePoolWithTag(o, TGPU_POOL_TAG);
+    }
+    if (n != 0) {
+        LogPrint("device %p gone: %u BO references dropped, %u BOs freed, %u BOs / %llu KB left\n", Owner, n, freed,
+                 g_BoCount, g_BoBytes / 1024);
+    }
+    KeReleaseMutex(&g_BoLock, FALSE);
 }
 
 static NTSTATUS GemNew(struct drm_msm_gem_new *A)
@@ -82,6 +151,8 @@ static NTSTATUS GemNew(struct drm_msm_gem_new *A)
     UNREFERENCED_PARAMETER(skip);
     bo->Mdl = TgAllocPages(bo->Size, &bo->Iova, &bo->KernelVa);
     if (bo->Mdl == NULL) {
+        LogPrint("GEM_NEW: %llu KB contiguous failed (%u BOs / %llu KB allocated)\n", (ULONGLONG)bo->Size / 1024,
+                 g_BoCount, g_BoBytes / 1024);
         ExFreePoolWithTag(bo, TGPU_POOL_TAG);
         return STATUS_NO_MEMORY;
     }
@@ -101,6 +172,8 @@ static NTSTATUS GemNew(struct drm_msm_gem_new *A)
     bo->Handle = h;
     g_BoTable[h] = bo;
     InsertTailList(&g_Bos, &bo->Link);
+    g_BoCount++;
+    g_BoBytes += bo->Size;
     A->handle = h;
     return STATUS_SUCCESS;
 }
@@ -318,7 +391,7 @@ static int Errno(NTSTATUS St)
     }
 }
 
-NTSTATUS MsmEscape(struct topazgpu_escape *E)
+NTSTATUS MsmEscape(struct topazgpu_escape *E, PVOID Owner)
 {
     NTSTATUS st = STATUS_SUCCESS;
     PVOID d = E->data;
@@ -348,6 +421,9 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
         break;
     case DRM_COMMAND_BASE + DRM_MSM_GEM_NEW:
         st = GemNew((struct drm_msm_gem_new *)d);
+        if (NT_SUCCESS(st)) {
+            OwnAdd(Owner, ((struct drm_msm_gem_new *)d)->handle);
+        }
         break;
     case DRM_COMMAND_BASE + DRM_MSM_GEM_INFO:
         st = GemInfo((struct drm_msm_gem_info *)d);
@@ -395,7 +471,7 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
         bo = BoGet(((struct drm_gem_close *)d)->handle);
         if (bo == NULL) {
             st = STATUS_INVALID_HANDLE;
-        } else if (--bo->Refs == 0) {
+        } else if (OwnDel(Owner, bo->Handle), --bo->Refs == 0) {
             BoFree(bo);
         } else {
             BoUnmapAll(bo, PsGetCurrentProcess());
@@ -414,6 +490,7 @@ NTSTATUS MsmEscape(struct topazgpu_escape *E)
             st = STATUS_INVALID_HANDLE;
         } else {
             bo->Refs++;
+            OwnAdd(Owner, bo->Handle);
             o->handle = bo->Handle;
             o->size = bo->Size;
         }

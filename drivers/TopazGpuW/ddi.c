@@ -406,11 +406,10 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
 static NTSTATUS APIENTRY TgEscape(const HANDLE hAdapter, const DXGKARG_ESCAPE *E)
 {
     UNREFERENCED_PARAMETER(hAdapter);
-    LogPrint("Escape: size %u flags %x\n", E->PrivateDriverDataSize, E->Flags.Value);
     if (E->PrivateDriverDataSize < sizeof(struct topazgpu_escape) || E->pPrivateDriverData == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
-    return MsmEscape((struct topazgpu_escape *)E->pPrivateDriverData);
+    return MsmEscape((struct topazgpu_escape *)E->pPrivateDriverData, E->hDevice);
 }
 
 /* ---------------------------------------------------------------- devices, contexts, allocations */
@@ -430,6 +429,7 @@ static NTSTATUS APIENTRY TgCreateDevice(const HANDLE hAdapter, DXGKARG_CREATEDEV
 
 static NTSTATUS APIENTRY TgDestroyDevice(const HANDLE hDevice)
 {
+    MsmReleaseOwner(hDevice);
     ExFreePoolWithTag(hDevice, TGPU_POOL_TAG);
     return STATUS_SUCCESS;
 }
@@ -1207,7 +1207,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, GDI textures in BOs) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, BO ownership per device) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;
