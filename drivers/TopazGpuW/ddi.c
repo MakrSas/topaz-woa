@@ -5,6 +5,8 @@
  * Shape follows viogpu3d (virtio-win PR #943, BSD-3) and the WDK samples.
  */
 #include "tgpu.h"
+#include <wdmguid.h>
+#include <devpkey.h>
 
 typedef struct _TGPU_ADAPTER {
     PDEVICE_OBJECT       Pdo;
@@ -100,8 +102,61 @@ static VOID CompleteFence(TGPU_ADAPTER *A, ULONG Fence)
 
 /* ---------------------------------------------------------------- adapter */
 
+/* The root-enumerated device has no resources; give it the GPU interrupt (GIC SPI 177 = GSIV 209,
+   level) by writing its LogConf\BasicConfigVector (IO_RESOURCE_REQUIREMENTS_LIST) from the kernel:
+   Enum\ is not writable from user mode and the INF LogConfigOverride is ignored. Takes effect at
+   the next start of the device. */
+static VOID EnsureIrqRequirement(PDEVICE_OBJECT Pdo)
+{
+    WCHAR inst[128], path[256];
+    ULONG len = 0;
+    DEVPROPTYPE type;
+    UNICODE_STRING name, value;
+    OBJECT_ATTRIBUTES oa;
+    HANDLE key;
+    UCHAR b[72];
+    ULONG got = 0;
+    NTSTATUS st;
+
+    st = IoGetDevicePropertyData(Pdo, &DEVPKEY_Device_InstanceId, 0, 0, sizeof(inst) - sizeof(WCHAR), inst, &len, &type);
+    if (!NT_SUCCESS(st)) {
+        LogPrint("IRQ requirement: instance id %08x\n", st);
+        return;
+    }
+    inst[len / sizeof(WCHAR)] = 0;
+    RtlStringCbPrintfW(path, sizeof(path), L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Enum\\%ws\\LogConf", inst);
+    RtlInitUnicodeString(&name, path);
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    st = ZwCreateKey(&key, KEY_ALL_ACCESS, &oa, 0, NULL, REG_OPTION_NON_VOLATILE, NULL);
+    if (!NT_SUCCESS(st)) {
+        LogPrint("IRQ requirement: open %ws %08x\n", path, st);
+        return;
+    }
+    RtlInitUnicodeString(&value, L"BasicConfigVector");
+    if (NT_SUCCESS(ZwQueryValueKey(key, &value, KeyValuePartialInformation, NULL, 0, &got)) || got > 16) {
+        LogPrint("IRQ requirement: already present (%u)\n", got);
+        ZwClose(key);
+        return;
+    }
+    RtlZeroMemory(b, sizeof(b));
+    *(ULONG *)(b + 0) = sizeof(b);                       /* ListSize, Internal, bus 0 */
+    *(ULONG *)(b + 28) = 1;                              /* AlternativeLists */
+    *(USHORT *)(b + 32) = 1;                             /* Version */
+    *(USHORT *)(b + 34) = 1;                             /* Revision */
+    *(ULONG *)(b + 36) = 1;                              /* Count */
+    b[41] = CmResourceTypeInterrupt;
+    b[42] = CmResourceShareDeviceExclusive;
+    *(USHORT *)(b + 44) = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+    *(ULONG *)(b + 48) = 209;                            /* MinimumVector */
+    *(ULONG *)(b + 52) = 209;                            /* MaximumVector */
+    st = ZwSetValueKey(key, &value, 0, REG_RESOURCE_REQUIREMENTS_LIST, b, sizeof(b));
+    LogPrint("IRQ requirement: %ws BasicConfigVector written %08x (applies at the next start)\n", inst, st);
+    ZwClose(key);
+}
+
 static NTSTATUS TgAddDevice(const PDEVICE_OBJECT Pdo, PVOID *Ctx)
 {
+    EnsureIrqRequirement(Pdo);
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*a), TGPU_POOL_TAG);
     if (a == NULL) {
         return STATUS_NO_MEMORY;
