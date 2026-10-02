@@ -298,3 +298,13 @@ process, GEM_SUBMIT fence 1, WAIT_FENCE ok, **dst = 0xC0FFEE01**.
 - First run: the UMD loads, freedreno talks to the KMD through escapes, then AV in
   `glsl_array_type` (fd6_context_create → fd_prog_init → tgsi_to_nir): the GLSL type singleton is
   created by the GL frontend on Linux; d3d10umd must call `glsl_type_singleton_init_or_ref()`.
+- After the GLSL fix: **D3D11CreateDevice OK (FL 10.0) + CreateTexture2D OK**; then GEM_SUBMIT
+  returned EFAULT: freedreno's `VOID2U64/U642VOID` cast through `unsigned long` (32-bit on Windows)
+  and truncated the bos/cmds user pointers → fixed with uintptr_t (built, not yet tested).
+- 15:49 the phone rebooted (Kernel-Power 41, cause unknown; a sound agent was also using the phone).
+  After it TopazGpuW refused to start: the hang guard was only cleared when Dxgkrnl completed a DMA
+  buffer, which never happens on this render-only adapter → **v0.17 clears the guard after 60 s
+  alive**. v0.17 also adds the rest of Linux a6xx hw_init for a610: UBWC NC_MODE regs
+  (RB/TPL1/SP 0x9, UCHE_MODE 0x800000), CP_MEM_POOL_DBG_ADDR 47, perf counter setup.
+- To resume: delete `C:\topaz\gpuw.guard`, install v0.17 (WDDM update needs a reboot — ask the
+  user), copy the latest UMD DLL, run `tools/gputest/run-d3dtest.ps1` (copy to C:\topaz\run.ps1).

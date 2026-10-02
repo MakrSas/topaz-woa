@@ -64,6 +64,10 @@ subset) · `Pkt7`/`Emit`/`Submit` (ring, waits RPTR == WPTR, logs SMMU fault on 
 2. G2: WDDM render-only KMD (TopazDisplay stays display-only).
 3. G3: Mesa (d3d10umd + freedreno + new WDDM winsys) built for Windows ARM64 in CI.
 
+## Step B status (2026-10-02 evening) — see the end of P8_gpu.md
+UMD builds in CI (mesa.yml, DLL + PDB), loads, creates a D3D11 device + texture; submit pointer fix
+and TopazGpuW v0.17 (guard + a610 UBWC init) built but untested — phone was busy with a sound agent.
+
 ## Still open (older)
 - Wi-Fi P6 HT/VHT (`docs/HANDOFF_p6_htvht.md`), then P7 (CE interrupts, real MAC, stats).
 - Archive TopazWifi v0.3/v0.4 logs (redact SSIDs). Roadmap: `docs/ROADMAP.md`.
