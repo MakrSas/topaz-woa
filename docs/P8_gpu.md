@@ -524,3 +524,10 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   nobody closed them) until contiguous memory ran out. KMD v0.33: BO references are owned by the WDDM
   device that made the escape (GEM_NEW/GEM_OPEN; GEM_CLOSE drops one) and released in
   DxgkDdiDestroyDevice (also called when the process dies); GEM_NEW failures are logged with totals.
+
+### 01:05 boot (KMD v0.33): DWM gets through shader creation, then fail-fasts
+- dwmcore raises 0xc00001ad (FATAL_MEMORY_EXHAUSTION) on E_OUTOFMEMORY from D3D. UMD log with SetError
+  file:line + CreateResource params: the DWM swapchain buffer (1080x2400 B8G8R8A8, bind
+  PRESENT|RT|SRV) failed `is_format_supported` because fd6 refuses any bind bit it does not confirm
+  (LINEAR/SHARED added by us; MISC_SHARED resources had the same problem before). Fixed: format check
+  without LINEAR/SHARED/SCANOUT.

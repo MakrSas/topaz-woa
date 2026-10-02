@@ -290,7 +290,7 @@ index 53ef690..65e674a 100644
     return S_OK;
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 24131e5..44b8ec4 100644
+index 24131e5..0991241 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
 @@ -251,6 +251,11 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
@@ -315,15 +315,22 @@ index 24131e5..44b8ec4 100644
  
     if (templat.target != PIPE_BUFFER) {
        if (!screen->is_format_supported(screen,
-@@ -316,6 +324,7 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
-                                        templat.bind)) {
+@@ -313,9 +321,13 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                                        templat.target,
+                                        templat.nr_samples,
+                                        templat.nr_storage_samples,
+-                                       templat.bind)) {
++                                       /* TopazGpu: layout/sharing bits are not format caps;
++                                        * freedreno rejects any bit it does not confirm */
++                                       templat.bind & ~(PIPE_BIND_LINEAR | PIPE_BIND_SHARED |
++                                                        PIPE_BIND_SCANOUT))) {
           debug_printf("%s: unsupported format %s\n",
                       __func__, util_format_name(templat.format));
 +         TopazWddmLogf("  unsupported format %s bind 0x%x\n", util_format_name(templat.format), templat.bind);
           SetError(hDevice, E_OUTOFMEMORY);
           goto unlock;
        }
-@@ -332,6 +341,12 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -332,6 +344,12 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
     pResource->transfers = (struct pipe_transfer **)calloc(pResource->NumSubResources,
                                                            sizeof *pResource->transfers);
  
@@ -336,7 +343,7 @@ index 24131e5..44b8ec4 100644
     if (pCreateResource->pInitialDataUP) {
        if (pResource->buffer) {
           assert(pResource->NumSubResources == 1);
-@@ -441,6 +456,8 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -441,6 +459,8 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
     LOG_ENTRYPOINT();
     
     Device *pDevice = CastDevice(hDevice);
@@ -345,7 +352,7 @@ index 24131e5..44b8ec4 100644
     if (!pDevice->screen->resource_from_handle) {
        SetError(hDevice, E_OUTOFMEMORY);
        return;
-@@ -457,6 +474,9 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -457,6 +477,9 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
     whandle.type = WINSYS_HANDLE_TYPE_WIN32_HANDLE;
     whandle.handle = (HANDLE)pOpenResource->hKMResource.handle;
     
@@ -355,7 +362,7 @@ index 24131e5..44b8ec4 100644
     pResource->resource =
        pDevice->screen->resource_from_handle(pDevice->screen, NULL, &whandle, 0);
     
-@@ -518,6 +538,7 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+@@ -518,6 +541,7 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
     }
     free(pResource->transfers);
  
