@@ -27,7 +27,7 @@ DriverEntry(
     PAGED_CODE();
 
     LogOpen();
-    LogPrint("==== TopazDisplay v0.7 (KMDOD based, brightness, td.cfg, ring log, sync present, VOT_OTHER) ====\n");
+    LogPrint("==== TopazDisplay v0.8 (KMDOD based, brightness, td.cfg, ring log, sync present, VOT_OTHER, yields to GPU0) ====\n");
 
     // Initialize DDI function pointers and dxgkrnl
     KMDDOD_INITIALIZATION_DATA InitialData = {0};

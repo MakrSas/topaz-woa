@@ -1,8 +1,9 @@
 /*
- * WDDM 1.3 DDIs of TopazGpuW, step A: a render-only adapter (no VidPN sources, no children).
- * The real work is in DxgkDdiEscape (msm ioctls for the freedreno UMD). Allocations/contexts are
- * minimal bookkeeping; DMA buffers submitted by Dxgkrnl (paging) complete immediately.
- * Shape follows viogpu3d (virtio-win PR #943, BSD-3) and the WDK samples.
+ * WDDM 1.3 DDIs of TopazGpuW. Step A: GPU work of the freedreno UMD goes through DxgkDdiEscape
+ * (msm ioctls). Step C2 (v0.28): also the display adapter of the panel - 1 VidPN source/target
+ * (disp.c), allocations with a CPU view (UMD BO or VidMM aperture backing), Present/Blt and paging
+ * fills executed by the CPU engine (eng.c). Shape follows viogpu3d (virtio-win PR #943, BSD-3:
+ * same Mesa d3d10umd model, aperture segment, MMIO flips + timer vsync) and the WDK samples.
  */
 #include "tgpu.h"
 #include <initguid.h>
@@ -26,9 +27,6 @@ typedef struct _TGPU_CONTEXT {
     TGPU_DEVICE *Device;
 } TGPU_CONTEXT;
 
-typedef struct _TGPU_ALLOCATION {
-    SIZE_T Size;
-} TGPU_ALLOCATION;
 
 static TGPU_ADAPTER *g_Adapter;
 
@@ -124,7 +122,6 @@ static BOOLEAN NotifyRoutine(PVOID Ctx)
     n->Adapter->Dxgk.DxgkCbNotifyInterrupt(n->Adapter->Dxgk.DeviceHandle, &d);
     n->Adapter->LastCompletedFence = n->Fence;
     n->Adapter->Dxgk.DxgkCbQueueDpc(n->Adapter->Dxgk.DeviceHandle);
-    LogPrint("  notify: DMA_COMPLETED fence %u (irql %u)\n", n->Fence, KeGetCurrentIrql());
     return TRUE;
 }
 
@@ -133,7 +130,14 @@ static VOID CompleteFence(TGPU_ADAPTER *A, ULONG Fence)
     NOTIFY_CTX n = { A, Fence };
     BOOLEAN ret = FALSE;
     NTSTATUS st = A->Dxgk.DxgkCbSynchronizeExecution(A->Dxgk.DeviceHandle, NotifyRoutine, &n, 0, &ret);
-    LogPrint("  CompleteFence %u: SynchronizeExecution %08x ret %u\n", Fence, st, ret);
+    if (!NT_SUCCESS(st) || Fence < 64) {
+        LogPrint("  CompleteFence %u: SynchronizeExecution %08x ret %u\n", Fence, st, ret);
+    }
+}
+
+static VOID FenceDone(PVOID Ctx, ULONG Fence)
+{
+    CompleteFence((TGPU_ADAPTER *)Ctx, Fence);
 }
 
 /* ---------------------------------------------------------------- adapter */
@@ -232,10 +236,15 @@ static NTSTATUS TgStartDevice(const PVOID Ctx, PDXGK_START_INFO StartInfo, PDXGK
             }
         }
     }
-    *NumSources = 0;                                     /* render-only (step A) */
-    *NumChildren = 0;
+    if (!NT_SUCCESS(EngStart(FenceDone, a))) {
+        LogPrint("StartDevice: engine thread failed\n");
+        return STATUS_UNSUCCESSFUL;
+    }
+    DispStart(&a->Dxgk);
+    *NumSources = 1;                                     /* step C2: the panel */
+    *NumChildren = 1;
     a->Started = TRUE;
-    LogPrint("StartDevice: render-only, GPU starts on the first escape\n");
+    LogPrint("StartDevice: display adapter (1 source, 1 child), GPU starts on the first escape\n");
     return STATUS_SUCCESS;
 }
 
@@ -243,6 +252,8 @@ static NTSTATUS TgStopDevice(const PVOID Ctx)
 {
     UNREFERENCED_PARAMETER(Ctx);
     LogPrint("StopDevice\n");
+    DispStop();
+    EngStop();
     GuardStop();
     MsmCleanup();
     HwStop();
@@ -276,7 +287,6 @@ static BOOLEAN TgInterruptRoutine(const PVOID Ctx, ULONG Msg)
 
 static VOID TgDpcRoutine(const PVOID Ctx)
 {
-    LogPrint("Dpc (isr count %ld)\n", g_Isr);
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)Ctx;
     a->Dxgk.DxgkCbNotifyDpc(a->Dxgk.DeviceHandle);
 }
@@ -304,10 +314,8 @@ static VOID TgUnload(VOID)
 
 static NTSTATUS TgQueryInterface(const PVOID Ctx, PQUERY_INTERFACE Qi)
 {
-    LogPrint("%s\n", "TgQueryInterface");
     UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(Qi);
-    return STATUS_NOT_SUPPORTED;
+    return DispBrightnessQueryInterface(Qi);
 }
 
 static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q);
@@ -334,12 +342,18 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
         c->WDDMVersion = DXGKDDI_WDDMv1_3;
         c->HighestAcceptableAddress.QuadPart = (LONGLONG)-1;
         c->MaxAllocationListSlotId = 16;
+        /* the CPU engine never preempts: no PreemptCommand to answer */
         c->SchedulingCaps.MultiEngineAware = 1;
-        c->SchedulingCaps.PreemptionAware = 1;
-        c->PreemptionCaps.GraphicsPreemptionGranularity = D3DKMDT_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY;
-        c->PreemptionCaps.ComputePreemptionGranularity = D3DKMDT_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
         c->GpuEngineTopology.NbAsymetricProcessingNodes = 1;
         c->SupportNonVGA = TRUE;
+        /* C2: SetVidPnSourceAddress = MMIO flip latched at the next (timer) vsync, like viogpu3d */
+        c->FlipCaps.FlipOnVSyncMmIo = 1;
+        c->MaxQueuedFlipOnVSync = 1;
+        c->PresentationCaps.NoScreenToScreenBlt = 1;
+        c->PresentationCaps.NoOverlapScreenBlt = 1;
+        c->PresentationCaps.AlignmentShift = 2;
+        c->PresentationCaps.MaxTextureWidthShift = 2;
+        c->PresentationCaps.MaxTextureHeightShift = 2;
         return STATUS_SUCCESS;
     }
     case DXGKQAITYPE_QUERYSEGMENT3: {
@@ -352,7 +366,7 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
         } else {
             DXGK_SEGMENTDESCRIPTOR3 *d = s->pSegmentDescriptor;
             RtlZeroMemory(&d[0], sizeof(d[0]));
-            s->PagingBufferPrivateDataSize = 0;
+            s->PagingBufferPrivateDataSize = 16 * sizeof(TG_CMD);
             s->PagingBufferSegmentId = 1;
             s->PagingBufferSize = 16 * PAGE_SIZE;
             /* VidMM's view only: real backing and GPU VAs belong to msm.c */
@@ -427,6 +441,7 @@ static NTSTATUS APIENTRY TgCreateContext(const HANDLE hDevice, DXGKARG_CREATECON
     c->Device = (TGPU_DEVICE *)hDevice;
     A->hContext = c;
     A->ContextInfo.DmaBufferSize = 16 * PAGE_SIZE;
+    A->ContextInfo.DmaBufferPrivateDataSize = 4 * sizeof(TG_CMD);
     A->ContextInfo.DmaBufferSegmentSet = 1;
     A->ContextInfo.AllocationListSize = 64;
     A->ContextInfo.PatchLocationListSize = 64;
@@ -439,30 +454,147 @@ static NTSTATUS APIENTRY TgDestroyContext(const HANDLE hContext)
     return STATUS_SUCCESS;
 }
 
+/* ---------------------------------------------------------------- allocations (step C2)
+ * Private data = struct topazgpu_alloc (topazgpu_escape.h). Allocations of the UMD name the BO
+ * with their pixels; standard allocations of Dxgkrnl (shared primary, shadow, staging, GDI) are
+ * read and written by the CPU through VidMM's aperture backing, mapped at MAP_APERTURE_SEGMENT. */
+
+PUCHAR AllocPixels(TGPU_ALLOCATION *Al)
+{
+    if (Al == NULL) {
+        return NULL;
+    }
+    if (Al->Bo != NULL) {
+        return Al->Bo->KernelVa != NULL ? (PUCHAR)Al->Bo->KernelVa + Al->Desc.bo_offset : NULL;
+    }
+    return (PUCHAR)Al->ApVa;
+}
+
+VOID AllocMapAperture(TGPU_ALLOCATION *Al, PMDL Mdl, ULONG MdlOffset, SIZE_T Pages)
+{
+    PMDL m = Mdl;
+    PVOID va;
+
+    if (Al == NULL || Mdl == NULL || Al->Bo != NULL) {
+        return;                                          /* UMD allocations use their BO */
+    }
+    AllocUnmapAperture(Al);
+    if (MdlOffset != 0) {
+        m = IoAllocateMdl((PUCHAR)MmGetMdlVirtualAddress(Mdl) + (SIZE_T)MdlOffset * PAGE_SIZE,
+                          (ULONG)(Pages * PAGE_SIZE), FALSE, FALSE, NULL);
+        if (m == NULL) {
+            return;
+        }
+        IoBuildPartialMdl(Mdl, m, (PUCHAR)MmGetMdlVirtualAddress(Mdl) + (SIZE_T)MdlOffset * PAGE_SIZE,
+                          (ULONG)(Pages * PAGE_SIZE));
+        Al->ApPartial = m;
+    }
+    va = MmMapLockedPagesSpecifyCache(m, KernelMode, MmCached, NULL, FALSE, NormalPagePriority | MdlMappingNoExecute);
+    if (va == NULL) {
+        LogPrint("alloc %p: aperture mapping of %u pages failed\n", Al, (ULONG)Pages);
+        if (Al->ApPartial != NULL) {
+            IoFreeMdl(Al->ApPartial);
+            Al->ApPartial = NULL;
+        }
+        return;
+    }
+    Al->ApMdl = m;
+    Al->ApVa = va;
+    Al->ApBytes = Pages * PAGE_SIZE;
+}
+
+VOID AllocUnmapAperture(TGPU_ALLOCATION *Al)
+{
+    if (Al == NULL || Al->ApVa == NULL) {
+        return;
+    }
+    MmUnmapLockedPages(Al->ApVa, Al->ApMdl);
+    if (Al->ApPartial != NULL) {
+        IoFreeMdl(Al->ApPartial);
+    }
+    Al->ApVa = NULL;
+    Al->ApMdl = NULL;
+    Al->ApPartial = NULL;
+    Al->ApBytes = 0;
+}
+
+VOID AllocRelease(TGPU_ALLOCATION *Al)
+{
+    if (InterlockedDecrement(&Al->Refs) != 0) {
+        return;
+    }
+    AllocUnmapAperture(Al);
+    if (Al->Bo != NULL) {
+        MsmBoRelease(Al->Bo);
+    }
+    ExFreePoolWithTag(Al, TGPU_POOL_TAG);
+}
+
+static const struct topazgpu_alloc *FindDesc(const VOID *Priv, UINT Size)
+{
+    const struct topazgpu_alloc *d = (const struct topazgpu_alloc *)Priv;
+    return (d != NULL && Size >= sizeof(*d) && d->magic == TOPAZGPU_ALLOC_MAGIC) ? d : NULL;
+}
+
 static NTSTATUS APIENTRY TgCreateAllocation(const HANDLE hAdapter, DXGKARG_CREATEALLOCATION *A)
 {
-    LogPrint("%s\n", "TgCreateAllocation");
     ULONG i;
+    static ULONG count;
+
     UNREFERENCED_PARAMETER(hAdapter);
     for (i = 0; i < A->NumAllocations; i++) {
         DXGK_ALLOCATIONINFO *ai = &A->pAllocationInfo[i];
-        TGPU_ALLOCATION *al = (TGPU_ALLOCATION *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*al), TGPU_POOL_TAG);
+        const struct topazgpu_alloc *d = FindDesc(ai->pPrivateDriverData, ai->PrivateDriverDataSize);
+        TGPU_ALLOCATION *al;
+
+        if (d == NULL) {
+            d = FindDesc(A->pPrivateDriverData, A->PrivateDriverDataSize);
+        }
+        al = (TGPU_ALLOCATION *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*al), TGPU_POOL_TAG);
         if (al == NULL) {
             return STATUS_NO_MEMORY;
         }
-        al->Size = PAGE_SIZE;
+        al->Refs = 1;
+        if (d != NULL) {
+            al->Desc = *d;
+        } else {
+            /* foreign private data (UMD resource without a BO): a page of bookkeeping as in step A */
+            al->Desc.magic = TOPAZGPU_ALLOC_MAGIC;
+            al->Desc.size = PAGE_SIZE;
+        }
+        if (al->Desc.size == 0) {
+            al->Desc.size = al->Desc.pitch * al->Desc.height;
+        }
+        al->Size = ROUND_TO_PAGES(al->Desc.size != 0 ? al->Desc.size : PAGE_SIZE);
+        if (al->Desc.bo != 0) {
+            al->Bo = MsmBoAcquire(al->Desc.bo);
+            if (al->Bo == NULL || al->Bo->Size < al->Desc.bo_offset + al->Desc.size) {
+                LogPrint("CreateAllocation: bo %u missing/too small\n", al->Desc.bo);
+                if (al->Bo != NULL) {
+                    MsmBoRelease(al->Bo);
+                }
+                ExFreePoolWithTag(al, TGPU_POOL_TAG);
+                return STATUS_INVALID_PARAMETER;
+            }
+        }
         ai->hAllocation = al;
         ai->Alignment = 0;
-        ai->Size = PAGE_SIZE;
+        ai->Size = al->Size;
         ai->PitchAlignedSize = 0;
         ai->HintedBank.Value = 0;
         ai->PreferredSegment.Value = 0;
+        ai->PreferredSegment.SegmentId0 = 1;
         ai->SupportedReadSegmentSet = 1;
         ai->SupportedWriteSegmentSet = 1;
         ai->EvictionSegmentSet = 0;
         ai->MaximumRenamingListLength = 0;
         ai->Flags.Value = 0;
         ai->Flags.CpuVisible = 1;
+        if (++count <= 40 || d == NULL) {
+            LogPrint("CreateAllocation %p: kind %u %ux%u pitch %u fmt %u bo %u size %u%s%s\n", al, al->Desc.kind,
+                     al->Desc.width, al->Desc.height, al->Desc.pitch, al->Desc.format, al->Desc.bo, (ULONG)al->Size,
+                     (al->Desc.flags & TOPAZGPU_ALLOC_F_PRIMARY) ? " primary" : "", d == NULL ? " (no desc)" : "");
+        }
     }
     return STATUS_SUCCESS;
 }
@@ -470,26 +602,81 @@ static NTSTATUS APIENTRY TgCreateAllocation(const HANDLE hAdapter, DXGKARG_CREAT
 static NTSTATUS APIENTRY TgDestroyAllocation(const HANDLE hAdapter, const DXGKARG_DESTROYALLOCATION *A)
 {
     ULONG i;
+
     UNREFERENCED_PARAMETER(hAdapter);
     for (i = 0; i < A->NumAllocations; i++) {
-        ExFreePoolWithTag(A->pAllocationList[i], TGPU_POOL_TAG);
+        TGPU_ALLOCATION *al = (TGPU_ALLOCATION *)A->pAllocationList[i];
+        DispAllocDestroyed(al);
+        AllocRelease(al);
     }
     return STATUS_SUCCESS;
 }
 
 static NTSTATUS APIENTRY TgDescribeAllocation(const HANDLE hAdapter, DXGKARG_DESCRIBEALLOCATION *A)
 {
+    TGPU_ALLOCATION *al = (TGPU_ALLOCATION *)A->hAllocation;
+
     UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(A);
-    return STATUS_NOT_SUPPORTED;
+    A->Width = al->Desc.width;
+    A->Height = al->Desc.height;
+    A->Format = al->Desc.format != 0 ? (D3DDDIFORMAT)al->Desc.format : D3DDDIFMT_X8R8G8B8;
+    A->MultisampleMethod.NumSamples = 0;
+    A->MultisampleMethod.NumQualityLevels = 0;
+    A->RefreshRate.Numerator = 60;
+    A->RefreshRate.Denominator = 1;
+    A->PrivateDriverFormatAttribute = 0;
+    A->Rotation = D3DDDI_ROTATION_IDENTITY;
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS APIENTRY TgGetStandardAllocationDriverData(const HANDLE hAdapter,
                                                            DXGKARG_GETSTANDARDALLOCATIONDRIVERDATA *A)
 {
+    struct topazgpu_alloc d;
+
     UNREFERENCED_PARAMETER(hAdapter);
-    A->AllocationPrivateDriverDataSize = 0;
+    RtlZeroMemory(&d, sizeof(d));
+    d.magic = TOPAZGPU_ALLOC_MAGIC;
+    d.kind = A->StandardAllocationType;
+    switch (A->StandardAllocationType) {
+    case D3DKMDT_STANDARDALLOCATION_SHAREDPRIMARYSURFACE:
+        d.width = A->pCreateSharedPrimarySurfaceData->Width;
+        d.height = A->pCreateSharedPrimarySurfaceData->Height;
+        d.format = A->pCreateSharedPrimarySurfaceData->Format;
+        d.vidpn = A->pCreateSharedPrimarySurfaceData->VidPnSourceId;
+        d.flags = TOPAZGPU_ALLOC_F_PRIMARY;
+        break;
+    case D3DKMDT_STANDARDALLOCATION_SHADOWSURFACE:
+        d.width = A->pCreateShadowSurfaceData->Width;
+        d.height = A->pCreateShadowSurfaceData->Height;
+        d.format = A->pCreateShadowSurfaceData->Format;
+        A->pCreateShadowSurfaceData->Pitch = d.width * 4;
+        break;
+    case D3DKMDT_STANDARDALLOCATION_STAGINGSURFACE:
+        d.width = A->pCreateStagingSurfaceData->Width;
+        d.height = A->pCreateStagingSurfaceData->Height;
+        d.format = D3DDDIFMT_X8R8G8B8;
+        A->pCreateStagingSurfaceData->Pitch = d.width * 4;
+        break;
+    case D3DKMDT_STANDARDALLOCATION_GDISURFACE:
+        d.width = A->pCreateGdiSurfaceData->Width;
+        d.height = A->pCreateGdiSurfaceData->Height;
+        d.format = A->pCreateGdiSurfaceData->Format;
+        A->pCreateGdiSurfaceData->Pitch = d.width * 4;
+        break;
+    default:
+        LogPrint("GetStandardAllocationDriverData: type %u not supported\n", A->StandardAllocationType);
+        return STATUS_NOT_SUPPORTED;
+    }
+    d.pitch = d.width * 4;
+    d.size = d.pitch * d.height;
+    if (A->pAllocationPrivateDriverData != NULL) {
+        RtlCopyMemory(A->pAllocationPrivateDriverData, &d, sizeof(d));
+    }
+    A->AllocationPrivateDriverDataSize = sizeof(d);
     A->ResourcePrivateDriverDataSize = 0;
+    LogPrint("GetStandardAllocationDriverData: type %u %ux%u fmt %u%s\n", d.kind, d.width, d.height, d.format,
+             A->pAllocationPrivateDriverData != NULL ? "" : " (size query)");
     return STATUS_SUCCESS;
 }
 
@@ -523,10 +710,59 @@ static NTSTATUS APIENTRY TgRender(const HANDLE hContext, DXGKARG_RENDER *A)
     return STATUS_SUCCESS;
 }
 
+/* C2: one TG_CMD in the private data, 4 bytes in the DMA buffer (an empty DMA buffer is completed
+   by VidSch without SubmitCommand). Flips need no command: the MMIO flip is SetVidPnSourceAddress. */
 static NTSTATUS APIENTRY TgPresent(const HANDLE hContext, DXGKARG_PRESENT *A)
 {
+    TG_CMD *c = (TG_CMD *)A->pDmaBufferPrivateData;
+    const DXGK_ALLOCATIONLIST *src = &A->pAllocationList[DXGK_PRESENT_SOURCE_INDEX];
+    const DXGK_ALLOCATIONLIST *dst = &A->pAllocationList[DXGK_PRESENT_DESTINATION_INDEX];
+    ULONG i;
+    static ULONG count;
+
     UNREFERENCED_PARAMETER(hContext);
-    UNREFERENCED_PARAMETER(A);
+    if (A->DmaSize < 4 || A->DmaBufferPrivateDataSize < sizeof(TG_CMD)) {
+        return STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER;
+    }
+    RtlZeroMemory(c, sizeof(*c));
+    c->Op = TG_CMD_NOP;
+    if ((A->Flags.Blt || A->Flags.ColorFill) && dst->hDeviceSpecificAllocation != NULL) {
+        c->Op = A->Flags.Blt ? TG_CMD_BLT : TG_CMD_FILL;
+        c->Src = (TGPU_ALLOCATION *)src->hDeviceSpecificAllocation;
+        c->Dst = (TGPU_ALLOCATION *)dst->hDeviceSpecificAllocation;
+        c->SrcRect = A->SrcRect;
+        c->DstRect = A->DstRect;
+        c->Color = A->Color;
+        if (A->SubRectCnt > 0 && A->SubRectCnt <= TG_CMD_MAX_RECTS) {
+            c->NumRects = A->SubRectCnt;
+            for (i = 0; i < A->SubRectCnt; i++) {
+                c->Rects[i] = A->pDstSubRects[i];
+            }
+        } else if (A->SubRectCnt > TG_CMD_MAX_RECTS) {
+            /* more rects than fit: copy the bounding box (the source has the whole frame) */
+            RECT b = A->pDstSubRects[0];
+            for (i = 1; i < A->SubRectCnt; i++) {
+                b.left = min(b.left, A->pDstSubRects[i].left);
+                b.top = min(b.top, A->pDstSubRects[i].top);
+                b.right = max(b.right, A->pDstSubRects[i].right);
+                b.bottom = max(b.bottom, A->pDstSubRects[i].bottom);
+            }
+            c->NumRects = 1;
+            c->Rects[0] = b;
+        }
+        if (c->Op == TG_CMD_BLT && c->Src == NULL) {
+            c->Op = TG_CMD_NOP;
+        }
+    }
+    if (++count <= 30) {
+        LogPrint("Present: flags %x src %p dst %p src (%d,%d)-(%d,%d) dst (%d,%d)-(%d,%d) rects %u\n", A->Flags.Value,
+                 src->hDeviceSpecificAllocation, dst->hDeviceSpecificAllocation, A->SrcRect.left, A->SrcRect.top,
+                 A->SrcRect.right, A->SrcRect.bottom, A->DstRect.left, A->DstRect.top, A->DstRect.right,
+                 A->DstRect.bottom, A->SubRectCnt);
+    }
+    *(PULONG)A->pDmaBuffer = c->Op;
+    A->pDmaBuffer = (PUCHAR)A->pDmaBuffer + 4;
+    A->pDmaBufferPrivateData = c + 1;
     return STATUS_SUCCESS;
 }
 
@@ -540,10 +776,23 @@ static NTSTATUS APIENTRY TgPatch(const HANDLE hAdapter, const DXGKARG_PATCH *A)
 static NTSTATUS APIENTRY TgSubmitCommand(const HANDLE hAdapter, const DXGKARG_SUBMITCOMMAND *A)
 {
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)hAdapter;
-    LogPrint("SubmitCommand: fence %u node %u flags %x len %u (irql %u)\n", A->SubmissionFenceId, A->NodeOrdinal,
-             A->Flags.Value, (ULONG)(A->DmaBufferSubmissionEndOffset - A->DmaBufferSubmissionStartOffset), KeGetCurrentIrql());
+    const UCHAR *cmds = NULL;
+    ULONG bytes = 0;
+    static ULONG count;
+
+    if (A->pDmaBufferPrivateData != NULL &&
+        A->DmaBufferPrivateDataSubmissionEndOffset > A->DmaBufferPrivateDataSubmissionStartOffset) {
+        cmds = (const UCHAR *)A->pDmaBufferPrivateData + A->DmaBufferPrivateDataSubmissionStartOffset;
+        bytes = A->DmaBufferPrivateDataSubmissionEndOffset - A->DmaBufferPrivateDataSubmissionStartOffset;
+    }
+    if (++count <= 40) {
+        LogPrint("SubmitCommand: fence %u flags %x dma %u priv %u (irql %u)\n", A->SubmissionFenceId, A->Flags.Value,
+                 A->DmaBufferSubmissionEndOffset - A->DmaBufferSubmissionStartOffset, bytes, KeGetCurrentIrql());
+    }
     a->LastSubmittedFence = A->SubmissionFenceId;
-    CompleteFence(a, A->SubmissionFenceId);              /* nothing to execute: done at once */
+    if (!NT_SUCCESS(EngSubmit(cmds, bytes, A->SubmissionFenceId))) {
+        CompleteFence(a, A->SubmissionFenceId);          /* engine gone: complete without work */
+    }
     return STATUS_SUCCESS;
 }
 
@@ -555,12 +804,50 @@ static NTSTATUS APIENTRY TgPreemptCommand(const HANDLE hAdapter, const DXGKARG_P
     return STATUS_SUCCESS;
 }
 
+/* C2: aperture map/unmap act at once (as viogpu3d: VidMM evicts only idle allocations); FILL becomes
+   an engine command. Transfers between the aperture and system memory would copy a page set onto
+   itself (the aperture is backed by the same system pages): nothing to do. */
 static NTSTATUS APIENTRY TgBuildPagingBuffer(const HANDLE hAdapter, DXGKARG_BUILDPAGINGBUFFER *A)
 {
-    LogPrint("TgBuildPagingBuffer: op %u\n", A->Operation);
+    static ULONG count;
+    TG_CMD *c;
+
     UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(A);
-    return STATUS_SUCCESS;                               /* VidMM placement is a bookkeeping fiction */
+    switch (A->Operation) {
+    case DXGK_OPERATION_MAP_APERTURE_SEGMENT:
+        AllocMapAperture((TGPU_ALLOCATION *)A->MapApertureSegment.hAllocation, A->MapApertureSegment.pMdl,
+                         A->MapApertureSegment.MdlOffset, A->MapApertureSegment.NumberOfPages);
+        break;
+    case DXGK_OPERATION_UNMAP_APERTURE_SEGMENT:
+        AllocUnmapAperture((TGPU_ALLOCATION *)A->UnmapApertureSegment.hAllocation);
+        break;
+    case DXGK_OPERATION_FILL:
+        if (A->Fill.hAllocation == NULL) {
+            break;
+        }
+        if (A->DmaSize < 4 || A->DmaBufferPrivateDataSize < sizeof(TG_CMD)) {
+            return STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER;
+        }
+        c = (TG_CMD *)A->pDmaBufferPrivateData;
+        RtlZeroMemory(c, sizeof(*c));
+        c->Op = TG_CMD_PG_FILL;
+        c->Dst = (TGPU_ALLOCATION *)A->Fill.hAllocation;
+        c->Bytes = A->Fill.FillSize;
+        c->Color = A->Fill.FillPattern;
+        *(PULONG)A->pDmaBuffer = c->Op;
+        A->pDmaBuffer = (PUCHAR)A->pDmaBuffer + 4;
+        A->pDmaBufferPrivateData = c + 1;
+        break;
+    default:
+        break;
+    }
+    if (++count <= 60) {
+        LogPrint("BuildPagingBuffer: op %u alloc %p\n", A->Operation,
+                 A->Operation == DXGK_OPERATION_MAP_APERTURE_SEGMENT ? A->MapApertureSegment.hAllocation :
+                 A->Operation == DXGK_OPERATION_UNMAP_APERTURE_SEGMENT ? A->UnmapApertureSegment.hAllocation :
+                 A->Operation == DXGK_OPERATION_FILL ? A->Fill.hAllocation : NULL);
+    }
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS APIENTRY TgResetFromTimeout(const HANDLE hAdapter)
@@ -588,16 +875,16 @@ static NTSTATUS APIENTRY TgQueryCurrentFence(const HANDLE hAdapter, DXGKARG_QUER
 {
     TGPU_ADAPTER *a = (TGPU_ADAPTER *)hAdapter;
     A->CurrentFence = a->LastCompletedFence;
-    LogPrint("QueryCurrentFence -> %u\n", A->CurrentFence);
     return STATUS_SUCCESS;
 }
 
 static NTSTATUS APIENTRY TgControlInterrupt(const HANDLE hAdapter, const DXGK_INTERRUPT_TYPE Type, BOOLEAN Enable)
 {
-    LogPrint("%s\n", "TgControlInterrupt");
     UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(Type);
-    UNREFERENCED_PARAMETER(Enable);
+    LogPrint("ControlInterrupt: type %u enable %u\n", Type, Enable);
+    if (Type == DXGK_INTERRUPT_CRTC_VSYNC) {
+        DispVsyncEnable(Enable);
+    }
     return STATUS_SUCCESS;
 }
 
@@ -635,63 +922,97 @@ static NTSTATUS APIENTRY TgResetEngine(const HANDLE hAdapter, DXGKARG_RESETENGIN
 }
 
 
-/* ---------------------------------------------------------------- display DDIs: present but inert (0 sources) */
+/* ---------------------------------------------------------------- display DDIs (disp.c) */
 
 static NTSTATUS TgQueryChildRelations(const PVOID Ctx, PDXGK_CHILD_DESCRIPTOR Rel, ULONG Size)
 {
     UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(Rel);
-    UNREFERENCED_PARAMETER(Size);
-    LogPrint("QueryChildRelations\n");
-    return STATUS_SUCCESS;
+    return DispQueryChildRelations(Rel, Size);
 }
 
 static NTSTATUS TgQueryChildStatus(const PVOID Ctx, PDXGK_CHILD_STATUS St, BOOLEAN NonDestructive)
 {
     UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(St);
     UNREFERENCED_PARAMETER(NonDestructive);
-    return STATUS_INVALID_PARAMETER;
+    return DispQueryChildStatus(St);
 }
 
 static NTSTATUS TgQueryDeviceDescriptor(const PVOID Ctx, ULONG Uid, PDXGK_DEVICE_DESCRIPTOR Desc)
 {
     UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(Uid);
-    UNREFERENCED_PARAMETER(Desc);
-    return STATUS_MONITOR_NO_MORE_DESCRIPTOR_DATA;
+    return DispQueryDeviceDescriptor(Uid, Desc);
+}
+
+static NTSTATUS APIENTRY TgIsSupportedVidPn(const HANDLE hAdapter, DXGKARG_ISSUPPORTEDVIDPN *A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    A->IsVidPnSupported = TRUE;                          /* one source, one target: any topology of them */
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS APIENTRY TgRecommendFunctionalVidPn(const HANDLE hAdapter, const DXGKARG_RECOMMENDFUNCTIONALVIDPN *const A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    UNREFERENCED_PARAMETER(A);
+    return STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;
+}
+
+static NTSTATUS APIENTRY TgRecommendVidPnTopology(const HANDLE hAdapter, const DXGKARG_RECOMMENDVIDPNTOPOLOGY *const A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    UNREFERENCED_PARAMETER(A);
+    return STATUS_GRAPHICS_NO_RECOMMENDED_VIDPN_TOPOLOGY;
+}
+
+static NTSTATUS APIENTRY TgRecommendMonitorModes(const HANDLE hAdapter, const DXGKARG_RECOMMENDMONITORMODES *const A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    return DispRecommendMonitorModes(A);
+}
+
+static NTSTATUS APIENTRY TgEnumVidPnCofuncModality(const HANDLE hAdapter, const DXGKARG_ENUMVIDPNCOFUNCMODALITY *const A)
+{
+    return DispEnumCofuncModality(&((TGPU_ADAPTER *)hAdapter)->Dxgk, A);
+}
+
+static NTSTATUS APIENTRY TgCommitVidPn(const HANDLE hAdapter, const DXGKARG_COMMITVIDPN *const A)
+{
+    return DispCommitVidPn(&((TGPU_ADAPTER *)hAdapter)->Dxgk, A);
+}
+
+static NTSTATUS APIENTRY TgSetVidPnSourceAddress(const HANDLE hAdapter, const DXGKARG_SETVIDPNSOURCEADDRESS *A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    return DispSetSourceAddress(A);
+}
+
+static NTSTATUS APIENTRY TgSetVidPnSourceVisibility(const HANDLE hAdapter, const DXGKARG_SETVIDPNSOURCEVISIBILITY *A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    return DispSetVisibility(A);
+}
+
+static NTSTATUS APIENTRY TgUpdateActiveVidPnPresentPath(const HANDLE hAdapter,
+                                                        const DXGKARG_UPDATEACTIVEVIDPNPRESENTPATH *const A)
+{
+    UNREFERENCED_PARAMETER(hAdapter);
+    UNREFERENCED_PARAMETER(A);
+    return STATUS_SUCCESS;
 }
 
 #define VIDPN_STUB(Name, ArgType) \
     static NTSTATUS APIENTRY Name(const HANDLE hAdapter, ArgType A) \
-    { UNREFERENCED_PARAMETER(hAdapter); UNREFERENCED_PARAMETER(A); LogPrint(#Name "\n"); return STATUS_SUCCESS; }
+    { UNREFERENCED_PARAMETER(hAdapter); UNREFERENCED_PARAMETER(A); return STATUS_SUCCESS; }
 
-VIDPN_STUB(TgRecommendFunctionalVidPn, const DXGKARG_RECOMMENDFUNCTIONALVIDPN *const)
-VIDPN_STUB(TgEnumVidPnCofuncModality, const DXGKARG_ENUMVIDPNCOFUNCMODALITY *const)
-VIDPN_STUB(TgSetVidPnSourceAddress, const DXGKARG_SETVIDPNSOURCEADDRESS *)
-VIDPN_STUB(TgSetVidPnSourceVisibility, const DXGKARG_SETVIDPNSOURCEVISIBILITY *)
-VIDPN_STUB(TgCommitVidPn, const DXGKARG_COMMITVIDPN *const)
-VIDPN_STUB(TgUpdateActiveVidPnPresentPath, const DXGKARG_UPDATEACTIVEVIDPNPRESENTPATH *const)
-VIDPN_STUB(TgRecommendMonitorModes, const DXGKARG_RECOMMENDMONITORMODES *const)
-VIDPN_STUB(TgRecommendVidPnTopology, const DXGKARG_RECOMMENDVIDPNTOPOLOGY *const)
 VIDPN_STUB(TgStopCapture, const DXGKARG_STOPCAPTURE *)
 VIDPN_STUB(TgSetPalette, const DXGKARG_SETPALETTE *)
 VIDPN_STUB(TgSetPointerPosition, const DXGKARG_SETPOINTERPOSITION *)
 VIDPN_STUB(TgSetPointerShape, const DXGKARG_SETPOINTERSHAPE *)
 
-static NTSTATUS APIENTRY TgIsSupportedVidPn(const HANDLE hAdapter, DXGKARG_ISSUPPORTEDVIDPN *A)
-{
-    UNREFERENCED_PARAMETER(hAdapter);
-    A->IsVidPnSupported = TRUE;
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS APIENTRY TgGetScanLine(const HANDLE hAdapter, DXGKARG_GETSCANLINE *A)
 {
     UNREFERENCED_PARAMETER(hAdapter);
-    A->InVerticalBlank = TRUE;
-    A->ScanLine = 0;
-    return STATUS_SUCCESS;
+    return DispGetScanLine(A);
 }
 
 static NTSTATUS APIENTRY TgQueryVidPnHWCapability(const HANDLE hAdapter, DXGKARG_QUERYVIDPNHWCAPABILITY *A)
@@ -699,6 +1020,39 @@ static NTSTATUS APIENTRY TgQueryVidPnHWCapability(const HANDLE hAdapter, DXGKARG
     UNREFERENCED_PARAMETER(hAdapter);
     RtlZeroMemory(&A->VidPnHWCaps, sizeof(A->VidPnHWCaps));
     return STATUS_SUCCESS;
+}
+
+static NTSTATUS TgStopDeviceAndReleasePostDisplayOwnership(PVOID Ctx, D3DDDI_VIDEO_PRESENT_TARGET_ID TargetId,
+                                                           PDXGK_DISPLAY_INFORMATION Info)
+{
+    UNREFERENCED_PARAMETER(Ctx);
+    LogPrint("StopDeviceAndReleasePostDisplayOwnership: target %u\n", TargetId);
+    DispGetPostInfo(Info);
+    DispStop();
+    EngStop();
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS TgSystemDisplayEnable(PVOID Ctx, D3DDDI_VIDEO_PRESENT_TARGET_ID TargetId,
+                                      PDXGKARG_SYSTEM_DISPLAY_ENABLE_FLAGS Flags, UINT *Width, UINT *Height,
+                                      D3DDDIFORMAT *Format)
+{
+    DXGK_DISPLAY_INFORMATION i;
+
+    UNREFERENCED_PARAMETER(Ctx);
+    UNREFERENCED_PARAMETER(TargetId);
+    UNREFERENCED_PARAMETER(Flags);
+    DispGetPostInfo(&i);
+    *Width = i.Width;
+    *Height = i.Height;
+    *Format = D3DDDIFMT_X8R8G8B8;
+    return STATUS_SUCCESS;
+}
+
+static VOID TgSystemDisplayWrite(PVOID Ctx, PVOID Src, UINT W, UINT H, UINT Stride, UINT X, UINT Y)
+{
+    UNREFERENCED_PARAMETER(Ctx);
+    DispSystemWrite(Src, W, H, Stride, X, Y);
 }
 
 /* ---------------------------------------------------------------- entry */
@@ -711,7 +1065,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (render-only, msm escapes) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;
@@ -722,9 +1076,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     d.DxgkDdiDispatchIoRequest = TgDispatchIoRequest;
     d.DxgkDdiInterruptRoutine = TgInterruptRoutine;
     d.DxgkDdiDpcRoutine = TgDpcRoutine;
-    /* render-only, variant 2 of the docs: the full DDI set, but 0 VidPN sources/targets (v0.2 with only
-       the child DDIs was stopped after StartDevice, v0.3 with all display DDIs NULL failed
-       DxgkInitialize with c0000059) */
+    /* step C2: display DDIs live in disp.c (1 source, 1 target: the panel) */
     d.DxgkDdiQueryChildRelations = TgQueryChildRelations;
     d.DxgkDdiQueryChildStatus = TgQueryChildStatus;
     d.DxgkDdiQueryDeviceDescriptor = TgQueryDeviceDescriptor;
@@ -743,6 +1095,9 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     d.DxgkDdiSetPointerPosition = TgSetPointerPosition;
     d.DxgkDdiSetPointerShape = TgSetPointerShape;
     d.DxgkDdiQueryVidPnHWCapability = TgQueryVidPnHWCapability;
+    d.DxgkDdiStopDeviceAndReleasePostDisplayOwnership = TgStopDeviceAndReleasePostDisplayOwnership;
+    d.DxgkDdiSystemDisplayEnable = TgSystemDisplayEnable;
+    d.DxgkDdiSystemDisplayWrite = TgSystemDisplayWrite;
     d.DxgkDdiSetPowerState = TgSetPowerState;
     d.DxgkDdiResetDevice = TgResetDevice;
     d.DxgkDdiUnload = TgUnload;

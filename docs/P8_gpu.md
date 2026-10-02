@@ -408,3 +408,26 @@ TOPAZGPU_ENABLE opt-in only when DWM-level apps work (test with a windowed D3D11
   as a POST adapter it may report the panel as D3DKMDT_VOT_INTERNAL; (3) recovery for a dead C2 boot = boot the
   flashed UEFI (no GPU0 device) → TopazDisplay comes back on its own; if the logo freezes there, the recovery in
   NOTES_brightness.md SUMMARY.
+
+## Step C2 code (2026-10-02 night): TopazGpuW v0.28 = display adapter, TopazDisplay v0.8 yields
+- Model taken from viogpu3d (github max8rr8/kvm-guest-drivers-windows branch viogpu3d, the KMD that
+  the same Mesa d3d10umd/gdikmt branch was written for): one aperture segment, allocations with
+  private data, MAP/UNMAP_APERTURE_SEGMENT handled inside BuildPagingBuffer, MMIO flips
+  (FlipOnVSyncMmIo, MaxQueuedFlipOnVSync 1) and a 16.6 ms vsync reported as CRTC_VSYNC.
+- TopazGpuW v0.28: `disp.c` (POST framebuffer via DxgkCbAcquirePostDisplayOwnership, fallback
+  0x5C000000; 1 source/1 child INTERNAL + AlwaysConnected, `C:\topaz\gpuw.cfg` "<vot> <hpd>"
+  overrides; EDID like TopazDisplay; VidPN cofunc/commit; vsync timer DPC -> SynchronizeExecution
+  -> NotifyInterrupt; brightness interface (DCS 0x51 via DSI0 DMA, as topaz_bl.cxx);
+  StopDeviceAndReleasePostDisplayOwnership, SystemDisplayEnable/Write), `eng.c` (CPU engine: TG_CMD
+  records in the DMA-buffer private data, SubmitCommand queues them, a passive thread executes
+  blt/colorfill/paging fill and completes the fence; it also copies the scanned-out primary into
+  the framebuffer when SetVidPnSourceAddress changes it). Allocations: struct topazgpu_alloc in
+  the private data (`topazgpu_escape.h`): UMD allocations name a BO (pixels = BO kernel VA),
+  standard ones (shared primary/shadow/staging/GDI) use VidMM's aperture backing mapped at
+  MAP_APERTURE_SEGMENT. Non-empty DMA buffers (4 bytes) so VidSch really calls SubmitCommand.
+  No preemption (PreemptionAware 0).
+- TopazDisplay v0.8: if HKLM\HARDWARE\ACPI\DSDT contains "TPZG0610" (RAM-booted GPU0 image) its
+  monitor is reported disconnected -> TopazGpuW alone owns the panel; flashed UEFI (no GPU0) =
+  unchanged. `C:\topaz\td.keep` disables the check. Verified: the flashed DSDT does not contain it.
+- Expected first result with the UMD still opt-in (TOPAZGPU_ENABLE): DWM cannot open our UMD; we
+  will see whether it falls back to WARP + our Present/Blt path (staging surfaces) or fails.

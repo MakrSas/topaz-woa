@@ -6,6 +6,8 @@
  * hw.c   GPU power, zap shader (TZ PAS 13), SMMU page tables, SQE, ring, submit, fences
  * msm.c  BO table + the msm ioctls
  * ddi.c  DxgkInitialize + the WDDM DDIs
+ * disp.c step C2: display side (POST framebuffer, VidPN, EDID, scanout copy, vsync, brightness)
+ * eng.c  step C2: the CPU "engine" that executes paging/present DMA buffers in a worker thread
  */
 #pragma once
 
@@ -17,7 +19,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.27"
+#define TGPU_VERSION        "v0.28"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
@@ -76,3 +78,78 @@ VOID     MsmInit(VOID);
 VOID     MsmCleanup(VOID);
 NTSTATUS MsmEscape(struct topazgpu_escape *Esc);
 VOID     MsmDumpIova(PCSTR Tag, ULONGLONG Iova, ULONG Before, ULONG After);
+
+TGPU_BO *MsmBoAcquire(ULONG Name);              /* +1 reference, NULL if no such BO */
+VOID     MsmBoRelease(TGPU_BO *Bo);
+
+/* ---- allocations (ddi.c) ---- */
+typedef struct _TGPU_ALLOCATION {
+    volatile LONG Refs;                         /* CreateAllocation 1, + scanout use */
+    struct topazgpu_alloc Desc;
+    SIZE_T      Size;
+    TGPU_BO    *Bo;                             /* UMD allocations: BO with the pixels */
+    PMDL        ApMdl;                          /* VidMM backing mapped into the aperture */
+    PMDL        ApPartial;                      /* partial MDL when MdlOffset != 0 */
+    PVOID       ApVa;                           /* kernel mapping of the VidMM backing */
+    SIZE_T      ApBytes;
+} TGPU_ALLOCATION;
+
+PUCHAR AllocPixels(TGPU_ALLOCATION *Al);        /* NULL if no CPU view yet */
+VOID   AllocRelease(TGPU_ALLOCATION *Al);
+VOID   AllocMapAperture(TGPU_ALLOCATION *Al, PMDL Mdl, ULONG MdlOffset, SIZE_T Pages);
+VOID   AllocUnmapAperture(TGPU_ALLOCATION *Al);
+
+/* ---- eng.c: commands in the DMA buffer private data ---- */
+#define TG_CMD_NOP          0
+#define TG_CMD_BLT          1                   /* Src rect -> Dst rect (+ sub rects) */
+#define TG_CMD_FILL         2                   /* Dst rects with Color */
+#define TG_CMD_PG_FILL      3                   /* paging FILL: Dst, Bytes, Color */
+#define TG_CMD_PG_MAP       4                   /* MAP_APERTURE_SEGMENT */
+#define TG_CMD_PG_UNMAP     5                   /* UNMAP_APERTURE_SEGMENT */
+#define TG_CMD_MAX_RECTS    8
+
+typedef struct _TG_CMD {
+    ULONG             Op;
+    ULONG             NumRects;
+    TGPU_ALLOCATION  *Src;
+    TGPU_ALLOCATION  *Dst;
+    RECT              SrcRect;
+    RECT              DstRect;
+    RECT              Rects[TG_CMD_MAX_RECTS];  /* destination sub rects; 0 = DstRect */
+    ULONG             Color;
+    ULONG             MdlOffset;
+    PMDL              Mdl;
+    SIZE_T            Pages;
+    SIZE_T            Bytes;
+} TG_CMD;
+
+typedef VOID (*TG_FENCE_DONE)(PVOID Ctx, ULONG Fence);
+NTSTATUS EngStart(TG_FENCE_DONE Done, PVOID Ctx);
+VOID     EngStop(VOID);
+NTSTATUS EngSubmit(const VOID *Cmds, ULONG Bytes, ULONG Fence);   /* any IRQL <= DISPATCH */
+VOID     EngKickScanout(VOID);
+
+/* ---- disp.c ---- */
+#define TGPU_FB_PA          0x5C000000ULL      /* UEFI GOP framebuffer, 1080x2400 XRGB8888 */
+#define TGPU_FB_WIDTH       1080
+#define TGPU_FB_HEIGHT      2400
+#define TGPU_FB_PITCH       (TGPU_FB_WIDTH * 4)
+
+NTSTATUS DispStart(PDXGKRNL_INTERFACE Dxgk);
+VOID     DispStop(VOID);
+VOID     DispGetPostInfo(DXGK_DISPLAY_INFORMATION *Info);
+VOID     DispPresentRects(TGPU_ALLOCATION *Dst, const RECT *Rects, ULONG Count);   /* engine: Dst changed */
+VOID     DispScanoutWork(VOID);                                                   /* engine thread */
+VOID     DispSystemWrite(PVOID Src, UINT W, UINT H, UINT Stride, UINT X, UINT Y);
+VOID     DispAllocDestroyed(TGPU_ALLOCATION *Al);
+VOID     DispVsyncEnable(BOOLEAN Enable);
+NTSTATUS DispSetSourceAddress(const DXGKARG_SETVIDPNSOURCEADDRESS *A);
+NTSTATUS DispSetVisibility(const DXGKARG_SETVIDPNSOURCEVISIBILITY *A);
+NTSTATUS DispCommitVidPn(PDXGKRNL_INTERFACE Dxgk, const DXGKARG_COMMITVIDPN *A);
+NTSTATUS DispEnumCofuncModality(PDXGKRNL_INTERFACE Dxgk, const DXGKARG_ENUMVIDPNCOFUNCMODALITY *A);
+NTSTATUS DispRecommendMonitorModes(const DXGKARG_RECOMMENDMONITORMODES *A);
+NTSTATUS DispQueryChildRelations(PDXGK_CHILD_DESCRIPTOR Rel, ULONG Size);
+NTSTATUS DispQueryChildStatus(PDXGK_CHILD_STATUS St);
+NTSTATUS DispQueryDeviceDescriptor(ULONG Uid, PDXGK_DEVICE_DESCRIPTOR Desc);
+NTSTATUS DispGetScanLine(DXGKARG_GETSCANLINE *A);
+NTSTATUS DispBrightnessQueryInterface(PQUERY_INTERFACE Qi);

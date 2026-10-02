@@ -441,3 +441,26 @@ VOID MsmCleanup(VOID)
         BoFree(CONTAINING_RECORD(g_Bos.Flink, TGPU_BO, Link));
     }
 }
+
+/* step C2: allocations of the UMD name the BO with their pixels (topazgpu_alloc.bo) */
+TGPU_BO *MsmBoAcquire(ULONG Name)
+{
+    TGPU_BO *bo;
+
+    KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
+    bo = BoGet(Name);
+    if (bo != NULL) {
+        bo->Refs++;
+    }
+    KeReleaseMutex(&g_BoLock, FALSE);
+    return bo;
+}
+
+VOID MsmBoRelease(TGPU_BO *Bo)
+{
+    KeWaitForSingleObject(&g_BoLock, Executive, KernelMode, FALSE, NULL);
+    if (--Bo->Refs == 0) {
+        BoFree(Bo);
+    }
+    KeReleaseMutex(&g_BoLock, FALSE);
+}

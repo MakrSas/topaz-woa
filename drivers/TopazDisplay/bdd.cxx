@@ -108,6 +108,7 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
     }
     m_CurrentModes[0].Flags.IsInternal = TRUE;      /* topaz: built-in panel -> brightness interface is asked */
     TopazBlInit();
+    TopazCheckGpuOwner();
     m_Flags.DriverStarted = TRUE;
     *pNumberOfViews = MAX_VIEWS;
     *pNumberOfChildren = MAX_CHILDREN;
@@ -248,7 +249,7 @@ NTSTATUS BASIC_DISPLAY_DRIVER::QueryChildStatus(_Inout_ DXGK_CHILD_STATUS* pChil
         {
             // HpdAwarenessInterruptible was reported since HpdAwarenessNone is deprecated.
             // However, BDD has no knowledge of HotPlug events, so just always return connected.
-            pChildStatus->HotPlug.Connected = IsDriverActive();
+            pChildStatus->HotPlug.Connected = IsDriverActive() && !g_TopazGpuOwnsPanel;   /* C2: GPU0 owns it */
             return STATUS_SUCCESS;
         }
 

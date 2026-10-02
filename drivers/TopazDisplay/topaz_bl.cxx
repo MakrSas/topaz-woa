@@ -192,3 +192,99 @@ NTSTATUS TopazBlQueryInterface(PQUERY_INTERFACE Qi)
     LogPrint("QueryInterface brightness v%u: provided\n", Qi->Version);
     return STATUS_SUCCESS;
 }
+
+/* ---- step C2 of the GPU work (docs/P8_gpu.md) ------------------------------------
+ * When the UEFI DSDT has the GPU0 device (TPZG0610, RAM-booted test image), TopazGpuW is the POST
+ * display adapter and owns the panel: TopazDisplay then reports its monitor as disconnected so the
+ * two drivers never scan out into the same framebuffer. The flashed UEFI has no GPU0, so normal
+ * boots are unchanged. Dxgkrnl/ACPI publish the tables in HKLM\HARDWARE\ACPI (rebuilt every boot).
+ * C:\topaz\td.keep forces the old behaviour. */
+
+static BOOLEAN FindInValue(HANDLE Key)
+{
+    UNICODE_STRING name = RTL_CONSTANT_STRING(L"00000000");
+    static const CHAR pat[] = "TPZG0610";
+    ULONG len = 0, i;
+    PKEY_VALUE_PARTIAL_INFORMATION v;
+    BOOLEAN found = FALSE;
+
+    ZwQueryValueKey(Key, &name, KeyValuePartialInformation, NULL, 0, &len);
+    if (len == 0 || len > 4 * 1024 * 1024) {
+        return FALSE;
+    }
+    v = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, len, 'pzTD');
+    if (v == NULL) {
+        return FALSE;
+    }
+    if (NT_SUCCESS(ZwQueryValueKey(Key, &name, KeyValuePartialInformation, v, len, &len))) {
+        for (i = 0; i + sizeof(pat) - 1 <= v->DataLength; i++) {
+            if (RtlCompareMemory(v->Data + i, pat, sizeof(pat) - 1) == sizeof(pat) - 1) {
+                found = TRUE;
+                break;
+            }
+        }
+    }
+    ExFreePoolWithTag(v, 'pzTD');
+    return found;
+}
+
+static BOOLEAN SearchKey(HANDLE Parent, PCWSTR Path, ULONG Depth)
+{
+    UNICODE_STRING name;
+    OBJECT_ATTRIBUTES oa;
+    HANDLE key;
+    ULONG idx, len;
+    UCHAR buf[sizeof(KEY_BASIC_INFORMATION) + 128 * sizeof(WCHAR)];
+    WCHAR sub[130];
+    BOOLEAN found = FALSE;
+
+    RtlInitUnicodeString(&name, Path);
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, Parent, NULL);
+    if (!NT_SUCCESS(ZwOpenKey(&key, KEY_READ, &oa))) {
+        return FALSE;
+    }
+    if (Depth == 0) {
+        found = FindInValue(key);
+    } else {
+        for (idx = 0; !found; idx++) {
+            PKEY_BASIC_INFORMATION bi = (PKEY_BASIC_INFORMATION)buf;
+            if (!NT_SUCCESS(ZwEnumerateKey(key, idx, KeyBasicInformation, bi, sizeof(buf) - sizeof(WCHAR), &len))) {
+                break;
+            }
+            RtlZeroMemory(sub, sizeof(sub));
+            RtlCopyMemory(sub, bi->Name, min(bi->NameLength, sizeof(sub) - sizeof(WCHAR)));
+            found = SearchKey(key, sub, Depth - 1);
+        }
+    }
+    ZwClose(key);
+    return found;
+}
+
+static BOOLEAN FileExists(PCWSTR Path)
+{
+    UNICODE_STRING name;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+
+    RtlInitUnicodeString(&name, Path);
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN,
+                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+        return FALSE;
+    }
+    ZwClose(h);
+    return TRUE;
+}
+
+BOOLEAN g_TopazGpuOwnsPanel;
+
+VOID TopazCheckGpuOwner(VOID)
+{
+    /* DSDT\<OEM>\<table>\<revision>, value 00000000 = the table */
+    g_TopazGpuOwnsPanel = SearchKey(NULL, L"\\Registry\\Machine\\HARDWARE\\ACPI\\DSDT", 3) &&
+                          !FileExists(L"\\??\\C:\\topaz\\td.keep");
+    LogPrint("GPU0 (TPZG0610) in the DSDT: %s\n", g_TopazGpuOwnsPanel ?
+             "yes -> TopazGpuW owns the panel, monitor reported disconnected" : "no (or td.keep)");
+}
