@@ -793,3 +793,14 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   (C:\ProgramData\topaz\umd-dump-<pid>-<n>-frame0/tex<i>.bmp). If the wallpaper texture itself contains the
   blob -> memory aliasing / bad upload of the texture; if the texture is fine but the frame is not -> the
   draw sampling it is wrong.
+- 13:45 DUMP result (DWM pid 3552, after the user reproduced the bottom blob): the wallpaper texture
+  (1080x2400 BGRA, tex8) and the desktop-icons layer (tex9) are intact; the presented frame holds the blob
+  (full width, rows ~956..2315, flat window-body colour 235,246,249 plus a zoomed window title/icon).
+  Pixel check: blob colour is constant over dark and light wallpaper areas -> not additive blending; the
+  wallpaper simply is not what ends up there. DRAWLOG: frames #55-#58 redraw the whole screen (scissor
+  0,0,1080,2400: wallpaper, icons, window layers incl. the 1234x706 window texture), all later frames are tiny
+  updates with exact complement copies. So a draw in a full-screen frame paints the zoomed window title over the
+  wallpaper -> wrong geometry/constants for some draw, i.e. most likely a CPU/GPU synchronisation hazard on
+  dynamic vertex/constant buffers (DWM uses Map NO_OVERWRITE/DISCARD and UpdateSubresourceUP between draws; the
+  draws execute later from the batch). Experiments added: TOPAZ_FLUSHDRAW=1 (flush + fence wait after every
+  draw: fully serialized) and TOPAZ_SYNCMAP=1 (NO_OVERWRITE maps become synchronized).
