@@ -1101,3 +1101,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   23b9820), RAM-tested first: stock Silicium boot screen (Mi logo dropped at the user's request), WinRE
   touch page as main menu (5 s countdown), no USB 5V wait at ReadyToBoot (TopazBattery does the Type-C
   roles in Windows). Rollback: `fastboot flash boot_b ~/work/topaz-poweroff.img`.
+- 2026-10-03 (user observation): **dragging windows with a mouse is smoother than with a finger**.
+  Same GPU/compositor path, so the gap is on the touch input side (TopazTouch v0.5 polls the
+  FT5452 at ~147 reports/s, 1.1 ms per read — rate itself looked fine): candidates are report
+  jitter / coalescing, the HID touch -> pointer path in Windows (touch drag has its own
+  smoothing/latency), or uneven timing of the polling thread. To measure later with
+  tools/gpu/touchrate.ps1 + movebench (finger vs mouse, same window).
