@@ -489,30 +489,76 @@ STATIC VOID IpaCanaries(VOID)
 #define GSI_ALLOCATE_CHANNEL  2
 #define GSI_EE_MODEM          1
 
-STATIC VOID GsiAllocModemChannels(VOID)
+/*
+ * v0.15: the TopazWifi modem thread (pinned to core 0) never came back from this function - no
+ * line after the canaries, Wi-Fi dead, the next GPU boot hung. v0.16: one-shot flag
+ * C:\topaz\fw\gsi.alloc (deleted before the first access) and a log line before every
+ * register access, to find the access that stalls.
+ */
+STATIC BOOLEAN FlagTake(EFI_FILE_PROTOCOL *Root, CONST CHAR16 *Name)
 {
-  volatile UINT32 *g = MapPhys (GSI_EE0_PA, SIZE_4KB, FALSE);
-  UINT32 ch, t, st, res;
+  EFI_FILE_PROTOCOL *f = NULL;
+  WCHAR path[64];
+  UNICODE_STRING us;
+  OBJECT_ATTRIBUTES oa;
+  IO_STATUS_BLOCK iosb;
+  HANDLE h;
 
+  if (EFI_ERROR (Root->Open (Root, &f, (CHAR16 *)Name, EFI_FILE_MODE_READ, 0))) {
+    return FALSE;
+  }
+  f->Close (f);
+  RtlStringCbPrintfW (path, sizeof (path), L"\\??\\C:\\topaz\\fw%s", Name);
+  RtlInitUnicodeString (&us, path);
+  InitializeObjectAttributes (&oa, &us, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+  if (NT_SUCCESS (ZwCreateFile (&h, DELETE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+                                FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE, NULL, 0))) {
+    ZwClose (h);
+  }
+  return TRUE;
+}
+
+#define GSTEP(...)  Out ("  ipa: gsi step " __VA_ARGS__)
+
+STATIC VOID GsiAllocModemChannels(EFI_FILE_PROTOCOL *Root)
+{
+  volatile UINT32 *g;
+  UINT32 ch, t, st = 0, res, v;
+
+  if (!FlagTake (Root, L"\\gsi.alloc")) {
+    Out ("  ipa: C:\\topaz\\fw\\gsi.alloc absent: modem GSI channels not allocated\r\n");
+    return;
+  }
+  GSTEP ("map %08x\r\n", GSI_EE0_PA);
+  g = MapPhys (GSI_EE0_PA, SIZE_4KB, FALSE);
   if (g == NULL) {
     return;
   }
+  GSTEP ("read STATUS %08x\r\n", g[0]);
+  GSTEP ("read ERROR_LOG %08x\r\n", g[GSI_ERROR_LOG / 4]);
+  GSTEP ("read GLOB_IRQ_EN %08x STTS %08x SCRATCH_0 %08x\r\n", g[GSI_GLOB_IRQ_EN / 4], g[GSI_GLOB_IRQ_STTS / 4],
+         g[GSI_SCRATCH_0 / 4]);
+  GSTEP ("write ERROR_LOG 0\r\n");
   g[GSI_ERROR_LOG / 4] = 0;
   for (ch = 0; ch < 4; ch++) {
+    GSTEP ("ch %u: clear + enable GP_INT1\r\n", ch);
     g[GSI_GLOB_IRQ_CLR / 4] = GSI_GP_INT1;
     g[GSI_GLOB_IRQ_EN / 4]  = GSI_ERROR_INT | GSI_GP_INT1;
-    g[GSI_SCRATCH_0 / 4]   &= ~(7u << 5);
+    GSTEP ("ch %u: scratch_0 rmw\r\n", ch);
+    v = g[GSI_SCRATCH_0 / 4];
+    g[GSI_SCRATCH_0 / 4] = v & ~(7u << 5);
     MemoryFence ();
-    g[GSI_GENERIC_CMD / 4]  = GSI_ALLOCATE_CHANNEL | (ch << 5) | (GSI_EE_MODEM << 10);
-    st = 0;
+    GSTEP ("ch %u: GENERIC_CMD %08x\r\n", ch, GSI_ALLOCATE_CHANNEL | (ch << 5) | (GSI_EE_MODEM << 10));
+    g[GSI_GENERIC_CMD / 4] = GSI_ALLOCATE_CHANNEL | (ch << 5) | (GSI_EE_MODEM << 10);
     for (t = 0; t < 500 && ((st = g[GSI_GLOB_IRQ_STTS / 4]) & GSI_GP_INT1) == 0; t++) {
-      gBS->Stall (100);
+      KeStallExecutionProcessor (100);
     }
     res = (g[GSI_SCRATCH_0 / 4] >> 5) & 7;
     g[GSI_GLOB_IRQ_CLR / 4] = GSI_GP_INT1;
     g[GSI_GLOB_IRQ_EN / 4]  = GSI_ERROR_INT;
-    Out ("  ipa: GSI allocate modem channel %u: %a, result %u%a (glob stts %08x, error log %08x)\r\n", ch,
-         (st & GSI_GP_INT1) ? "done" : "TIMEOUT", res,
+    Out ("  ipa: GSI allocate modem channel %u: %a after %u x 100 us, result %u%a (glob stts %08x, error log %08x)\r\n", ch,
+         (st & GSI_GP_INT1) ? "done" : "TIMEOUT", t, res,
          res == 1 ? " SUCCESS" : res == 2 ? " (already: incorrect state)" : res == 7 ? " NO RESOURCES" : "",
          st, g[GSI_ERROR_LOG / 4]);
   }
@@ -663,7 +709,7 @@ STATIC VOID IpaFwLoad(EFI_FILE_PROTOCOL *Root)
     }
     if (gIpaFwRunning) {
       IpaCanaries ();
-      GsiAllocModemChannels ();
+      GsiAllocModemChannels (Root);
     }
   }
 Out:

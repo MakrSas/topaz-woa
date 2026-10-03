@@ -141,3 +141,9 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   ("hardware quirk on IPA v4.2"); modem channels in ipa_data-v4.2.c: 0..3.
 - v0.15: after GSI is up: ERROR_LOG = 0, ALLOCATE_CHANNEL for modem channels 0..3 (GP_INT1
   polled, result from SCRATCH_0 bits 7:5); crash reason printed up to 256 chars.
+- v0.15 result: log stops right after "SRAM canaries written" - the modem thread (pinned to core
+  0) never returned from the GSI channel allocation; Wi-Fi dead, the next GPU boot hung and left
+  C:\topaz\gpuw.guard (TopazGpuW then refuses to start = boot hangs on the logo until the guard
+  is deleted). Lesson: after any hang check/delete gpuw.guard and wifi.boot.
+- v0.16: GSI allocation behind a one-shot flag C:\topaz\fw\gsi.alloc (deleted before the first
+  access), a log line before every GSI register access.
