@@ -631,3 +631,10 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   than the one it presented (viogpu3d has the same code and "rendering glitches"). Patch 0002 adds
   fd_resource_rotate_storage() in freedreno_resource.c (rotates bo/valid/layout, invalidates batch
   cache + rebinds like the shadow swap, new seqno) and calls it after a flush; hAllocation follows its BO.
+- Experiments with C:\ProgramData\topaz\umd.env (Mesa env for DWM, read by the UMD): FD_MESA_DEBUG=sysmem
+  -> same stale regions (not GMEM). TOPAZ_NOROTATE=1 (no rotation, always the same buffer flipped) ->
+  everything black except what DWM redraws in that frame (touch trail, selection), with gmem and with
+  sysmem. Stale regions vanish when touched (DWM's touch feedback redraws them). No DXGI pfnBlt calls.
+  Reading: DWM copies the undamaged area forward from what it believes is the previous frame's buffer;
+  with no rotation that is a never-rendered (black) buffer, with our rotation an older frame -> the
+  rotation direction is probably reversed. Switch TOPAZ_ROTATE_REVERSE=1 added to test.

@@ -311,7 +311,7 @@ index 8bb09ba..fd61721 100644
     mtx_destroy(&pDevice->CreateResourceMtx);
  }
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-index 53ef690..db23570 100644
+index 53ef690..72ca0b9 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 +++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 @@ -42,6 +42,8 @@
@@ -354,7 +354,7 @@ index 53ef690..db23570 100644
     if(!device->screen->resource_get_handle) {
        LOG_UNSUPPORTED_ENTRYPOINT();
        return S_OK;
-@@ -197,22 +216,35 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -197,22 +216,44 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  {
     LOG_ENTRYPOINT();
  
@@ -382,13 +382,22 @@ index 53ef690..db23570 100644
 +      UINT n = NumResources < 16 ? NumResources : 16;
 +      D3DKMT_HANDLE firstAllocation = CastResource(hResources[0])->hAllocation;
 +
++      /* TOPAZ_ROTATE_REVERSE=1: rotate the other way ([i] takes [i-1]) - experiment */
++      bool rev = getenv("TOPAZ_ROTATE_REVERSE") != NULL;
 +      for (UINT i = 0; i < n; ++i)
-+         prscs[i] = CastPipeResource(hResources[i]);
++         prscs[rev ? n - 1 - i : i] = CastPipeResource(hResources[i]);
 +      device->pipe->flush(device->pipe, NULL, 0);
 +      fd_resource_rotate_storage(device->pipe, prscs, n);
-+      for (UINT i = 0; i + 1 < n; ++i)
-+         CastResource(hResources[i])->hAllocation = CastResource(hResources[i + 1])->hAllocation;
-+      CastResource(hResources[n - 1])->hAllocation = firstAllocation;
++      if (!rev) {
++         for (UINT i = 0; i + 1 < n; ++i)
++            CastResource(hResources[i])->hAllocation = CastResource(hResources[i + 1])->hAllocation;
++         CastResource(hResources[n - 1])->hAllocation = firstAllocation;
++      } else {
++         D3DKMT_HANDLE lastAllocation = CastResource(hResources[n - 1])->hAllocation;
++         for (UINT i = n - 1; i > 0; --i)
++            CastResource(hResources[i])->hAllocation = CastResource(hResources[i - 1])->hAllocation;
++         CastResource(hResources[0])->hAllocation = lastAllocation;
++      }
     }
  
 -   Resource *lastResource = CastResource(hResources[NumResources - 1]);
@@ -397,7 +406,7 @@ index 53ef690..db23570 100644
     return S_OK;
  }
  
-@@ -231,6 +263,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -231,6 +272,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  HRESULT APIENTRY
  _Blt(DXGI_DDI_ARG_BLT *Blt)
  {
