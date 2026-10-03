@@ -344,10 +344,10 @@ index e7c2a1c..35d10d0 100644
        ret = pipe->get_query_result(pipe, state, wait, &result);
     } else {
 diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-index a0262da..5d846ed 100644
+index a0262da..ec36736 100644
 --- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 +++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-@@ -31,12 +31,235 @@
+@@ -31,12 +31,241 @@
   */
  
  
@@ -466,12 +466,17 @@ index a0262da..5d846ed 100644
 + * Present; during the following frame every draw into a 1080-wide RT is followed by a readback of row Y,
 + * logged as runs of the green channel ("PROBE k: x0-x1=v ..."). Disarmed (file deleted) at the next Present. */
 +static int g_topazProbeY = -1;
++static int g_topazProbeFrames;
 +static unsigned g_topazProbeDraw;
 +
 +extern "C" void
 +TopazProbePresent(void)
 +{
 +   if (g_topazProbeY >= 0) {
++      if (--g_topazProbeFrames > 0) {
++         TopazWddmLogf("PROBE frame\n");
++         return;
++      }
 +      g_topazProbeY = -1;
 +      DeleteFileA("C:\\ProgramData\\topaz\\umd.probe");
 +      TopazWddmLogf("PROBE end\n");
@@ -479,11 +484,12 @@ index a0262da..5d846ed 100644
 +   }
 +   FILE *f = fopen("C:\\ProgramData\\topaz\\umd.probe", "r");
 +   if (f) {
-+      int y = -1;
-+      if (fscanf(f, "%d", &y) == 1 && y >= 0) {
++      int y = -1, frames = 1;
++      if (fscanf(f, "%d %d", &y, &frames) >= 1 && y >= 0) {
 +         g_topazProbeY = y;
++         g_topazProbeFrames = frames > 0 ? frames : 1;
 +         g_topazProbeDraw = 0;
-+         TopazWddmLogf("PROBE start row %d\n", y);
++         TopazWddmLogf("PROBE start row %d frames %d\n", y, g_topazProbeFrames);
 +      }
 +      fclose(f);
 +   }
@@ -583,7 +589,7 @@ index a0262da..5d846ed 100644
  /*
   * ----------------------------------------------------------------------
   *
-@@ -80,6 +303,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
+@@ -80,6 +309,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
        states[i].translate[1] = half_height + y;
        states[i].translate[2] = z;
     }
@@ -594,7 +600,7 @@ index a0262da..5d846ed 100644
     if (ClearViewports) {
        memset(states + NumViewports, 0,
               sizeof(struct pipe_viewport_state) * ClearViewports);
-@@ -122,6 +349,21 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -122,6 +355,21 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
        states[i].miny = pRect->top    < 0 ? 0 : pRect->top;
        states[i].maxx = pRect->right  < 0 ? 0 : pRect->right;
        states[i].maxy = pRect->bottom < 0 ? 0 : pRect->bottom;
@@ -616,7 +622,7 @@ index a0262da..5d846ed 100644
     }
     if (ClearScissorRects) {
        memset(states + NumScissorRects, 0,
-@@ -236,6 +478,7 @@ CreateRasterizerState(
+@@ -236,6 +484,7 @@ CreateRasterizerState(
     state.line_rectangular = 0;
  
     pRasterizerState->handle = pipe->create_rasterizer_state(pipe, &state);
@@ -624,7 +630,7 @@ index a0262da..5d846ed 100644
  }
  
  
-@@ -283,5 +526,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+@@ -283,5 +532,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
     struct pipe_context *pipe = CastPipeContext(hDevice);
     void *state = CastPipeRasterizerState(hRasterizerState);
  
