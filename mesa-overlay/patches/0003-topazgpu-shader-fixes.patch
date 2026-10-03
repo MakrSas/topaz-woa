@@ -1,8 +1,19 @@
 diff --git a/src/freedreno/drm/freedreno_bo_cache.c b/src/freedreno/drm/freedreno_bo_cache.c
-index 933e246..ef91d40 100644
+index 933e246..2198701 100644
 --- a/src/freedreno/drm/freedreno_bo_cache.c
 +++ b/src/freedreno/drm/freedreno_bo_cache.c
-@@ -172,6 +172,7 @@ fd_bo_cache_cleanup(struct fd_bo_cache *cache, time_t time)
+@@ -28,6 +28,10 @@
+ #include "freedreno_drm_perfetto.h"
+ #include "freedreno_priv.h"
+ 
++/* TopazGpu debug counters (read by fd_bo_cache_debug_stats) */
++unsigned fd_dbg_cache_hits, fd_dbg_cache_miss, fd_dbg_cache_busy, fd_dbg_cache_put, fd_dbg_cache_expire,
++         fd_dbg_cache_nobucket;
++
+ #define FD_BO_CACHE_STATS 0
+ 
+ #define BO_CACHE_LOG(cache, fmt, ...) do {                      \
+@@ -172,6 +176,7 @@ fd_bo_cache_cleanup(struct fd_bo_cache *cache, time_t time)
           VG_BO_OBTAIN(bo);
           bo_remove_from_bucket(bucket, bo);
           bucket->expired++;
@@ -10,13 +21,10 @@ index 933e246..ef91d40 100644
           list_addtail(&bo->node, &freelist);
           fd_alloc_log(bo, FD_ALLOC_CACHE, FD_ALLOC_NONE);
  
-@@ -208,6 +209,19 @@ get_bucket(struct fd_bo_cache *cache, uint32_t size)
+@@ -208,6 +213,16 @@ get_bucket(struct fd_bo_cache *cache, uint32_t size)
     return NULL;
  }
  
-+/* TopazGpu debug counters (read by fd_bo_cache_debug_stats) */
-+unsigned fd_dbg_cache_hits, fd_dbg_cache_miss, fd_dbg_cache_busy, fd_dbg_cache_put, fd_dbg_cache_expire,
-+         fd_dbg_cache_nobucket;
 +
 +void
 +fd_bo_cache_debug_stats(unsigned *v)
@@ -30,7 +38,7 @@ index 933e246..ef91d40 100644
  static struct fd_bo *
  find_in_bucket(struct fd_bo_bucket *bucket, uint32_t flags)
  {
-@@ -222,6 +236,7 @@ find_in_bucket(struct fd_bo_bucket *bucket, uint32_t flags)
+@@ -222,6 +237,7 @@ find_in_bucket(struct fd_bo_bucket *bucket, uint32_t flags)
      */
     foreach_bo (entry, &bucket->list) {
        if (fd_bo_state(entry) != FD_BO_STATE_IDLE) {
@@ -38,7 +46,7 @@ index 933e246..ef91d40 100644
           break;
        }
        if (entry->alloc_flags == flags) {
-@@ -266,10 +281,14 @@ retry:
+@@ -266,10 +282,14 @@ retry:
           p_atomic_set(&bo->refcnt, 1);
           bo->reloc_flags = FD_RELOC_FLAGS_INIT;
           bucket->hits++;
@@ -53,7 +61,7 @@ index 933e246..ef91d40 100644
     }
  
     fd_bo_del_list_nocache(&freelist);
-@@ -303,6 +322,7 @@ fd_bo_cache_free(struct fd_bo_cache *cache, struct fd_bo *bo)
+@@ -303,6 +323,7 @@ fd_bo_cache_free(struct fd_bo_cache *cache, struct fd_bo *bo)
        simple_mtx_lock(&cache->lock);
        list_addtail(&bo->node, &bucket->list);
        bucket->count++;
