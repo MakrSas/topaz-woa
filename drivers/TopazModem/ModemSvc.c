@@ -163,7 +163,65 @@ typedef struct {
   UINTN              Blk, Rsize, Wsize, Seek, Fi;
   UINT64             Sent;
   UINT32             LastAck, Acks;
+  INTN               Rw;                    /* /readwrite file in RAM (mRw index), -1 = FAT file */
 } TFTP_SESS;
+
+/*
+ * /readwrite/... files live in RAM for the life of the driver (tqftpserv keeps them on disk).
+ * The modem writes and reads back its scratch files, e.g. mcfg.tmp while modem_cfg picks the
+ * carrier config after a SIM appears; dropping the writes starved modem_cfg until the modem
+ * watchdog fired ("dog_hb.c Task starvation: modem_cfg", TopazWifi v0.7).
+ */
+typedef struct { CHAR8 Path[96]; UINT8 *Data; UINTN Size, Cap; } RW_FILE;
+STATIC RW_FILE mRw[12];
+
+STATIC INTN RwFind(CONST CHAR8 *Path, BOOLEAN Create)
+{
+  UINTN i;
+
+  for (i = 0; i < ARRAY_SIZE (mRw); i++) {
+    if (mRw[i].Path[0] != 0 && AsciiStrnCmp (mRw[i].Path, Path, sizeof (mRw[i].Path) - 1) == 0) {
+      return (INTN)i;
+    }
+  }
+  if (!Create) {
+    return -1;
+  }
+  for (i = 0; i < ARRAY_SIZE (mRw); i++) {
+    if (mRw[i].Path[0] == 0) {
+      AsciiStrnCpyS (mRw[i].Path, sizeof (mRw[i].Path), Path, sizeof (mRw[i].Path) - 1);
+      return (INTN)i;
+    }
+  }
+  return -1;
+}
+
+STATIC BOOLEAN RwWrite(INTN Rw, UINT64 Off, CONST UINT8 *Src, UINTN N)
+{
+  RW_FILE *f = &mRw[Rw];
+  UINTN end = (UINTN)Off + N;
+
+  if (Off > 0x100000 || N > 0x100000) {
+    return FALSE;
+  }
+  if (end > f->Cap) {
+    UINTN cap = MAX (end, f->Cap * 2);
+    UINT8 *d = AllocatePool (cap);
+    if (d == NULL) {
+      return FALSE;
+    }
+    ZeroMem (d, cap);
+    if (f->Data != NULL) {
+      CopyMem (d, f->Data, f->Size);
+      FreePool (f->Data);
+    }
+    f->Data = d;
+    f->Cap  = cap;
+  }
+  CopyMem (f->Data + Off, Src, N);
+  f->Size = MAX (f->Size, end);
+  return TRUE;
+}
 
 STATIC EFI_FILE_PROTOCOL *mRoot;
 STATIC UINT32            mCrc;
@@ -228,6 +286,9 @@ STATIC BOOLEAN TftpData(TFTP_SESS *S, UINT32 Block, UINT64 Offset, UINTN RespSiz
   b[0] = 0; b[1] = OP_DATA; b[2] = (UINT8)(Block >> 8); b[3] = (UINT8)Block;
   if (Offset >= S->Size) {
     n = 0;
+  } else if (S->Rw >= 0) {
+    n = (UINTN)MIN ((UINT64)n, S->Size - Offset);
+    CopyMem (b + 4, mRw[S->Rw].Data + Offset, n);
   } else if (EFI_ERROR (S->F->SetPosition (S->F, Offset)) || EFI_ERROR (S->F->Read (S->F, &n, b + 4))) {
     Out ("    sess %x: file read FAILED at %lu\r\n", S->Port, Offset);
     FreePool (b);
@@ -336,6 +397,7 @@ STATIC VOID TftpRequest(UINT32 Node, UINT32 Port, CONST UINT8 *D, UINT32 Len)
   s->RPort = Port;
   s->Blk   = 512;
   s->Wsize = 1;
+  s->Rw    = -1;
   while (p < end) {
     CHAR8 *name = p, *val = p + AsciiStrLen (p) + 1;
     UINTN v;
@@ -370,8 +432,22 @@ STATIC VOID TftpRequest(UINT32 Node, UINT32 Port, CONST UINT8 *D, UINT32 Len)
          (UINT32)(ModemMs () % 1000), op == OP_WRQ ? "WRQ" : "RRQ", b, (UINT64)s->Seek, (UINT64)s->Rsize,
          (UINT64)s->Blk, (UINT64)s->Wsize, wantTsize ? " tsize" : "");
   }
+  if (AsciiStrnCmp (file, "/readwrite/", 11) == 0) {
+    s->Rw = RwFind (file, s->Write);
+  }
   if (s->Write) {
     mTftpWrites++;
+    if (s->Rw < 0) {
+      Out ("    -> no RAM slot, dropped\r\n");
+    } else if (s->Seek == 0) {
+      mRw[s->Rw].Size = 0;                      /* a write from the start replaces the file */
+    }
+  } else if (s->Rw >= 0) {
+    s->Size = mRw[s->Rw].Size;
+    fi = FileStat (file, FALSE);
+    mFiles[fi].Reqs++;
+    s->Fi = fi;
+    Out ("    -> RAM file, %lu B\r\n", s->Size);
   } else {
     if (!MapPath (file, path, ARRAY_SIZE (path)) ||
         EFI_ERROR (mRoot->Open (mRoot, &s->F, path, EFI_FILE_MODE_READ, 0))) {
@@ -459,11 +535,17 @@ STATIC BOOLEAN TftpSession(UINT32 Node, UINT32 Port, UINT32 DstPort, CONST UINT8
   if (s->Write) {
     if (op == OP_DATA) {
       UINTN payload = Len - 4;
+      if (s->Rw >= 0 && blk >= 1 && !RwWrite (s->Rw, s->Seek + (UINT64)(blk - 1) * s->Blk, D + 4, payload)) {
+        Out ("    sess %x: RAM write failed at block %u\r\n", s->Port, blk);
+      }
       if ((blk % s->Wsize) == 0 || payload < s->Blk) {
         UINT8 ack[4] = { 0, OP_ACK, (UINT8)(blk >> 8), (UINT8)blk };
         TftpSend (s, ack, 4);
       }
       if (payload < s->Blk) {
+        if (s->Rw >= 0) {
+          Out ("    sess %x: wrote %a, now %lu B\r\n", s->Port, mRw[s->Rw].Path, (UINT64)mRw[s->Rw].Size);
+        }
         TftpClose (s);
       }
     }
@@ -616,6 +698,8 @@ STATIC VOID RmtfsRx(UINT32 Node, UINT32 Port, UINT16 Txn, UINT16 Msg, CONST UINT
       }
       if (write) {
         mRmtfsWrites++;                         /* not persisted in this spike */
+        Out ("  t=%u.%03u rmtfs: write caller %u sector %u, %u sectors (not persisted)\r\n",
+             (UINT32)(ModemMs () / 1000), (UINT32)(ModemMs () % 1000), caller, e[0], e[2]);
       } else {
         ok = PartRead (bio, (UINT64)e[0] * 512, mRmtfsVa + (e[1] - mRmtfsBuf), (UINTN)bytes);
         mRmtfsReads++;

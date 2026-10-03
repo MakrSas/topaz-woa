@@ -24,3 +24,11 @@ IPA v4.2 / GSI) → stage 3 Windows network adapter (raw-IP NetAdapter, later MB
   "detected", ICCID 89701204145300976051 (T2 Russia); index_gw_primary = 0xFFFF = no provisioned
   subscription (Android's RIL does that) -> v0.7 sends UIM CHANGE_PROVISIONING_SESSION
   (primary GW, activate, slot + AID of the USIM).
+- v0.7 result: provisioning ok -> index_gw_primary 0x0001, USIM **READY** (PIN disabled, 3/10
+  retries), NAS "not registered"; then at t=31.9 s **modem FATAL**: `dog_hb.c:367: Task
+  starvation: modem_cfg`. Before it the modem wrote /readwrite/mcfg.tmp and lctoem.tmp over TFTP
+  (we acked and dropped them, the read-back said "not found") and, at t=10.3 s after the SIM
+  appeared, read mbn_hw.dig / mbn_sw.dig and four mcfg_sw.mbn (SIM-specific carrier config).
+  Modem down = Wi-Fi down (same modem).
+- v0.8: /readwrite/* files kept in RAM (WRQ stores, RRQ serves, like tqftpserv on disk), rmtfs
+  writes logged with time, up to 40 unhandled QRTR packets logged.
