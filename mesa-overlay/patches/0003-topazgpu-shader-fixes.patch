@@ -654,6 +654,31 @@ index 84b7ccf..9872c50 100644
                                &box,
                                &transfer);
     }
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 3243fc3..45b49ca 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -31,6 +31,7 @@
+  */
+ 
+ 
++#include <stdlib.h>
+ #include "Shader.h"
+ #include "ShaderParse.h"
+ #include "State.h"
+@@ -514,6 +515,12 @@ CreateSampler(D3D10DDI_HDEVICE hDevice,                        // IN
+    state.border_color.f[1] = pSamplerDesc->BorderColor[1];
+    state.border_color.f[2] = pSamplerDesc->BorderColor[2];
+    state.border_color.f[3] = pSamplerDesc->BorderColor[3];
++   /* TopazGpu: freedreno (PIPE_QUIRK_TEXTURE_BORDER_COLOR_SWIZZLE_FREEDRENO) builds the border colour from
++    * border_color_format; left at PIPE_FORMAT_NONE the missing channels became 1, so D3D's transparent
++    * border (0,0,0,0) sampled as opaque black: DWM's 1-px AA fringes around windows/touch circles painted dark
++    * pixels outside the damage area -> the dashed strokes. Identity RGBA layout (TOPAZ_BCFMT=0 = old). */
++   if (!(getenv("TOPAZ_BCFMT") && getenv("TOPAZ_BCFMT")[0] == '0'))
++      state.border_color_format = PIPE_FORMAT_R32G32B32A32_FLOAT;
+ 
+    pSamplerState->handle = pipe->create_sampler_state(pipe, &state);
+ }
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
 index 2aecca7..e2d9973 100644
 --- a/src/gallium/frontends/d3d10umd/State.h

@@ -1,10 +1,11 @@
 # DWM composition benchmark for the topaz GPU work: a window that moves every 15 ms for $Seconds seconds
 # (run in the interactive session, e.g. via a scheduled task with /IT). FPS comes from C:\TopazGpuW.log.
-param([int]$Seconds = 15)
+param([int]$Seconds = 15, [switch]$Borderless)
 Add-Type -AssemblyName System.Windows.Forms
 $f = New-Object Windows.Forms.Form
 $f.Text = 'fpsbench'; $f.Width = 500; $f.Height = 400; $f.StartPosition = 'Manual'; $f.TopMost = $true
 $f.Left = 50; $f.Top = 900
+if ($Borderless) { $f.FormBorderStyle = 'None'; $f.BackColor = 'SteelBlue' }
 $dx = 6; $t0 = Get-Date
 $tm = New-Object Windows.Forms.Timer; $tm.Interval = 15
 $tm.Add_Tick({

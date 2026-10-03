@@ -847,3 +847,10 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   pane) -> added by DWM's composition on our stack, not by the app/upload. The window is composed at ~0.86 scale.
   Strokes look like leftover pixels exactly at damage-rect edges. Experiment TOPAZ_SCPAD=1/2: scissor 1 px wider
   (right/bottom, or all sides).
+- 15:50 Strokes reproduced by me: tools/gpu/fpsbench.ps1 -Borderless moved over the mmc window, then a frame dump.
+  The dump matches the phone (strokes are in memory, not a scanout/cache effect). TOPAZ_SCPAD=2 and
+  IR3_SHADER_DEBUG=nofp16 do not change them. The mmc window texture is clean. A borderless moving window leaves
+  1-px OUTLINES at its previous positions (grey 128 on white = 50% black): a 1-px fringe painted outside DWM's
+  damage area, never repainted. Suspect: border colour / AA fringe. d3d10umd never set
+  pipe_sampler_state.border_color_format (freedreno uses it for the border colour layout): now
+  R32G32B32A32_FLOAT by default (TOPAZ_BCFMT=0 = old).
