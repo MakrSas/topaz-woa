@@ -860,3 +860,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   (miny/minx) of DWM's damage scissors, and they appear only over the DPI-scaled mmc window, not over the
   wallpaper; colour = 50% grey. New tool: umd.probe (file with a row number) -> for one frame, row Y read back
   after every draw/copy into the 1080-wide RT ("PROBE k ..." in the UMD log).
+- 16:30 PROBE (row 1620, 40 frames, borderless window moving right over the mmc window): frame 15 damage scissor
+  161..1057; the mmc layer draw fills the exposed strip 161..181 with 240 except the strip's first column 161,
+  which gets 214 (~75% coverage blended over the old blue); the next frame does not touch col 161 again -> outline.
+  DWM draws these partial layer pieces with shader edge-AA and expects full coverage when the edge lies on a
+  pixel boundary; on our stack the edge pixel gets partial coverage. Next: identify the PS (probe/DRAWLOG now
+  print the bound PS tokens pointer; umd.tgsi dumps are tagged "(the TGSI above is PS <ptr>)").

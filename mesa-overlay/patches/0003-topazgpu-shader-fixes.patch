@@ -344,10 +344,10 @@ index e7c2a1c..35d10d0 100644
        ret = pipe->get_query_result(pipe, state, wait, &result);
     } else {
 diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-index a0262da..ec36736 100644
+index a0262da..21d2d32 100644
 --- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 +++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-@@ -31,12 +31,241 @@
+@@ -31,12 +31,242 @@
   */
  
  
@@ -465,6 +465,7 @@ index a0262da..ec36736 100644
 +/* TopazGpu: probe. File C:\ProgramData\topaz\umd.probe containing a row number Y arms it at the next
 + * Present; during the following frame every draw into a 1080-wide RT is followed by a readback of row Y,
 + * logged as runs of the green channel ("PROBE k: x0-x1=v ..."). Disarmed (file deleted) at the next Present. */
++extern "C" { const void *g_topazPsTokens; }
 +static int g_topazProbeY = -1;
 +static int g_topazProbeFrames;
 +static unsigned g_topazProbeDraw;
@@ -515,8 +516,8 @@ index a0262da..ec36736 100644
 +   if (!map)
 +      return;
 +   char line[1400];
-+   int n = snprintf(line, sizeof(line), "PROBE %u %s sc=%d,%d,%d,%d:", g_topazProbeDraw++, kind,
-+                    g_topazSc[0], g_topazSc[1], g_topazSc[2], g_topazSc[3]);
++   int n = snprintf(line, sizeof(line), "PROBE %u %s ps=%p sc=%d,%d,%d,%d:", g_topazProbeDraw++, kind,
++                    g_topazPsTokens, g_topazSc[0], g_topazSc[1], g_topazSc[2], g_topazSc[3]);
 +   unsigned x0 = 0;
 +   for (unsigned x = 1; x <= rt->width0 && n < (int)sizeof(line) - 24; x++) {
 +      if (x == rt->width0 || (map[x * 4 + 1] >> 3) != (map[x0 * 4 + 1] >> 3)) {
@@ -589,7 +590,7 @@ index a0262da..ec36736 100644
  /*
   * ----------------------------------------------------------------------
   *
-@@ -80,6 +309,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
+@@ -80,6 +310,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
        states[i].translate[1] = half_height + y;
        states[i].translate[2] = z;
     }
@@ -600,7 +601,7 @@ index a0262da..ec36736 100644
     if (ClearViewports) {
        memset(states + NumViewports, 0,
               sizeof(struct pipe_viewport_state) * ClearViewports);
-@@ -122,6 +355,21 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -122,6 +356,21 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
        states[i].miny = pRect->top    < 0 ? 0 : pRect->top;
        states[i].maxx = pRect->right  < 0 ? 0 : pRect->right;
        states[i].maxy = pRect->bottom < 0 ? 0 : pRect->bottom;
@@ -622,7 +623,7 @@ index a0262da..ec36736 100644
     }
     if (ClearScissorRects) {
        memset(states + NumScissorRects, 0,
-@@ -236,6 +484,7 @@ CreateRasterizerState(
+@@ -236,6 +485,7 @@ CreateRasterizerState(
     state.line_rectangular = 0;
  
     pRasterizerState->handle = pipe->create_rasterizer_state(pipe, &state);
@@ -630,7 +631,7 @@ index a0262da..ec36736 100644
  }
  
  
-@@ -283,5 +532,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+@@ -283,5 +533,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
     struct pipe_context *pipe = CastPipeContext(hDevice);
     void *state = CastPipeRasterizerState(hRasterizerState);
  
@@ -739,18 +740,19 @@ index 84b7ccf..0d5fb58 100644
                                &transfer);
     }
 diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
-index 3243fc3..45b49ca 100644
+index 3243fc3..c8d5f59 100644
 --- a/src/gallium/frontends/d3d10umd/Shader.cpp
 +++ b/src/gallium/frontends/d3d10umd/Shader.cpp
-@@ -31,6 +31,7 @@
+@@ -31,6 +31,8 @@
   */
  
  
 +#include <stdlib.h>
++#include <stdio.h>
  #include "Shader.h"
  #include "ShaderParse.h"
  #include "State.h"
-@@ -514,6 +515,12 @@ CreateSampler(D3D10DDI_HDEVICE hDevice,                        // IN
+@@ -514,6 +516,12 @@ CreateSampler(D3D10DDI_HDEVICE hDevice,                        // IN
     state.border_color.f[1] = pSamplerDesc->BorderColor[1];
     state.border_color.f[2] = pSamplerDesc->BorderColor[2];
     state.border_color.f[3] = pSamplerDesc->BorderColor[3];
@@ -763,17 +765,40 @@ index 3243fc3..45b49ca 100644
  
     pSamplerState->handle = pipe->create_sampler_state(pipe, &state);
  }
+@@ -1026,6 +1034,13 @@ CreatePixelShader(D3D10DDI_HDEVICE hDevice,                                // IN
+                                                  pShader->output_mapping);
+ 
+    pShader->handle = pipe->create_fs_state(pipe, &pShader->state);
++   {
++      extern bool topaz_log_tgsi;   /* TopazGpu: tag the TGSI dump above with the tokens pointer used in logs */
++      if (topaz_log_tgsi) {
++         fprintf(stderr, "---- (the TGSI above is PS %p)\n", (const void *)pShader->state.tokens);
++         fflush(stderr);
++      }
++   }
+ 
+ }
+ 
+@@ -1051,6 +1066,7 @@ PsSetShader(D3D10DDI_HDEVICE hDevice,  // IN
+    struct pipe_context *pipe = pDevice->pipe;
+    void *state = CastPipeShader(hShader);
+ 
++   g_topazPsTokens = CastShader(hShader) ? (const void *)CastShader(hShader)->state.tokens : NULL;   /* TopazGpu: logs */
+    if (!state) {
+       state = pDevice->empty_fs;
+    }
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
-index 2aecca7..5ce58d9 100644
+index 2aecca7..bff4848 100644
 --- a/src/gallium/frontends/d3d10umd/State.h
 +++ b/src/gallium/frontends/d3d10umd/State.h
-@@ -152,7 +152,12 @@ CastPipeDevice(DXGI_DDI_HDEVICE hDevice)
+@@ -152,7 +152,13 @@ CastPipeDevice(DXGI_DDI_HDEVICE hDevice)
  }
  
  
 -extern "C" void TopazWddmLogf(const char *fmt, ...);   /* TopazGpu: topaz_wddm.cpp */
 +extern "C" void TopazWddmLogf(const char *fmt, ...);
 +extern "C" void TopazAfterDraw(void *device);
++extern "C" const void *g_topazPsTokens;   /* Rasterizer.cpp: PS bound (TGSI tokens) */
 +extern "C" void TopazProbePresent(void);
 +extern "C" void TopazProbeAfterCopy(void *device);   /* Rasterizer.cpp */
 +extern "C" void TopazMaybeDump(void *pipe, void *presented);   /* Rasterizer.cpp */
@@ -781,7 +806,7 @@ index 2aecca7..5ce58d9 100644
  
  #define SetError(hDevice, hr) SetErrorAt(hDevice, hr, __func__, __LINE__)
  
-@@ -312,6 +317,7 @@ CastPipeDepthStencilState(D3D10DDI_HDEPTHSTENCILSTATE hDepthStencilState)
+@@ -312,6 +318,7 @@ CastPipeDepthStencilState(D3D10DDI_HDEPTHSTENCILSTATE hDepthStencilState)
  struct RasterizerState
  {
     void *handle;
@@ -789,7 +814,7 @@ index 2aecca7..5ce58d9 100644
  };
  
  
-@@ -409,6 +415,7 @@ struct Query
+@@ -409,6 +416,7 @@ struct Query
     struct pipe_query *handle;
     INT SeqNo;
     UINT GetDataCount;
