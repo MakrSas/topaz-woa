@@ -23,10 +23,11 @@
  * link got only a VERSION_ACK and the whole SoC went down (RPM crash) before the IPA probe ran.
  * v0.4: never re-handshake - if the FIFO indices are not both 0 the link was used since boot,
  * so the driver only logs. TopazRpm must be updated by file swap + reboot, never restarted.
+ * v0.5: C:\topaz\ipa.probe is one-shot (deleted before the probe), so a hang costs one reboot.
  */
 #include "driver.h"
 
-#define TOPAZ_RPM_VERSION   "v0.4"
+#define TOPAZ_RPM_VERSION   "v0.5"
 
 #define MSG_RAM_PA          0x045F0000ULL
 #define MSG_RAM_SIZE        0x7000
@@ -111,6 +112,24 @@ static BOOLEAN FileExists(PCWSTR Path)
     if (!NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
                                  FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
                                  FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+        return FALSE;
+    }
+    ZwClose(h);
+    return TRUE;
+}
+
+static BOOLEAN DeleteFile(PCWSTR Path)
+{
+    UNICODE_STRING name;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+
+    RtlInitUnicodeString(&name, Path);
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateFile(&h, DELETE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE, NULL, 0))) {
         return FALSE;
     }
     ZwClose(h);
@@ -372,7 +391,8 @@ static VOID Link(PDEVICE_CONTEXT Ctx)
     ok = RpmWrite(Ctx, RPM_ACTIVE_SET, RPM_RES_IPA_CLK, 0, RPM_KEY_RATE, IPA_CLK_KHZ);
     LogPrint("rpm: IPA clock %u kHz (active set): %s\n", IPA_CLK_KHZ, ok ? "OK" : "FAILED");
     if (ok && FileExists(L"\\??\\C:\\topaz\\ipa.probe")) {
-        LogPrint("C:\\topaz\\ipa.probe present: reading IPA / GSI registers\n");
+        LogPrint("C:\\topaz\\ipa.probe present (deleted: %u): reading IPA / GSI registers\n",
+                 DeleteFile(L"\\??\\C:\\topaz\\ipa.probe"));
         IpaProbe();
     }
 }
