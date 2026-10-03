@@ -1069,3 +1069,22 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   the Present blt must. v0.48: TG_CMD.Rotation from Flags.Rotate, rotated per-pixel Blt with clipping on both
   surfaces, direct scanout allowed again when rotated, scanout rotation only for landscape primaries.
   Phone is on v0.45 (no rotation) until v0.48 is tested.
+
+## UEFI v5 (2026-10-03 evening): menu, no-GPU item, Xiaomi splash
+
+- Image `~/work/win/uefi/Mu-topaz-v5-RELEASE.img` (sha256 e937ddf3…), commit af5b525. Menu: Windows /
+  Windows (no GPU, safe display) / Fastboot / Power off; modem test no longer built.
+- DSDT GPU0 now always present with `Name (GPUE, One)`; the no-GPU item patches the installed DSDT
+  (GPUE -> ZeroOp, `_HID` TPZG0610 -> TPZX0610 so TopazDisplay v0.8 keeps the panel, checksum fixed).
+- RAM test (`fastboot boot`): Windows item boots, ACPI\TPZG0610\0 = OK. No-GPU item not tested yet.
+- Splash: TopazOtgDxe copies the framebuffer at entry; TopazBootGraphicsLib restores it, blanks the
+  bottom 25 % and draws the Silicium logo there; BGRT = lit bounding box of the splash. With
+  `fastboot boot` the panel holds the fastboot screen, not the Mi logo, so only a flashed boot shows it.
+- Where the Mi logo lives (all read-only reads from Windows, PhysicalDrive4 = sde):
+  `splash` (p53) is all zeros; `imagefv_a/b` FV has only battery/thermal BMPs + fastboot/lock .bmp.gz;
+  xbl_b FV (gzip GUID section 1d301fe9) has the same BMPs; abl_b LinuxLoader has no image, it only
+  backs up the logo Blt buffer. XBL DisplayDxe references `logo1.bmp`/`logo2.bmp` in "ImageFv" but no
+  such file was found in imagefv/xbl; location still unknown. The framebuffer copy does not need it.
+- Backup of boot_b before any flash: s8build `~/work/win/uefi/bootb-backup-1003.img` (128 MiB, first
+  3153920 bytes == `~/work/topaz-poweroff.img`).
+- PowerShell trap: `rd` is an alias of Remove-Item; never name helper functions `rd`.
