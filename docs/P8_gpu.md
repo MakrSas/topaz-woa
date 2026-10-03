@@ -1010,3 +1010,6 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   the GPU clock. TopazGpuW v0.42: C:\topaz\gpu.600 -> gfx3d = GPLL0/1 = 600 MHz (no PLL needed; the GX corner
   cannot be voted over RPM from Windows yet, so it relies on the bootloader's rail level - opt-in, recovery =
   normal boot (no GPU0) + delete the file).
+- 23:55 v0.42 with gpu.600 boots fine ("gfx3d: 600 MHz"), user: "much smoother". Bench: GPU wait per present
+  6-12 ms (was ~15), frame 17-33 ms. Next GPU step: 785 MHz (NOM) needs the GPU PLL (gpu_cc_pll0) and very likely
+  a higher GX corner (RPM vote) - not attempted yet.
