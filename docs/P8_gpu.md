@@ -992,3 +992,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   SUBALLOC_SIZE 32K) that freedreno's ring cache does not reuse. Added BO-cache counters (hits, miss, busy-head
   = find_in_bucket gave up because the oldest entry is busy, put, expired) to the TIMING log.
 - 23:00 BO cache counters during a Chrome move: hits 744, miss 9106, busy-head 0, put 744 per 60 frames -> freed BOs mostly bypass the cache (not a busy problem). Added try_recycle reason counters.
+- 23:10 ROOT CAUSE of the BO churn: try_recycle counters: ~9000 freed BOs per 60 frames counted as "nocache", 0 as
+  "ring". fd_bo::bo_reuse is `enum { NO_CACHE=0, BO_CACHE=1, RING_CACHE=2 } bo_reuse : 2;` - with MSVC/clang-cl
+  enum bitfields are signed, so RING_CACHE is read back as -2 and never matches: every cmdstream/state-object
+  BO (32 KiB RING_FLAGS) was freed through the KMD and reallocated (~2300 GEM_NEW + mmap + munmap + GEM_CLOSE
+  per second, contiguous allocations in the KMD). Fix: bitfield widened to 3 bits (same class of bug as the
+  earlier gl_tess_spacing / lrz_direction fixes in 0001).

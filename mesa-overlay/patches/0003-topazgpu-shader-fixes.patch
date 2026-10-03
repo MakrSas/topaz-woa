@@ -102,6 +102,19 @@ index 933e246..2198701 100644
        simple_mtx_unlock(&cache->lock);
  
        fd_alloc_log(bo, FD_ALLOC_ACTIVE, FD_ALLOC_CACHE);
+diff --git a/src/freedreno/drm/freedreno_drmif.h b/src/freedreno/drm/freedreno_drmif.h
+index dd073f2..c749050 100644
+--- a/src/freedreno/drm/freedreno_drmif.h
++++ b/src/freedreno/drm/freedreno_drmif.h
+@@ -238,7 +238,7 @@ struct fd_bo {
+       NO_CACHE = 0,
+       BO_CACHE = 1,
+       RING_CACHE = 2,
+-   } bo_reuse : 2;
++   } bo_reuse : 3;   /* TopazGpu: was 2 - MSVC/clang-cl enum bitfields are signed, RING_CACHE (2) read back as -2 */
+ 
+    /* Most recent index in submit's bo table, used to optimize the common
+     * case where a bo is used many times in the same submit.
 diff --git a/src/freedreno/drm/freedreno_pipe.c b/src/freedreno/drm/freedreno_pipe.c
 index 362e696..8a70b4d 100644
 --- a/src/freedreno/drm/freedreno_pipe.c
