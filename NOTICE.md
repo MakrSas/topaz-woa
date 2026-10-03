@@ -8,9 +8,10 @@ copies the Windows-Recovery-Environment look of **NTDEV's**
 commit `6e2cacf15f6b99b198ed12ad242da69eb2259bac`):
 
 - the layout of the *Choose an option* page (tile size, icon / text positions, font sizes,
-  text colours, highlight colour) from `tools/twrp-winre/build.py`;
-- the icons `winre_ic_continue/troubleshoot/download/poweroff/back.png` (original artwork of
-  that project), copied unchanged to `uefi/winre/third_party/exynos9810-woa/icons/`;
+  text colours) from `tools/twrp-winre/build.py`;
+- the icons `winre_ic_continue/recovery/poweroff/back.png` (original artwork of that
+  project), copied unchanged to `uefi/winre/third_party/exynos9810-woa/icons/` (the graphics
+  card icon is our own drawing in `mkwinre.py`, in the same stroke style);
 - the fonts `winre-light/semilight/regular.ttf`, copied unchanged to
   `uefi/winre/third_party/exynos9810-woa/fonts/`.
 

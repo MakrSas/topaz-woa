@@ -27,14 +27,14 @@ FONT_REGULAR = str(NT / "fonts" / "winre-regular.ttf")
 # text x 264, title +54, description +122, single line +86; text colours #FFFFFF / #B4B4B4.
 # The theme is 1920 high, tapas is 2400: rows keep their size, WinRe.c spreads them out.
 TILE_W, TILE_H = 864, 220
-ICON_CX = 156 - 108
-TEXT_X = 264 - 108
+ICON_CX = 100          # more left padding than exynos9810-woa (48): the focus outline needs room
+TEXT_X = 204
 DIM = 0xB4
 
 ITEMS = [
     ("winre_ic_continue.png", "Continue", "Exit and continue to Windows"),
-    ("winre_ic_troubleshoot.png", "Windows without GPU", "Safe display: start Windows without the Adreno driver"),
-    ("winre_ic_download.png", "Fastboot", "Restart to the bootloader for flashing"),
+    ("gpu", "Windows without GPU", "Safe display, without the Adreno driver"),
+    ("winre_ic_recovery.png", "Fastboot", "Restart to the bootloader for flashing"),
     ("winre_ic_poweroff.png", "Turn off your phone", None),
 ]
 
@@ -47,9 +47,27 @@ def text_img(text, font, size, grey=255, pad=4):
     return im
 
 
+def gpu_icon(px=96, ss=4):
+    """Our own drawing (not from exynos9810-woa): a graphics card (bracket, two fans, PCIe edge)."""
+    n = px * ss
+    im = Image.new("L", (n, n), 0)
+    d = ImageDraw.Draw(im)
+    w = 5 * ss                                   # stroke like the exynos9810-woa icons
+    d.line([(0.10 * n, 0.22 * n), (0.10 * n, 0.84 * n)], fill=255, width=w)
+    d.line([(0.10 * n, 0.24 * n), (0.18 * n, 0.24 * n)], fill=255, width=w)
+    d.rounded_rectangle([0.18 * n, 0.28 * n, 0.92 * n, 0.70 * n], radius=0.05 * n, outline=255, width=w)
+    d.line([(0.32 * n, 0.70 * n), (0.32 * n, 0.80 * n), (0.70 * n, 0.80 * n), (0.70 * n, 0.70 * n)],
+           fill=255, width=w, joint="curve")
+    cy, r = 0.49 * n, 0.11 * n
+    for cx in (0.40 * n, 0.70 * n):
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=255, width=w)
+        d.ellipse([cx - 0.025 * n, cy - 0.025 * n, cx + 0.025 * n, cy + 0.025 * n], fill=255)
+    return im.resize((px, px), Image.LANCZOS)
+
+
 def tile(icon, title, desc):
     im = Image.new("L", (TILE_W, TILE_H), 0)
-    ic = Image.open(NT / "icons" / icon).convert("L")
+    ic = gpu_icon() if icon == "gpu" else Image.open(NT / "icons" / icon).convert("L")
     im.paste(ic, (ICON_CX - ic.width // 2, TILE_H // 2 - ic.height // 2))
     d = ImageDraw.Draw(im)
     ft = ImageFont.truetype(FONT_SEMILIGHT, 38)

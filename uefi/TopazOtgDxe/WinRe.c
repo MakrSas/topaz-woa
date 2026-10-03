@@ -3,7 +3,7 @@
  *
  * The page is a set of pre-rendered 8-bit grey bitmaps (uefi/winre/mkwinre.py, RAW sections
  * of one FREEFORM file in FvMain). Grey = coverage: each bitmap is blended white over the
- * tile colour, so a highlighted tile is the same bitmap on a lighter background.
+ * tile colour (black); focus is a white outline drawn in code.
  * Look, layout, icons and fonts: ntdevlabs/exynos9810-woa tools/twrp-winre (see NOTICE.md).
  *
  * Touch: FocalTech FT5452 @0x38 on QUP0 SE2, polled like drivers/TopazTouch (no firmware
@@ -37,8 +37,7 @@ enum { ASSET_HEADER, ASSET_TILE0, ASSET_BACK = ASSET_TILE0 + 4, ASSET_HINT, ASSE
 #define BACK_BOX_Y   205
 #define BACK_BOX     120
 #define HINT_BOTTOM  260
-#define HILITE       0x26                /* #FFFFFF26 over black */
-#define PRESSED      0x40
+#define OUTLINE      3                   /* focus: white outline, black inside */
 
 typedef struct {
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Px;
@@ -101,24 +100,24 @@ STATIC VOID Draw(UINTN Id, UINTN X, UINTN Y, UINT8 Bg)
   FreePool (tmp);
 }
 
-STATIC VOID DrawTile(UINTN T, UINT8 Bg)
+STATIC VOID Frame(UINTN X, UINTN Y, UINTN W, UINTN H, UINT8 Grey)
 {
-  Draw (ASSET_TILE0 + T, MARGIN_X, ROW0_Y + T * ROW_PITCH, Bg);
+  Fill (X, Y, W, OUTLINE, Grey);
+  Fill (X, Y + H - OUTLINE, W, OUTLINE, Grey);
+  Fill (X, Y, OUTLINE, H, Grey);
+  Fill (X + W - OUTLINE, Y, OUTLINE, H, Grey);
 }
 
-STATIC VOID DrawBack(UINT8 Bg)
-{
-  Fill (BACK_BOX_X, BACK_BOX_Y, BACK_BOX, BACK_BOX, Bg);
-  Draw (ASSET_BACK, BACK_BOX_X + (BACK_BOX - mAsset[ASSET_BACK].W) / 2,
-        BACK_BOX_Y + (BACK_BOX - mAsset[ASSET_BACK].H) / 2, Bg);
-}
-
-STATIC VOID DrawFocus(UINTN F, UINT8 Bg)
+/* focus = tile / back arrow with a white outline (WinRE keyboard focus), else plain */
+STATIC VOID DrawFocus(UINTN F, BOOLEAN On)
 {
   if (F == FOCUS_BACK) {
-    DrawBack (Bg);
+    Draw (ASSET_BACK, BACK_BOX_X + (BACK_BOX - mAsset[ASSET_BACK].W) / 2,
+          BACK_BOX_Y + (BACK_BOX - mAsset[ASSET_BACK].H) / 2, 0);
+    Frame (BACK_BOX_X, BACK_BOX_Y, BACK_BOX, BACK_BOX, On ? 255 : 0);
   } else if (F < TILE_COUNT) {
-    DrawTile (F, Bg);
+    Draw (ASSET_TILE0 + F, MARGIN_X, ROW0_Y + F * ROW_PITCH, 0);
+    Frame (MARGIN_X, ROW0_Y + F * ROW_PITCH, mAsset[ASSET_TILE0].W, mAsset[ASSET_TILE0].H, On ? 255 : 0);
   }
 }
 
@@ -128,9 +127,9 @@ STATIC VOID DrawPage(UINTN Focus)
 
   Fill (0, 0, sx, sy, 0);
   Draw (ASSET_HEADER, MARGIN_X, HEADER_Y, 0);
-  DrawBack (Focus == FOCUS_BACK ? HILITE : 0);
+  DrawFocus (FOCUS_BACK, Focus == FOCUS_BACK);
   for (t = 0; t < TILE_COUNT; t++) {
-    DrawTile (t, t == Focus ? HILITE : 0);
+    DrawFocus (t, t == Focus);
   }
   Draw (ASSET_HINT, (sx - mAsset[ASSET_HINT].W) / 2, sy - HINT_BOTTOM, 0);
 }
@@ -246,9 +245,9 @@ UINTN WinReMenu(VOID)
   for (;;) {
     if (gST->ConIn != NULL && !EFI_ERROR (gST->ConIn->ReadKeyStroke (gST->ConIn, &key))) {
       if (key.ScanCode == SCAN_UP || key.ScanCode == SCAN_DOWN) {
-        DrawFocus (focus, 0);
+        DrawFocus (focus, FALSE);
         focus = (focus + (key.ScanCode == SCAN_UP ? FOCUS_BACK : 1)) % (FOCUS_BACK + 1);
-        DrawFocus (focus, HILITE);
+        DrawFocus (focus, TRUE);
       } else {
         result = focus;
         break;
@@ -259,12 +258,12 @@ UINTN WinReMenu(VOID)
     hit  = down ? HitTest (x, y) : MAX_UINTN;
     if (down && pressed == MAX_UINTN && hit != MAX_UINTN) {
       pressed = hit;                                     /* finger down on an option */
-      DrawFocus (focus, 0);
-      DrawFocus (pressed, PRESSED);
+      DrawFocus (focus, FALSE);
+      DrawFocus (pressed, TRUE);
     } else if (down && pressed != MAX_UINTN && hit != pressed) {
-      DrawFocus (pressed, 0);                            /* slid off: cancel */
+      DrawFocus (pressed, FALSE);                            /* slid off: cancel */
       pressed = MAX_UINTN;
-      DrawFocus (focus, HILITE);
+      DrawFocus (focus, TRUE);
     } else if (!down && pressed != MAX_UINTN) {
       result = pressed;                                  /* lifted on it: choose */
       break;
