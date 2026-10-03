@@ -813,3 +813,13 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   TOPAZ_SYNCMAP=2 = only flush the pending batches before an unsynchronized map (no wait). Fixed by =2 ->
   data overwritten under draws still recorded in an unflushed batch; not fixed -> the GPU still reads the buffer
   after the submit, i.e. freedreno's BO busy tracking (fence) is wrong on WDDM.
+- 14:20 TOPAZ_SYNCMAP=2 (flush only, no wait) is also clean -> the hazard is data overwritten under draws still in
+  an UNFLUSHED batch. ROOT CAUSE: D3D10DDI_QUERY_EVENT -> PIPE_QUERY_GPU_FINISHED, which freedreno a6xx does not
+  implement (create_query returns NULL; fd_sw_create_query has no such type). d3d10umd QueryGetData with a NULL
+  handle returns "done" (S_OK) at once. DWM uses event queries to decide when its NO_OVERWRITE vertex/constant ring
+  space is free again, so it overwrote vertices/constants of draws that were not even submitted: stale windows,
+  zoomed window copies, clipped shadows. Fix: EVENT queries use a deferred fence (pipe->flush(&fence,
+  PIPE_FLUSH_DEFERRED) at QueryEnd; QueryGetData = fence_finish(timeout 0), flushing unless DO_NOT_FLUSH).
+  TOPAZ_OLDEVENT=1 restores the old behaviour for comparison.
+- Also reported (14:19 photo): icons in the quick-settings flyout (Wi-Fi, airplane mode, battery saver) are
+  missing / very faint - glyph (Segoe Fluent Icons) rendering, to investigate next.

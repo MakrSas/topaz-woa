@@ -250,6 +250,81 @@ index dbca5d0..7c3c4de 100644
     /*
      * DX10 always uses float clear color but gallium does not.
      * Conversion should just be ordinary conversion. Actual clamping will
+diff --git a/src/gallium/frontends/d3d10umd/Query.cpp b/src/gallium/frontends/d3d10umd/Query.cpp
+index e7c2a1c..35d10d0 100644
+--- a/src/gallium/frontends/d3d10umd/Query.cpp
++++ b/src/gallium/frontends/d3d10umd/Query.cpp
+@@ -31,6 +31,8 @@
+  */
+ 
+ 
++#include <stdlib.h>
++#include "pipe/p_screen.h"
+ #include "Query.h"
+ #include "State.h"
+ 
+@@ -115,6 +117,11 @@ CreateQuery(D3D10DDI_HDEVICE hDevice,                          // IN
+    pQuery->Flags = pCreateQuery->MiscFlags;
+ 
+    pQuery->pipe_type = TranslateQueryType(pCreateQuery->Query);
++   /* TopazGpu: EVENT is implemented with a fence (see QueryEnd/QueryGetData). Before, freedreno returned no
++    * query object, GetData reported "done" at once and DWM reused its NO_OVERWRITE ring space while draws
++    * using it were still unflushed -> stale windows, wrong shadows. */
++   if (pQuery->Type == D3D10DDI_QUERY_EVENT && !(getenv("TOPAZ_OLDEVENT") && getenv("TOPAZ_OLDEVENT")[0] == '1'))
++      return;
+    if (pQuery->pipe_type < PIPE_QUERY_TYPES) {
+       pQuery->handle = pipe->create_query(pipe, pQuery->pipe_type, 0);
+    }
+@@ -143,6 +150,10 @@ DestroyQuery(D3D10DDI_HDEVICE hDevice, // IN
+    if (pQuery->handle) {
+       pipe->destroy_query(pipe, pQuery->handle);
+    }
++   if (pQuery->fence) {
++      struct pipe_screen *screen = CastDevice(hDevice)->screen;
++      screen->fence_reference(screen, &pQuery->fence, NULL);
++   }
+ }
+ 
+ 
+@@ -205,6 +216,11 @@ QueryEnd(D3D10DDI_HDEVICE hDevice,  // IN
+    if (state) {
+       pipe->end_query(pipe, state);
+    }
++   if (pQuery->Type == D3D10DDI_QUERY_EVENT && !state) {
++      struct pipe_screen *screen = pDevice->screen;
++      screen->fence_reference(screen, &pQuery->fence, NULL);
++      pipe->flush(pipe, &pQuery->fence, PIPE_FLUSH_DEFERRED);
++   }
+ }
+ 
+ 
+@@ -250,6 +266,26 @@ QueryGetData(D3D10DDI_HDEVICE hDevice,                      // IN
+ 
+    bool ret;
+ 
++   if (pQuery->Type == D3D10DDI_QUERY_EVENT && !state) {
++      struct pipe_screen *screen = pDevice->screen;
++      if (pQuery->fence) {
++         /* without DO_NOT_FLUSH the deferred work is submitted now (passing the context) */
++         ret = screen->fence_finish(screen, (Flags & D3D10_DDI_GET_DATA_DO_NOT_FLUSH) ? NULL : pipe,
++                                    pQuery->fence, 0);
++      } else {
++         ret = true;   /* never issued */
++      }
++      if (!ret) {
++         SetError(hDevice, DXGI_DDI_ERR_WASSTILLDRAWING);
++         return;
++      }
++      if (pData && DataSize >= sizeof(BOOL))
++         *(BOOL *)pData = TRUE;
++      if ((pQuery->SeqNo - pDevice->LastFinishedQuerySeqNo) > 0)
++         pDevice->LastFinishedQuerySeqNo = pQuery->SeqNo;
++      return;
++   }
++
+    if (state) {
+       ret = pipe->get_query_result(pipe, state, wait, &result);
+    } else {
 diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 index a0262da..c949e00 100644
 --- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
@@ -504,7 +579,7 @@ index 84b7ccf..1469634 100644
        pipe->resource_copy_region(pipe,
                                   dst_resource, dst_level,
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
-index 2aecca7..5e639dc 100644
+index 2aecca7..e2d9973 100644
 --- a/src/gallium/frontends/d3d10umd/State.h
 +++ b/src/gallium/frontends/d3d10umd/State.h
 @@ -152,7 +152,10 @@ CastPipeDevice(DXGI_DDI_HDEVICE hDevice)
@@ -527,3 +602,11 @@ index 2aecca7..5e639dc 100644
  };
  
  
+@@ -409,6 +413,7 @@ struct Query
+    struct pipe_query *handle;
+    INT SeqNo;
+    UINT GetDataCount;
++   struct pipe_fence_handle *fence;   /* TopazGpu: EVENT queries (freedreno has no PIPE_QUERY_GPU_FINISHED) */
+ 
+    D3D10_DDI_QUERY_DATA_PIPELINE_STATISTICS Statistics;
+ };
