@@ -836,3 +836,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - 15:00 Dashed 1-px strokes: DWM copies the damage complement from the previous buffer every frame, often as 1-2 px
   strips (118x1, 2x115, 9x1 ...) exactly along damage edges where the strokes show. Experiment TOPAZ_COPYPATH=1:
   swapchain ResourceCopyRegion through util_resource_copy_region (CPU map/memcpy) instead of freedreno's blit.
+- Note (2026-10-03): the user's phone reports codename **tapas** (Redmi Note 12 4G without NFC); topaz is the NFC variant of the same SM6225 platform. Names in the repo stay "topaz".
