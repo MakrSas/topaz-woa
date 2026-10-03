@@ -655,3 +655,16 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - Next steps, in order: (1) direct scanout via MDP (KMD v0.37 with the read-only MDP/SMMU survey is
   installed and runs at the next GPU0 boot), (2) asynchronous present (no fence wait), (3) taskbar
   icon rendering bug, (4) path rotation (portrait only now), (5) Modern Standby.
+
+### MDP survey (10:21 boot, v0.37) -> direct scanout (v0.38)
+- MDP hw rev 0x600a0000. VIG0 (+0x5000): src_size 0x09600438 (2400x1080), SRC0_ADDR 0x5C000000,
+  YSTRIDE0 0x10e0 (4320), format 0x000237ff, unpack 0x03020001; DMA0 unused. CTL0 layer0 0x01000002
+  (VIG0 on LM0 stage), intf_active 2 (INTF1). LM0 out 2400x1080. INTF1 timing_en 1.
+- apps SMMU 0x0C600000: 50 SMRs / 48 CBs, 4K pages, numpage 64. SMR4 id 0x420 mask 0x2 -> S2CR translate
+  CB3, but CB3 SCTLR 0xe0 (M = 0: translation off) -> MDP fetches physical addresses directly.
+- v0.38: flips to BO-backed full-screen primaries write VIG0 SRC0_ADDR = BO PA (identity GPU mapping,
+  contiguous, < 4 GB) and YSTRIDE0 = BO pitch (4352), then CTL0_FLUSH = VIG0 (bit 0) | CTL (bit 17);
+  other primaries / stop / bugcheck screen / destroyed primary -> back to 0x5C000000 stride 4320 + CPU
+  copy. Kill switch C:\topaz\gpuw.nodirect. Direct mode is only enabled when VIG0 still holds the
+  POST framebuffer address/stride at start.
+- 10:22 the taskbar hung once; restarting explorer.exe fixed it.

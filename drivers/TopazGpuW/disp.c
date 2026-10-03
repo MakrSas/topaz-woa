@@ -31,6 +31,47 @@ static BOOLEAN g_Visible = TRUE;
 static BOOLEAN g_Committed;
 
 static TGPU_ALLOCATION * volatile g_ScanCur;    /* primary being "scanned out" */
+
+/* v0.38 direct scanout: the bootloader's MDP path is VIG0 -> LM0 -> CTL0 -> INTF1 -> DSI0, fetching the
+   GOP framebuffer 0x5C000000 (stride 4320); the MDP SMMU context (SID 0x420 -> CB3) has translation off,
+   so VIG0 can fetch any physical address. Flipping to a BO-backed primary = new SRC0_ADDR/YSTRIDE0 +
+   CTL flush (double-buffered, latched at the panel vsync): no CPU copy. Allocations without a BO
+   (Dxgkrnl's own primaries) go back to the framebuffer + CPU copy. C:\topaz\gpuw.nodirect disables it. */
+#define MDP_VIG0            0x5000
+#define SSPP_SRC0_ADDR      0x14
+#define SSPP_SRC_YSTRIDE0   0x24
+#define MDP_CTL0            0x2000
+#define CTL_FLUSH           0x18
+#define CTL_FLUSH_VIG0      (1u << 0)
+#define CTL_FLUSH_CTL       (1u << 17)
+static volatile UCHAR *g_Mdp;
+static BOOLEAN g_DirectOk;                      /* mapped and not disabled */
+static volatile LONG g_DirectActive;            /* VIG0 currently fetches a BO */
+static ULONG g_FbAddr, g_FbStride;              /* bootloader values, restored on fallback/stop */
+static ULONG g_DirectFlips;
+
+static VOID MdpScanFrom(ULONG Pa, ULONG Stride)
+{
+    WRITE_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_VIG0 + SSPP_SRC0_ADDR), Pa);
+    WRITE_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_VIG0 + SSPP_SRC_YSTRIDE0), Stride);
+    WRITE_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_CTL0 + CTL_FLUSH), CTL_FLUSH_VIG0 | CTL_FLUSH_CTL);
+}
+
+/* point VIG0 at Al when it is a BO-backed full-screen primary; TRUE = no CPU copy needed. Any IRQL. */
+static BOOLEAN DirectSelect(TGPU_ALLOCATION *Al)
+{
+    if (g_DirectOk && Al != NULL && Al->Bo != NULL && Al->Desc.width == g_Post.Width &&
+        Al->Desc.height == g_Post.Height && Al->Bo->Iova + Al->Desc.bo_offset < 0x100000000ULL) {
+        MdpScanFrom((ULONG)(Al->Bo->Iova + Al->Desc.bo_offset), Al->Desc.pitch);
+        InterlockedExchange(&g_DirectActive, 1);
+        g_DirectFlips++;
+        return TRUE;
+    }
+    if (g_DirectOk && InterlockedExchange(&g_DirectActive, 0)) {
+        MdpScanFrom(g_FbAddr, g_FbStride);
+    }
+    return FALSE;
+}
 static PHYSICAL_ADDRESS g_ScanPa;               /* its address as Dxgkrnl knows it */
 static volatile LONG g_ScanDirty;
 static volatile LONG g_FlipPending;
@@ -132,7 +173,7 @@ VOID DispScanoutWork(VOID)
 
     KeWaitForSingleObject(&g_ScanLock, Executive, KernelMode, FALSE, NULL);
     al = g_ScanCur;
-    if (al != NULL && g_Fb != NULL && g_Visible && (px = AllocPixels(al)) != NULL) {
+    if (al != NULL && !g_DirectActive && g_Fb != NULL && g_Visible && (px = AllocPixels(al)) != NULL) {
         all.left = all.top = 0;
         all.right = al->Desc.width;
         all.bottom = al->Desc.height;
@@ -150,7 +191,7 @@ VOID DispPresentRects(TGPU_ALLOCATION *Dst, const RECT *Rects, ULONG Count)
     PUCHAR px;
     ULONG i;
 
-    if (Dst != g_ScanCur || g_Fb == NULL || !g_Visible) {
+    if (Dst != g_ScanCur || g_DirectActive || g_Fb == NULL || !g_Visible) {
         return;
     }
     KeWaitForSingleObject(&g_ScanLock, Executive, KernelMode, FALSE, NULL);
@@ -166,6 +207,7 @@ VOID DispAllocDestroyed(TGPU_ALLOCATION *Al)
 {
     KeWaitForSingleObject(&g_ScanLock, Executive, KernelMode, FALSE, NULL);
     if (g_ScanCur == Al) {
+        DirectSelect(NULL);                              /* never fetch from a freed BO */
         g_ScanCur = NULL;
         LogPrint("scanout: primary %p destroyed while scanned out\n", Al);
     }
@@ -177,13 +219,18 @@ NTSTATUS DispSetSourceAddress(const DXGKARG_SETVIDPNSOURCEADDRESS *A)
 {
     static ULONG count;
 
+    BOOLEAN direct;
+
     g_ScanCur = (TGPU_ALLOCATION *)A->hAllocation;
     g_ScanPa = A->PrimaryAddress;
-    InterlockedExchange(&g_ScanDirty, 1);
+    direct = DirectSelect(g_ScanCur);
+    if (!direct) {
+        InterlockedExchange(&g_ScanDirty, 1);
+    }
     InterlockedExchange(&g_FlipPending, 1);
-    if (++count <= 400) {
-        LogPrint("SetVidPnSourceAddress: src %u alloc %p seg %u pa %llx flags %x\n", A->VidPnSourceId, A->hAllocation,
-                 A->PrimarySegment, A->PrimaryAddress.QuadPart, A->Flags.Value);
+    if (++count <= 60) {
+        LogPrint("SetVidPnSourceAddress: src %u alloc %p seg %u pa %llx flags %x%s\n", A->VidPnSourceId, A->hAllocation,
+                 A->PrimarySegment, A->PrimaryAddress.QuadPart, A->Flags.Value, direct ? " (direct scanout)" : "");
     }
     return STATUS_SUCCESS;
 }
@@ -204,6 +251,10 @@ VOID DispSystemWrite(PVOID Src, UINT W, UINT H, UINT Stride, UINT X, UINT Y)
 
     if (g_Fb == NULL) {
         return;
+    }
+    if (g_DirectOk && g_DirectActive) {                  /* bugcheck screen: back to the framebuffer */
+        g_DirectActive = 0;
+        MdpScanFrom(g_FbAddr, g_FbStride);
     }
     for (y = 0; y < H && Y + y < g_Post.Height; y++) {
         UINT w = (X + W > g_Post.Width) ? (X < g_Post.Width ? g_Post.Width - X : 0) : W;
@@ -244,6 +295,30 @@ NTSTATUS DispStart(PDXGKRNL_INTERFACE Dxgk)
     LogPrint("framebuffer mapped at %p\n", g_Fb);
     InitBrightness();
     DispSurveyMdp();
+    if (g_Mdp == NULL) {
+        PHYSICAL_ADDRESS mpa;
+        UNICODE_STRING nd = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\gpuw.nodirect");
+        OBJECT_ATTRIBUTES oa;
+        IO_STATUS_BLOCK iosb;
+        HANDLE h;
+        BOOLEAN off = FALSE;
+
+        InitializeObjectAttributes(&oa, &nd, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+        if (NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                    FILE_SHARE_READ, FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+            ZwClose(h);
+            off = TRUE;
+        }
+        mpa.QuadPart = 0x05E00000LL;
+        g_Mdp = (volatile UCHAR *)MmMapIoSpaceEx(mpa, 0x90000, PAGE_READWRITE | PAGE_NOCACHE);
+        if (g_Mdp != NULL) {
+            g_FbAddr = READ_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_VIG0 + SSPP_SRC0_ADDR));
+            g_FbStride = READ_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_VIG0 + SSPP_SRC_YSTRIDE0));
+            g_DirectOk = !off && g_FbAddr == (ULONG)g_Post.PhysicAddress.QuadPart && g_FbStride == g_Post.Pitch;
+        }
+        LogPrint("direct scanout: %s (VIG0 addr %08x stride %u%s)\n", g_DirectOk ? "on" : "off", g_FbAddr, g_FbStride,
+                 off ? ", gpuw.nodirect" : "");
+    }
 
     KeInitializeTimerEx(&g_VsyncTimer, NotificationTimer);
     KeInitializeDpc(&g_VsyncDpc, VsyncDpc, NULL);
@@ -255,6 +330,10 @@ NTSTATUS DispStart(PDXGKRNL_INTERFACE Dxgk)
 
 VOID DispStop(VOID)
 {
+    if (g_DirectOk && InterlockedExchange(&g_DirectActive, 0)) {
+        MdpScanFrom(g_FbAddr, g_FbStride);               /* hand the panel back on the framebuffer */
+        LogPrint("direct scanout: back to the framebuffer (%u direct flips)\n", g_DirectFlips);
+    }
     if (g_TimerOn) {
         KeCancelTimer(&g_VsyncTimer);
         KeFlushQueuedDpcs();
@@ -675,12 +754,15 @@ NTSTATUS DispCommitVidPn(PDXGKRNL_INTERFACE Dxgk, const DXGKARG_COMMITVIDPN *A)
                  (ULONG)paths, pin ? pin->Format.Graphics.PrimSurfSize.cx : 0, pin ? pin->Format.Graphics.PrimSurfSize.cy : 0,
                  pin ? pin->Format.Graphics.Stride : 0, pin ? pin->Format.Graphics.PixelFormat : 0, A->hPrimaryAllocation);
         if (!g_Committed) {
+            DirectSelect(NULL);
             KeWaitForSingleObject(&g_ScanLock, Executive, KernelMode, FALSE, NULL);
             g_ScanCur = NULL;
             KeReleaseMutex(&g_ScanLock, FALSE);
         } else if (A->hPrimaryAllocation != NULL) {
             g_ScanCur = (TGPU_ALLOCATION *)A->hPrimaryAllocation;
-            InterlockedExchange(&g_ScanDirty, 1);
+            if (!DirectSelect(g_ScanCur)) {
+                InterlockedExchange(&g_ScanDirty, 1);
+            }
         }
     } else {
         LogPrint("CommitVidPn: %08x\n", st);
