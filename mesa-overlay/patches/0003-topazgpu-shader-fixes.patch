@@ -740,19 +740,21 @@ index 84b7ccf..0d5fb58 100644
                                &transfer);
     }
 diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
-index 3243fc3..341cf9e 100644
+index 3243fc3..625ff86 100644
 --- a/src/gallium/frontends/d3d10umd/Shader.cpp
 +++ b/src/gallium/frontends/d3d10umd/Shader.cpp
-@@ -31,6 +31,8 @@
+@@ -31,7 +31,10 @@
   */
  
  
 +#include <stdlib.h>
 +#include <stdio.h>
  #include "Shader.h"
++extern "C" bool topaz_log_tgsi;   /* TopazGpu: topaz_wddm.cpp */
  #include "ShaderParse.h"
  #include "State.h"
-@@ -514,6 +516,12 @@ CreateSampler(D3D10DDI_HDEVICE hDevice,                        // IN
+ #include "Query.h"
+@@ -514,6 +517,12 @@ CreateSampler(D3D10DDI_HDEVICE hDevice,                        // IN
     state.border_color.f[1] = pSamplerDesc->BorderColor[1];
     state.border_color.f[2] = pSamplerDesc->BorderColor[2];
     state.border_color.f[3] = pSamplerDesc->BorderColor[3];
@@ -765,12 +767,12 @@ index 3243fc3..341cf9e 100644
  
     pSamplerState->handle = pipe->create_sampler_state(pipe, &state);
  }
-@@ -1026,6 +1034,13 @@ CreatePixelShader(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -1026,6 +1035,13 @@ CreatePixelShader(D3D10DDI_HDEVICE hDevice,                                // IN
                                                   pShader->output_mapping);
  
     pShader->handle = pipe->create_fs_state(pipe, &pShader->state);
 +   {
-+      extern "C" bool topaz_log_tgsi;   /* TopazGpu: tag the TGSI dump above with the tokens pointer used in logs */
++      /* TopazGpu: tag the TGSI dump above with the tokens pointer used in logs */
 +      if (topaz_log_tgsi) {
 +         fprintf(stderr, "---- (the TGSI above is PS %p)\n", (const void *)pShader->state.tokens);
 +         fflush(stderr);
@@ -779,7 +781,7 @@ index 3243fc3..341cf9e 100644
  
  }
  
-@@ -1051,6 +1066,7 @@ PsSetShader(D3D10DDI_HDEVICE hDevice,  // IN
+@@ -1051,6 +1067,7 @@ PsSetShader(D3D10DDI_HDEVICE hDevice,  // IN
     struct pipe_context *pipe = pDevice->pipe;
     void *state = CastPipeShader(hShader);
  
