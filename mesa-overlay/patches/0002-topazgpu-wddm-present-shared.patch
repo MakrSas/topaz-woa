@@ -311,7 +311,7 @@ index 8bb09ba..fd61721 100644
     mtx_destroy(&pDevice->CreateResourceMtx);
  }
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-index 53ef690..bf2b15a 100644
+index 53ef690..d6dd16d 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 +++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 @@ -42,6 +42,8 @@
@@ -323,7 +323,7 @@ index 53ef690..bf2b15a 100644
  #include "frontend/winsys_handle.h"
  #include "pipe/p_defines.h"
  #include "pipe/p_state.h"
-@@ -66,6 +68,17 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+@@ -66,6 +68,16 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
     struct Device *device = CastDevice(pPresentData->hDevice);
     Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
  
@@ -333,15 +333,14 @@ index 53ef690..bf2b15a 100644
 +      static unsigned n;
 +      if (++n <= 60 || FAILED(hr))
 +         TopazWddmLogf("DXGI Present #%u res %p alloc 0x%x dst %p flags 0x%x -> 0x%08lx\n", n, pSrcResource->resource,
-+                       
-+                       pPresentData->hDstResource, pPresentData->Flags.Value, (unsigned long)hr);
++                       pSrcResource->hAllocation, pPresentData->hDstResource, pPresentData->Flags.Value, (unsigned long)hr);
 +      return hr;
 +   }
 +   TopazWddmLogf("DXGI Present of a resource without allocation (flush_frontbuffer path)\n");
     device->pipe->screen->flush_frontbuffer(device->pipe->screen, device->pipe, 
        pSrcResource->resource, 0, 0, pPresentData->pDXGIContext, 0, NULL);
  
-@@ -123,6 +136,13 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
+@@ -123,6 +135,13 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
     Device* device = CastDevice(SetDisplayMode->hDevice);
     Resource *res = CastResource(SetDisplayMode->hResource);
  
@@ -355,7 +354,7 @@ index 53ef690..bf2b15a 100644
     if(!device->screen->resource_get_handle) {
        LOG_UNSUPPORTED_ENTRYPOINT();
        return S_OK;
-@@ -197,22 +217,52 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -197,22 +216,52 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  {
     LOG_ENTRYPOINT();
  
@@ -415,7 +414,7 @@ index 53ef690..bf2b15a 100644
     return S_OK;
  }
  
-@@ -231,6 +281,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -231,6 +280,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  HRESULT APIENTRY
  _Blt(DXGI_DDI_ARG_BLT *Blt)
  {
