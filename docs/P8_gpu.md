@@ -920,3 +920,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   disasm into the UMD log) for how dsx/dsy and helper lanes are set up (lodpixmask/pixlodenable, (jp)/early-
   exit); (3) test a6xx SP_FS_CTRL_REG0 / helper-related bits; (4) fallback: treat edge rows like SCFIX (expand the
   drawn region by one row/column and restore), only for draws whose PS uses derivatives.
+- 18:45 FPS work. FD_MESA_DEBUG=inorder + TOPAZ_SYNCMAP=0: 34 FPS but stale-window artifacts still there (user) -> not batch reordering. Present does pipe->flush + fence_finish(INFINITE) every frame (CPU and GPU strictly serial). Next: MAPLOG with freedreno BO/batch tracking state before/after every DISCARD (does freedreno rename the ring BO?).

@@ -126,6 +126,26 @@ index 78eac1c..9b7509f 100644
     case TGSI_OPCODE_LOAD:
     case TGSI_OPCODE_STORE:
        dst = ttn_mem(c, src);
+diff --git a/src/gallium/drivers/freedreno/freedreno_resource.c b/src/gallium/drivers/freedreno/freedreno_resource.c
+index d3abf54..bafe1bc 100644
+--- a/src/gallium/drivers/freedreno/freedreno_resource.c
++++ b/src/gallium/drivers/freedreno/freedreno_resource.c
+@@ -1843,3 +1843,15 @@ fd_resource_rotate_storage(struct pipe_context *pctx, struct pipe_resource **prs
+    }
+    fd_screen_unlock(ctx->screen);
+ }
++
++/* TopazGpu debug (d3d10umd TOPAZ_MAPLOG): BO pointer and batch-tracking state of a resource */
++void
++fd_resource_debug_state(struct pipe_resource *prsc, void **bo, unsigned *batch_mask, int *write_batch,
++                        int *busy)
++{
++   struct fd_resource *rsc = fd_resource(prsc);
++   *bo = rsc->bo;
++   *batch_mask = rsc->track ? rsc->track->batch_mask : 0;
++   *write_batch = rsc->track && rsc->track->write_batch;
++   *busy = fd_bo_cpu_prep(rsc->bo, NULL, FD_BO_PREP_WRITE | FD_BO_PREP_NOSYNC) != 0;
++}
 diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
 index 56c10b1..c1995b9 100644
 --- a/src/gallium/frontends/d3d10umd/Draw.cpp
@@ -839,10 +859,18 @@ index a0262da..9b030e5 100644
 +   topaz_upload_fs_scissor(pipe);
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 84b7ccf..8be59fe 100644
+index 84b7ccf..ffd2b8a 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
-@@ -604,6 +604,14 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -32,6 +32,7 @@
+ 
+ 
+ #include "Resource.h"
++extern "C" void fd_resource_debug_state(struct pipe_resource *prsc, void **bo, unsigned *batch_mask, int *write_batch, int *busy);
+ #include "Format.h"
+ #include "State.h"
+ #include "Query.h"
+@@ -604,6 +605,14 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
        break;
     case D3D10_DDI_MAP_WRITE_NOOVERWRITE:
        usage = PIPE_MAP_WRITE | PIPE_MAP_UNSYNCHRONIZED;
@@ -857,7 +885,7 @@ index 84b7ccf..8be59fe 100644
        break;
     default:
        assert(0);
-@@ -612,6 +620,16 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -612,6 +621,20 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
  
     assert(SubResource < pResource->NumSubResources);
  
@@ -865,16 +893,33 @@ index 84b7ccf..8be59fe 100644
 +   if (pResource->buffer && getenv("TOPAZ_MAPLOG") && getenv("TOPAZ_MAPLOG")[0] == '1') {
 +      static unsigned topazMaps;
 +      if (++topazMaps <= 6000)
-+         TopazWddmLogf("MAP %s res %p size %u bind 0x%x\n",
++      {
++         void *bo; unsigned bm; int wb, busy;
++         fd_resource_debug_state(resource, &bo, &bm, &wb, &busy);
++         TopazWddmLogf("MAP %s res %p size %u bind 0x%x bo %p batches 0x%x wb %d busy %d\n",
 +                       DDIMap == D3D10_DDI_MAP_WRITE_DISCARD ? "DISCARD" :
 +                       DDIMap == D3D10_DDI_MAP_WRITE_NOOVERWRITE ? "NOOVERWRITE" : "other",
-+                       (void *)resource, resource->width0, resource->bind);
++                       (void *)resource, resource->width0, resource->bind, bo, bm, wb, busy);
++      }
 +   }
 +
     unsigned level;
     struct pipe_box box;
     subResourceBox(resource, SubResource, &level, &box);
-@@ -753,6 +771,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+@@ -640,6 +663,12 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+       return;
+    }
+ 
++   if (pResource->buffer && DDIMap == D3D10_DDI_MAP_WRITE_DISCARD &&
++       getenv("TOPAZ_MAPLOG") && getenv("TOPAZ_MAPLOG")[0] == '1') {
++      void *bo; unsigned bm; int wb, busy;
++      fd_resource_debug_state(resource, &bo, &bm, &wb, &busy);
++      TopazWddmLogf("  after DISCARD bo %p batches 0x%x\n", bo, bm);
++   }
+    pMappedSubResource->pData = map;
+    pMappedSubResource->RowPitch = pResource->transfers[SubResource]->stride;
+    pMappedSubResource->DepthPitch = pResource->transfers[SubResource]->layer_stride;
+@@ -753,6 +782,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -882,7 +927,7 @@ index 84b7ccf..8be59fe 100644
     if (!CheckPredicate(pDevice)) {
        return;
     }
-@@ -762,7 +781,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+@@ -762,7 +792,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
     Resource *pSrcResource = CastResource(hSrcResource);
     if (pDstResource->hAllocation || pSrcResource->hAllocation) {   /* TopazGpu: swapchain copies */
        static unsigned topazCopies;
@@ -891,7 +936,7 @@ index 84b7ccf..8be59fe 100644
           TopazWddmLogf("%s dst %p(alloc 0x%x) <- src %p(alloc 0x%x)\n", __func__, pDstResource->resource,
                         pDstResource->hAllocation, pSrcResource->resource, pSrcResource->hAllocation);
     }
-@@ -833,6 +852,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -833,6 +863,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -899,7 +944,7 @@ index 84b7ccf..8be59fe 100644
     if (!CheckPredicate(pDevice)) {
        return;
     }
-@@ -842,7 +862,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -842,7 +873,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
     Resource *pSrcResource = CastResource(hSrcResource);
     if (pDstResource->hAllocation || pSrcResource->hAllocation) {   /* TopazGpu: swapchain copies */
        static unsigned topazCopies;
@@ -908,7 +953,7 @@ index 84b7ccf..8be59fe 100644
           TopazWddmLogf("%s dst %p(alloc 0x%x) <- src %p(alloc 0x%x)\n", __func__, pDstResource->resource,
                         pDstResource->hAllocation, pSrcResource->resource, pSrcResource->hAllocation);
     }
-@@ -871,6 +891,17 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -871,6 +902,17 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
        src_box.depth  = u_minify(src_resource->depth0,  src_level);
     }
  
@@ -926,7 +971,7 @@ index 84b7ccf..8be59fe 100644
     if (areResourcesCompatible(src_resource, dst_resource)) {
        pipe->resource_copy_region(pipe,
                                   dst_resource, dst_level,
-@@ -884,6 +915,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -884,6 +926,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
                                  src_resource, src_level,
                                  &src_box);
     }
@@ -934,7 +979,7 @@ index 84b7ccf..8be59fe 100644
  }
  
  
-@@ -1007,6 +1039,11 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1007,6 +1050,11 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
  
     struct pipe_transfer *transfer;
     void *map;
@@ -946,7 +991,7 @@ index 84b7ccf..8be59fe 100644
     if (pDstResource->buffer) {
        map = pipe->buffer_map(pipe,
                                dst_resource,
-@@ -1018,7 +1055,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1018,7 +1066,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
        map = pipe->texture_map(pipe,
                                dst_resource,
                                level,
