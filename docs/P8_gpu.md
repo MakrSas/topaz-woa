@@ -638,3 +638,20 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   Reading: DWM copies the undamaged area forward from what it believes is the previous frame's buffer;
   with no rotation that is a never-rendered (black) buffer, with our rotation an older frame -> the
   rotation direction is probably reversed. Switch TOPAZ_ROTATE_REVERSE=1 added to test.
+
+### Stale regions FIXED (10:15) + state
+- Logged sequence (default direction, storage rotation): DWM renders into the resource at rotate index
+  [1] and presents it; before drawing it copies the undamaged area forward with ResourceCopyRegion from
+  index [0] (the previously presented buffer). Allocations rotate a->b->c consistently with the BOs.
+  With fd_resource_rotate_storage (default direction) + this build the user reports: no stale
+  remnants any more. Earlier "not better" results came from tests mixed with the pointer-rotation
+  build / experiment switches; TOPAZ_NOROTATE and TOPAZ_ROTATE_REVERSE are wrong (black / partial) and
+  stay only as switches. umd.env on the phone is back to the default (no switches).
+- Still open (user, 10:15): Start button icon missing and the search icon partly drawn (likely a
+  rendering bug in Mesa for those taskbar elements: next to look at with an isolated test), slight
+  tearing (we copy the scanned-out buffer with the CPU while DWM can already render the next frame into
+  the same pages? no - tearing is the 10 MB CPU copy racing the panel scanout), low FPS (~20: CPU copy of
+  every flip from write-combined BOs + a GPU fence wait per present).
+- Next steps, in order: (1) direct scanout via MDP (KMD v0.37 with the read-only MDP/SMMU survey is
+  installed and runs at the next GPU0 boot), (2) asynchronous present (no fence wait), (3) taskbar
+  icon rendering bug, (4) path rotation (portrait only now), (5) Modern Standby.
