@@ -1,5 +1,5 @@
 diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
-index 78eac1c..1b737f2 100644
+index 78eac1c..7f96bd4 100644
 --- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
 +++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
 @@ -970,9 +970,23 @@ ttn_barrier(nir_builder *b)
@@ -20,7 +20,7 @@ index 78eac1c..1b737f2 100644
 +   if (ttn_topaz_flag("TOPAZ_DEMOTE")) {
 +      /* D3D discard keeps the pixel as a helper lane (derivatives of its quad stay valid) */
 +      nir_demote(b);
-+      b->shader->info.fs.uses_demote = true;
++      b->shader->info.fs.uses_discard = true;
 +      return;
 +   }
     nir_discard(b);
@@ -32,7 +32,7 @@ index 78eac1c..1b737f2 100644
  
 +   if (ttn_topaz_flag("TOPAZ_DEMOTE")) {
 +      nir_demote_if(b, cmp);
-+      b->shader->info.fs.uses_demote = true;
++      b->shader->info.fs.uses_discard = true;
 +      return;
 +   }
     nir_discard_if(b, cmp);

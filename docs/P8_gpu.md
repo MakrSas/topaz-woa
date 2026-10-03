@@ -753,6 +753,6 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   New patch mesa-overlay/patches/0003-topazgpu-shader-fixes.patch (= `git diff -- src/gallium` on top of
   base; kept separate from 0002, applied in name order by mesa.yml). Switches (umd.env, `NAME=1`):
   - TOPAZ_SVSWZ: ttn_sample applies Src[1] resource swizzle to the sampled vec4.
-  - TOPAZ_DEMOTE: KILL/KILL_IF -> nir_demote(_if) + info.fs.uses_demote (helper lanes stay alive).
+  - TOPAZ_DEMOTE: KILL/KILL_IF -> nir_demote(_if) (helper lanes stay alive; this Mesa has no info.fs.uses_demote, uses_discard is set).
   - TOPAZ_SVINFO: SVIEWINFO -> nir_texop_txs (+ query_levels in .w) with texture_index = SVIEW index.
   - TOPAZ_POISON: after fd_resource_rotate_storage the next back buffer hResources[1] is cleared magenta.
