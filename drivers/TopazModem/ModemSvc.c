@@ -23,6 +23,7 @@
 #define PORT_TFTP    0x4002
 #define PORT_RMTFS   0x4003
 #define PORT_SESS    0x4100
+#define PORT_IPAS    0x4005                     /* our IPA QMI service (AP side) */
 
 #define QMI_REQ      0
 #define QMI_RESP     2
@@ -786,6 +787,35 @@ VOID SvcInit(EFI_FILE_PROTOCOL *Root)
   FileCrc (L"\\image\\wlanmdsp.mbn");
 }
 
+/*
+ * AP-side IPA QMI service (Linux drivers/net/ipa/ipa_qmi.c: IPA_HOST_SERVICE svc 0x31, instance 1,
+ * version 1). The modem is its client: INDICATION_REGISTER (0x20) and DRIVER_INIT_COMPLETE (0x35)
+ * requests; the AP in turn sends INIT_DRIVER (0x21) to the modem's IPA service (0x31 instance 2).
+ * Probe only (C:\topaz\fw\ipa.on): answer every request with success and log it, to see
+ * whether the modem's data services wait for the AP IPA driver.
+ */
+STATIC BOOLEAN mIpaSvc;
+STATIC UINTN   mIpaReqs;
+
+STATIC VOID IpaSvcRx(UINT32 Node, UINT32 Port, UINT16 Txn, UINT16 Msg, CONST UINT8 *D, UINT32 Len)
+{
+  QMSG m;
+  UINT32 i;
+  CHAR8 h[3 * 40 + 1];
+
+  mIpaReqs++;
+  for (i = 0; i + 7 < Len && i < 40; i++) {
+    CONST CHAR8 *x = "0123456789abcdef";
+    h[3 * i] = x[D[7 + i] >> 4]; h[3 * i + 1] = x[D[7 + i] & 15]; h[3 * i + 2] = ' ';
+  }
+  h[3 * i] = 0;
+  Out ("  t=%u.%03u ipa-qmi: modem request %04x (%u B tlv): %a\r\n", (UINT32)(ModemMs () / 1000),
+       (UINT32)(ModemMs () % 1000), Msg, Len - 7, h);
+  QmInit (&m, Txn, Msg);
+  QmResult (&m, TRUE);
+  QmSend (&m, PORT_IPAS, Node, Port);
+}
+
 VOID SvcAnnounce(VOID)
 {
   STATIC CONST UINT32 svc[][3] = {
@@ -804,6 +834,22 @@ VOID SvcAnnounce(VOID)
     QrtrSend (QRTR_TYPE_NEW_SERVER, QRTR_PORT_CTRL, QrtrModemNode (), QRTR_PORT_CTRL, c, sizeof (c));
   }
   Out ("  announced pd-mapper 0x40, tftp 0x1000, rmtfs 0x0E\r\n");
+  {
+    EFI_FILE_PROTOCOL *f = NULL;
+    mIpaSvc = mRoot != NULL && !EFI_ERROR (mRoot->Open (mRoot, &f, L"\\ipa.on", EFI_FILE_MODE_READ, 0));
+    if (f != NULL) {
+      f->Close (f);
+    }
+  }
+  if (mIpaSvc) {
+    c[0] = QRTR_TYPE_NEW_SERVER;
+    c[1] = 0x31;
+    c[2] = (1 << 8) | 1;                        /* instance 1, version 1 */
+    c[3] = 1;
+    c[4] = PORT_IPAS;
+    QrtrSend (QRTR_TYPE_NEW_SERVER, QRTR_PORT_CTRL, QrtrModemNode (), QRTR_PORT_CTRL, c, sizeof (c));
+    Out ("  announced AP IPA QMI service 0x31:101 (C:\\topaz\\fw\\ipa.on)\r\n");
+  }
 }
 
 BOOLEAN SvcRx(UINT32 SrcNode, UINT32 SrcPort, UINT32 DstPort, CONST UINT8 *Data, UINT32 Len)
@@ -837,6 +883,10 @@ BOOLEAN SvcRx(UINT32 SrcNode, UINT32 SrcPort, UINT32 DstPort, CONST UINT8 *Data,
   }
   if (DstPort == PORT_RMTFS) {
     RmtfsRx (SrcNode, SrcPort, txn, msg, Data, Len);
+    return TRUE;
+  }
+  if (DstPort == PORT_IPAS) {
+    IpaSvcRx (SrcNode, SrcPort, txn, msg, Data, Len);
     return TRUE;
   }
   return FALSE;

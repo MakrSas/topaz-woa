@@ -59,3 +59,16 @@ IPA v4.2 / GSI) → stage 3 Windows network adapter (raw-IP NetAdapter, later MB
   Working theory: once the SIM is provisioned the modem's data services start, need the AP-side
   IPA (firmware + QMI handshake) and spin -> modem_cfg starvation. So stage 2 (IPA bring-up) is
   needed even for a stable registered SIM, not only for data.
+
+## Stage 2: IPA
+
+Plan: (1) probe - AP-side IPA QMI service, no hardware access; (2) ipa_fws firmware from the
+vendor partition (read-only); (3) RPM vote for the IPA clock (DT: clocks = <rpmcc-khaje 0x44>,
+an RPM SMD clock - touching IPA registers without it hangs the bus); (4) IPA + GSI init after
+Linux drivers/net/ipa (v4.2), then the data path.
+DT: `qcom,ipa@0x5800000` reg ipa 0x5800000+0x34000, gsi 0x5804000+0x28000, irqs SPI 0x101 / 0x103,
+pas-ids 0x0f, firmware ipa_fws, memory region ipa_fw_region 0x55b00000 (64 KiB) + ipa_gsi_region
+0x55b10000 (20 KiB), ee 0, SMMU streams 0x140 (ap), 0x141 (wlan), 0x142 (uc).
+
+- v0.11 (probe): with C:\topaz\fw\ipa.on the driver announces the AP IPA QMI service 0x31:101
+  (ipa_qmi.c IPA_HOST_SERVICE) and answers every modem request with success, logging msg id + TLVs.
