@@ -121,3 +121,8 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
 - v0.12 result: vote seen after 4.6 s, init_image(15) ok, **mem_setup(15, 0x55B00000, 0x41C0)
   ret ffcfffba**. Linux mdt_loader.c aligns max_addr to 4 KiB (`ALIGN(p_paddr + p_memsz, SZ_4K)`),
   so the size must be 0x5000. v0.13: aligned size, PAS shutdown(15) after a failure.
+- **v0.13 result: GSI firmware running.** init_image(15) 0/0, mem_setup(15, 0x55B00000, 0x5000)
+  0/0, auth_and_reset(15) 0/0, GSI_STATUS = 1 (ENABLED). Modem + Wi-Fi start normally after it.
+  Chain now: TopazRpm (RPM link, IPA clock) -> TopazWifi ipa_fws -> modem. Next: AP IPA setup
+  (Linux ipa_setup: hardware config, SRAM/table init, GSI channels/endpoints for the AP <-> modem
+  path) and the QMI INIT_DRIVER to the modem, then INIT_COMPLETE.
