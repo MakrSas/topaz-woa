@@ -1,3 +1,19 @@
+diff --git a/src/freedreno/drm/freedreno_pipe.c b/src/freedreno/drm/freedreno_pipe.c
+index 362e696..8a70b4d 100644
+--- a/src/freedreno/drm/freedreno_pipe.c
++++ b/src/freedreno/drm/freedreno_pipe.c
+@@ -302,3 +302,11 @@ fd_fence_wait(struct fd_fence *f)
+    MESA_TRACE_FUNC();
+    return fd_pipe_wait(f->pipe, f);
+ }
++
++/* TopazGpu debug: userspace fence written by the GPU into the control BO vs the last emitted fence */
++void
++fd_pipe_debug_fences(struct fd_pipe *pipe, uint32_t *ctl, uint32_t *last)
++{
++   *ctl = pipe->control ? pipe->control->fence : 0xffffffff;
++   *last = pipe->last_fence;
++}
 diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
 index 78eac1c..9b7509f 100644
 --- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
@@ -126,6 +142,22 @@ index 78eac1c..9b7509f 100644
     case TGSI_OPCODE_LOAD:
     case TGSI_OPCODE_STORE:
        dst = ttn_mem(c, src);
+diff --git a/src/gallium/drivers/freedreno/freedreno_context.c b/src/gallium/drivers/freedreno/freedreno_context.c
+index b2d2693..0782b3e 100644
+--- a/src/gallium/drivers/freedreno/freedreno_context.c
++++ b/src/gallium/drivers/freedreno/freedreno_context.c
+@@ -765,3 +765,11 @@ fd_context_init_tc(struct pipe_context *pctx, unsigned flags)
+ 
+    return tc;
+ }
++
++/* TopazGpu debug (d3d10umd TOPAZ_TIMING) */
++void fd_pipe_debug_fences(struct fd_pipe *pipe, uint32_t *ctl, uint32_t *last);
++void
++fd_context_debug_fences(struct pipe_context *pctx, uint32_t *ctl, uint32_t *last)
++{
++   fd_pipe_debug_fences(fd_context(pctx)->pipe, ctl, last);
++}
 diff --git a/src/gallium/drivers/freedreno/freedreno_resource.c b/src/gallium/drivers/freedreno/freedreno_resource.c
 index d3abf54..bafe1bc 100644
 --- a/src/gallium/drivers/freedreno/freedreno_resource.c
@@ -159,38 +191,42 @@ index fd61721..8320686 100644
     pipe->bind_vs_state(pipe, NULL);
     cso_destroy_context(pDevice->cso);
 diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
-index 56c10b1..c3cf655 100644
+index 56c10b1..9c2e53b 100644
 --- a/src/gallium/frontends/d3d10umd/Draw.cpp
 +++ b/src/gallium/frontends/d3d10umd/Draw.cpp
-@@ -40,6 +40,8 @@
+@@ -40,6 +40,10 @@
  #include "util/u_draw.h"
  #include "util/u_memory.h"
  
-+static int g_topazMapLog = -1;   /* TopazGpu: TOPAZ_MAPLOG ring tracing */
++static int g_topazMapLog = -1;
++extern long long g_topazDrawTicks;
++extern unsigned g_topazDrawCount;   /* TopazGpu: TOPAZ_MAPLOG ring tracing */
 +
  static unsigned
  ClampedUAdd(unsigned a,
              unsigned b)
-@@ -159,6 +161,10 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
+@@ -159,6 +163,11 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
 +   if (g_topazMapLog < 0) g_topazMapLog = getenv("TOPAZ_MAPLOG") && getenv("TOPAZ_MAPLOG")[0] == '1';
 +   if (g_topazMapLog)
 +      TopazWddmLogf("RING Draw vb %p start %u count %u\n", (void *)pDevice->vertex_buffers[0].buffer.resource, StartVertexLocation, VertexCount);
++   LARGE_INTEGER topazT0; QueryPerformanceCounter(&topazT0);
 +   TopazLogDraw("Draw", VertexCount, pDevice, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
  
     ResolveState(pDevice);
  
-@@ -167,6 +173,7 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
+@@ -167,6 +176,8 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
                      pDevice->primitive,
                      StartVertexLocation,
                      VertexCount);
++   { LARGE_INTEGER t1; QueryPerformanceCounter(&t1); g_topazDrawTicks += t1.QuadPart - topazT0.QuadPart; g_topazDrawCount++; }
 +   TopazAfterDraw(pDevice);
  }
  
  
-@@ -189,6 +196,11 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+@@ -189,6 +200,12 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -198,46 +234,52 @@ index 56c10b1..c3cf655 100644
 +   if (g_topazMapLog)
 +      TopazWddmLogf("RING DrawIndexed vb %p ib %p start %u count %u base %d\n", (void *)pDevice->vertex_buffers[0].buffer.resource,
 +                    (void *)pDevice->index_buffer, StartIndexLocation, IndexCount, BaseVertexLocation);
++   LARGE_INTEGER topazT0; QueryPerformanceCounter(&topazT0);
 +   TopazLogDraw("DrawIndexed", IndexCount, pDevice, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
     struct pipe_draw_info info;
     struct pipe_draw_start_count_bias draw;
     struct pipe_resource *null_ib = NULL;
-@@ -219,6 +231,7 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+@@ -219,6 +236,8 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
     info.restart_index = restart_index;
  
     pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
++   { LARGE_INTEGER t1; QueryPerformanceCounter(&t1); g_topazDrawTicks += t1.QuadPart - topazT0.QuadPart; g_topazDrawCount++; }
 +   TopazAfterDraw(pDevice);
  
     if (null_ib) {
        pipe_resource_reference(&null_ib, NULL);
-@@ -247,6 +260,7 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
+@@ -247,6 +266,8 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
++   LARGE_INTEGER topazT0; QueryPerformanceCounter(&topazT0);
 +   TopazLogDraw("DrawInstanced", VertexCountPerInstance * InstanceCount, pDevice, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
  
     if (!InstanceCount) {
        return;
-@@ -261,6 +275,7 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
+@@ -261,6 +282,8 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
                                VertexCountPerInstance,
                                StartInstanceLocation,
                                InstanceCount);
++   { LARGE_INTEGER t1; QueryPerformanceCounter(&t1); g_topazDrawTicks += t1.QuadPart - topazT0.QuadPart; g_topazDrawCount++; }
 +   TopazAfterDraw(pDevice);
  }
  
  
-@@ -286,6 +301,7 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
+@@ -286,6 +309,8 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
++   LARGE_INTEGER topazT0; QueryPerformanceCounter(&topazT0);
 +   TopazLogDraw("DrawIndexedInstanced", IndexCountPerInstance * InstanceCount, pDevice, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
     struct pipe_draw_info info;
     struct pipe_draw_start_count_bias draw;
     struct pipe_resource *null_ib = NULL;
-@@ -322,6 +338,7 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
+@@ -322,6 +347,8 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
     info.restart_index = restart_index;
  
     pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
++   { LARGE_INTEGER t1; QueryPerformanceCounter(&t1); g_topazDrawTicks += t1.QuadPart - topazT0.QuadPart; g_topazDrawCount++; }
 +   TopazAfterDraw(pDevice);
  
     if (null_ib) {
@@ -916,20 +958,22 @@ index a0262da..fa3706d 100644
 +   topaz_upload_fs_scissor(pipe);
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 84b7ccf..f80970c 100644
+index 84b7ccf..00a2024 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
-@@ -32,6 +32,9 @@
+@@ -32,6 +32,11 @@
  
  
  #include "Resource.h"
 +unsigned g_topazMapFlushes;   /* TopazGpu: TIMING stats */
 +long long g_topazMapFlushTicks;
++long long g_topazDrawTicks;
++unsigned g_topazDrawCount;
 +extern "C" void fd_resource_debug_state(struct pipe_resource *prsc, void **bo, unsigned *batch_mask, int *write_batch, int *busy);
  #include "Format.h"
  #include "State.h"
  #include "Query.h"
-@@ -596,6 +599,12 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -596,6 +601,12 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
        break;
     case D3D10_DDI_MAP_WRITE_DISCARD:
        usage = PIPE_MAP_WRITE;
@@ -942,7 +986,7 @@ index 84b7ccf..f80970c 100644
        if (resource->last_level == 0 && resource->array_size == 1) {
           usage |= PIPE_MAP_DISCARD_WHOLE_RESOURCE;
        } else {
-@@ -604,6 +613,28 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -604,6 +615,28 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
        break;
     case D3D10_DDI_MAP_WRITE_NOOVERWRITE:
        usage = PIPE_MAP_WRITE | PIPE_MAP_UNSYNCHRONIZED;
@@ -971,7 +1015,7 @@ index 84b7ccf..f80970c 100644
        break;
     default:
        assert(0);
-@@ -612,6 +643,20 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -612,6 +645,20 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
  
     assert(SubResource < pResource->NumSubResources);
  
@@ -992,7 +1036,7 @@ index 84b7ccf..f80970c 100644
     unsigned level;
     struct pipe_box box;
     subResourceBox(resource, SubResource, &level, &box);
-@@ -640,6 +685,12 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -640,6 +687,12 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
        return;
     }
  
@@ -1005,7 +1049,7 @@ index 84b7ccf..f80970c 100644
     pMappedSubResource->pData = map;
     pMappedSubResource->RowPitch = pResource->transfers[SubResource]->stride;
     pMappedSubResource->DepthPitch = pResource->transfers[SubResource]->layer_stride;
-@@ -753,6 +804,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+@@ -753,6 +806,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -1013,7 +1057,7 @@ index 84b7ccf..f80970c 100644
     if (!CheckPredicate(pDevice)) {
        return;
     }
-@@ -762,7 +814,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+@@ -762,7 +816,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
     Resource *pSrcResource = CastResource(hSrcResource);
     if (pDstResource->hAllocation || pSrcResource->hAllocation) {   /* TopazGpu: swapchain copies */
        static unsigned topazCopies;
@@ -1022,7 +1066,7 @@ index 84b7ccf..f80970c 100644
           TopazWddmLogf("%s dst %p(alloc 0x%x) <- src %p(alloc 0x%x)\n", __func__, pDstResource->resource,
                         pDstResource->hAllocation, pSrcResource->resource, pSrcResource->hAllocation);
     }
-@@ -833,6 +885,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -833,6 +887,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -1030,7 +1074,7 @@ index 84b7ccf..f80970c 100644
     if (!CheckPredicate(pDevice)) {
        return;
     }
-@@ -842,7 +895,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -842,7 +897,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
     Resource *pSrcResource = CastResource(hSrcResource);
     if (pDstResource->hAllocation || pSrcResource->hAllocation) {   /* TopazGpu: swapchain copies */
        static unsigned topazCopies;
@@ -1039,7 +1083,7 @@ index 84b7ccf..f80970c 100644
           TopazWddmLogf("%s dst %p(alloc 0x%x) <- src %p(alloc 0x%x)\n", __func__, pDstResource->resource,
                         pDstResource->hAllocation, pSrcResource->resource, pSrcResource->hAllocation);
     }
-@@ -871,6 +924,17 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -871,6 +926,17 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
        src_box.depth  = u_minify(src_resource->depth0,  src_level);
     }
  
@@ -1057,7 +1101,7 @@ index 84b7ccf..f80970c 100644
     if (areResourcesCompatible(src_resource, dst_resource)) {
        pipe->resource_copy_region(pipe,
                                   dst_resource, dst_level,
-@@ -884,6 +948,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -884,6 +950,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
                                  src_resource, src_level,
                                  &src_box);
     }
@@ -1065,7 +1109,7 @@ index 84b7ccf..f80970c 100644
  }
  
  
-@@ -1007,6 +1072,24 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1007,6 +1074,24 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
  
     struct pipe_transfer *transfer;
     void *map;
@@ -1090,7 +1134,7 @@ index 84b7ccf..f80970c 100644
     if (pDstResource->buffer) {
        map = pipe->buffer_map(pipe,
                                dst_resource,
-@@ -1018,7 +1101,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1018,7 +1103,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
        map = pipe->texture_map(pipe,
                                dst_resource,
                                level,
@@ -1237,10 +1281,19 @@ index 2aecca7..b6a066a 100644
     D3D10_DDI_QUERY_DATA_PIPELINE_STATISTICS Statistics;
  };
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-index cd028ba..255adc8 100644
+index cd028ba..4bc0265 100644
 --- a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -175,11 +175,44 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+@@ -163,6 +163,8 @@ TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HAN
+    return pDevice->screen->resource_from_handle(pDevice->screen, &templat, &wh, 0);
+ }
+ 
++extern "C" void fd_context_debug_fences(struct pipe_context *pctx, uint32_t *ctl, uint32_t *last);
++
+ /* DXGI Present: finish the GPU work on the source, then let the KMD blt/flip it */
+ HRESULT
+ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGIContext)
+@@ -175,11 +177,52 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
        TopazWddmLogf("topaz: Present of a resource without allocation\n");
        return S_OK;
     }
@@ -1276,9 +1329,17 @@ index cd028ba..255adc8 100644
 +      if (++nFrames == 60) {
 +         extern unsigned g_topazMapFlushes;
 +         extern long long g_topazMapFlushTicks;
-+         TopazWddmLogf("TIMING 60 presents: frame %.1f ms, flush %.2f, gpu wait %.2f, present cb %.2f, NO_OVERWRITE flushes/frame %.1f (%.2f ms/frame)\n",
++         extern long long g_topazDrawTicks;
++         extern unsigned g_topazDrawCount;
++         {
++            uint32_t ctl, last;
++            fd_context_debug_fences(pipe, &ctl, &last);
++            TopazWddmLogf("FENCES control %u last %u\n", ctl, last);
++         }
++         TopazWddmLogf("TIMING 60 presents: frame %.1f ms, flush %.2f, gpu wait %.2f, present cb %.2f, NO_OVERWRITE flushes/frame %.1f (%.2f ms/frame), draws/frame %.0f in %.2f ms\n",
 +                       sumFrame / 59, sumFlush / 60, sumWait / 60, sumCb / 60, g_topazMapFlushes / 60.0,
-+                       g_topazMapFlushTicks * ms / 60);
++                       g_topazMapFlushTicks * ms / 60, g_topazDrawCount / 60.0, g_topazDrawTicks * ms / 60);
++         g_topazDrawTicks = 0; g_topazDrawCount = 0;
 +         nFrames = 0; sumFrame = sumFlush = sumWait = sumCb = 0; g_topazMapFlushes = 0; g_topazMapFlushTicks = 0;
 +         tPrev.QuadPart = 0;
 +      }
@@ -1286,7 +1347,7 @@ index cd028ba..255adc8 100644
     if (!pDevice->topazCtx) {
        /* own pfnCreateContextCb: gdikmt's leaves EngineAffinity 0 (invalid for a MultiEngineAware KMD) */
        struct gdikmt_context_d3dddi *c = (struct gdikmt_context_d3dddi *)calloc(1, sizeof(*c));
-@@ -209,7 +242,12 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+@@ -209,7 +252,12 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
        p.hDstAllocation = pDst ? pDst->hAllocation : 0;
        p.pDXGIContext = pDXGIContext;
        p.hContext = ((struct gdikmt_context_d3dddi *)pDevice->topazCtx)->hContext;
@@ -1299,7 +1360,7 @@ index cd028ba..255adc8 100644
        if (FAILED(hr))
           TopazWddmLogf("topaz: PresentCb src 0x%x dst 0x%x ctx %p -> 0x%08lx\n", p.hSrcAllocation, p.hDstAllocation,
                         p.hContext, (unsigned long)hr);
-@@ -290,6 +328,21 @@ bool
+@@ -290,6 +338,21 @@ bool
  TopazWddmEnabled(void)
  {
     TopazWddmLogInit();

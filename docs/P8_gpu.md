@@ -981,3 +981,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   (15 s, decoded on the Mac from tracerpt CSV): 342k events, 160k Profiler start/stop pairs from dwm.exe, of which
   74833 DxgkEscape (~5000 escapes/s ~ 300 per present) -> DWM busy-polls through our msm escapes. VSync 63/s,
   DxgkPresent 16/s. Added TOPAZ_ESCLOG=1 (escape counts per DRM command per second, fd_wddm.c).
+- 22:35 ESCLOG during a finger drag (DWM): per second ~1800 x (0x42 GEM_NEW, 2x 0x43 GEM_INFO, 0x01, 0x02, 0x09
+  GEM_CLOSE), 0x46 SUBMIT ~450, 0x48 MADVISE ~200 -> DWM allocates and frees ~110 BOs per frame through the KMD
+  (contiguous allocations!). freedreno's BO cache misses: find_in_bucket() only reuses BOs whose fd_bo_state() is
+  IDLE, which depends on the GPU-written userspace fence in the pipe control BO. Checking it: TIMING now also logs
+  "FENCES control <GPU-written> last <emitted>". NOTE for the local tree: fd_wddm.c edits live in
+  mesa-overlay/files only (local ~/work-mesa copy is the base version; do not diff it into 0003).
