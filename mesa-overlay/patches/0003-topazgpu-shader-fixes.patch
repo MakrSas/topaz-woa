@@ -113,6 +113,42 @@ index 78eac1c..7f96bd4 100644
     case TGSI_OPCODE_LOAD:
     case TGSI_OPCODE_STORE:
        dst = ttn_mem(c, src);
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index 56c10b1..ac5e43a 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -159,6 +159,7 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   TopazLogDraw("Draw", VertexCount, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
+ 
+    ResolveState(pDevice);
+ 
+@@ -189,6 +190,7 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   TopazLogDraw("DrawIndexed", IndexCount, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
+    struct pipe_draw_info info;
+    struct pipe_draw_start_count_bias draw;
+    struct pipe_resource *null_ib = NULL;
+@@ -247,6 +249,7 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   TopazLogDraw("DrawInstanced", VertexCountPerInstance * InstanceCount, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
+ 
+    if (!InstanceCount) {
+       return;
+@@ -286,6 +289,7 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   TopazLogDraw("DrawIndexedInstanced", IndexCountPerInstance * InstanceCount, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
+    struct pipe_draw_info info;
+    struct pipe_draw_start_count_bias draw;
+    struct pipe_resource *null_ib = NULL;
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 index d6dd16d..ffdb15e 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
@@ -157,3 +193,108 @@ index d6dd16d..ffdb15e 100644
        if (!rev) {
           for (UINT i = 0; i + 1 < n; ++i)
              CastResource(hResources[i])->hAllocation = CastResource(hResources[i + 1])->hAllocation;
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index dbca5d0..032dbbe 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -204,6 +204,8 @@ ClearRenderTargetView(D3D10DDI_HDEVICE hDevice,                      // IN
+    struct pipe_surface *surface = GetPipeRenderTargetView(hRenderTargetView);
+    union pipe_color_union clear_color;
+ 
++   TopazLogDraw("ClearRTV", 0, (void *)surface->texture, surface->width, surface->height);
++
+    /*
+     * DX10 always uses float clear color but gallium does not.
+     * Conversion should just be ordinary conversion. Actual clamping will
+diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
+index a0262da..a55858c 100644
+--- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
++++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
+@@ -37,6 +37,28 @@
+ #include "Debug.h"
+ 
+ 
++/* TopazGpu: TOPAZ_DRAWLOG=1 logs every draw with render target, viewport, scissor (umd.log) */
++static float g_topazVp[4];
++static int g_topazSc[4];
++static bool g_topazRsScissor;
++static bool g_topazDrawLog;
++static bool g_topazDrawLogInit;
++
++extern "C" void
++TopazLogDraw(const char *kind, unsigned count, void *rt, unsigned rtw, unsigned rth)
++{
++   if (!g_topazDrawLogInit) {
++      const char *e = getenv("TOPAZ_DRAWLOG");
++      g_topazDrawLog = e && e[0] == '1';
++      g_topazDrawLogInit = true;
++   }
++   if (!g_topazDrawLog)
++      return;
++   TopazWddmLogf("DRAW %s n=%u rt=%p %ux%u vp=%.0f,%.0f %.0fx%.0f rs_scissor=%d sc=%d,%d,%d,%d\n", kind, count, rt, rtw, rth,
++                 g_topazVp[0], g_topazVp[1], g_topazVp[2], g_topazVp[3], g_topazRsScissor ? 1 : 0,
++                 g_topazSc[0], g_topazSc[1], g_topazSc[2], g_topazSc[3]);
++}
++
+ /*
+  * ----------------------------------------------------------------------
+  *
+@@ -80,6 +102,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
+       states[i].translate[1] = half_height + y;
+       states[i].translate[2] = z;
+    }
++   if (NumViewports) {
++      g_topazVp[0] = pViewports[0].TopLeftX; g_topazVp[1] = pViewports[0].TopLeftY;
++      g_topazVp[2] = pViewports[0].Width;    g_topazVp[3] = pViewports[0].Height;
++   }
+    if (ClearViewports) {
+       memset(states + NumViewports, 0,
+              sizeof(struct pipe_viewport_state) * ClearViewports);
+@@ -123,6 +149,10 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+       states[i].maxx = pRect->right  < 0 ? 0 : pRect->right;
+       states[i].maxy = pRect->bottom < 0 ? 0 : pRect->bottom;
+    }
++   if (NumScissorRects) {
++      g_topazSc[0] = pRects[0].left; g_topazSc[1] = pRects[0].top;
++      g_topazSc[2] = pRects[0].right; g_topazSc[3] = pRects[0].bottom;
++   }
+    if (ClearScissorRects) {
+       memset(states + NumScissorRects, 0,
+              sizeof(struct pipe_scissor_state) * ClearScissorRects);
+@@ -236,6 +266,7 @@ CreateRasterizerState(
+    state.line_rectangular = 0;
+ 
+    pRasterizerState->handle = pipe->create_rasterizer_state(pipe, &state);
++   pRasterizerState->scissor = state.scissor != 0;
+ }
+ 
+ 
+@@ -283,5 +314,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    void *state = CastPipeRasterizerState(hRasterizerState);
+ 
++   g_topazRsScissor = CastRasterizerState(hRasterizerState) ? CastRasterizerState(hRasterizerState)->scissor : false;
+    pipe->bind_rasterizer_state(pipe, state);
+ }
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 2aecca7..9ae181e 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -152,7 +152,8 @@ CastPipeDevice(DXGI_DDI_HDEVICE hDevice)
+ }
+ 
+ 
+-extern "C" void TopazWddmLogf(const char *fmt, ...);   /* TopazGpu: topaz_wddm.cpp */
++extern "C" void TopazWddmLogf(const char *fmt, ...);
++extern "C" void TopazLogDraw(const char *kind, unsigned count, void *rt, unsigned rtw, unsigned rth);   /* Rasterizer.cpp, TOPAZ_DRAWLOG=1 */   /* TopazGpu: topaz_wddm.cpp */
+ 
+ #define SetError(hDevice, hr) SetErrorAt(hDevice, hr, __func__, __LINE__)
+ 
+@@ -312,6 +313,7 @@ CastPipeDepthStencilState(D3D10DDI_HDEPTHSTENCILSTATE hDepthStencilState)
+ struct RasterizerState
+ {
+    void *handle;
++   bool scissor;   /* TopazGpu: for TOPAZ_DRAWLOG */
+ };
+ 
+ 

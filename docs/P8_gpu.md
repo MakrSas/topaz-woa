@@ -771,3 +771,11 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   previous position, big blurred white areas, dashed 1-px lines in the window frame, clipped Start-menu
   shadow) - no visible gain, so (a)/(b)/(c) are not the (main) cause. Next A/B: umd.env = TOPAZ_FULLCOPY=1
   only (CI run 37109561377).
+- 12:45 FULLCOPY result (4 photos): ZERO change. Stale content is therefore not caused by diverged
+  back buffers (the new buffer started as an exact copy of the last presented frame). User observation: the
+  big white blob at the bottom is a ~10x enlarged copy of the window's title bar ("...ЛЕНИЕ КОМПЬ", icon) -
+  i.e. a window quad drawn far larger than the damage area and never overdrawn. New hypothesis: DWM draws
+  with the RS scissor = damage rect; if something makes a draw ignore/misapply the scissor (or a draw uses a
+  wrong transform), over-draw lands OUTSIDE DWM's damage area and DWM never repaints it (which also fits "no
+  change with FULLCOPY/POISON"). Added TOPAZ_DRAWLOG=1 (every Draw*/ClearRTV logged with RT pointer + size,
+  viewport, RS-scissor flag, scissor rect) to compare draws against the stale area.
