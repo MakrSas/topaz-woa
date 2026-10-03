@@ -1018,3 +1018,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   cfg_u1 0x10 user 0x01000101; gfx3d ftbl 320..1260 MHz all from PLL0 /1 (parent index 1). VDD_GFX = VDD_CX =
   pm6125 S3 level (RPM), shared. TopazGpuW v0.43: C:\topaz\gpu.mhz (stock OPP) -> PLL0 configured/enabled per
   clk_zonda_pll_configure/enable, gfx3d parent 1 div 1; L/alpha table computed with Zonda signed alpha.
+- 00:30 v0.43 with gpu.mhz=1260: PLL locked ("gpu_cc_pll0: locked at 1260 MHz (l 66 alpha a000)"), stable so far,
+  no hang in this boot. Chrome move 42-50, big window up to 120-133. But TIMING gpu wait still 5-10 ms (same as at
+  600 MHz) -> not GPU-bound: HwWaitFence sleeps with KeDelayExecutionThread(200 us), which wakes only on the
+  system timer tick (1-15.6 ms). v0.44: spin-poll (20 us stalls) up to 16 ms before sleeping.

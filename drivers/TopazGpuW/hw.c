@@ -1190,6 +1190,15 @@ BOOLEAN HwWaitFence(ULONG Fence, ULONG TimeoutMs)
     ULONG waited = 0;
 
     d.QuadPart = -2000;                                  /* 200 us */
+    /* v0.44: spin first. KeDelayExecutionThread only wakes on the system timer tick (1-15.6 ms), so every
+       Present's fence wait cost up to a tick whatever the GPU speed (5-10 ms at 600 and at 1260 MHz). Busy-poll
+       with 20 us stalls for up to 16 ms (one frame), then fall back to sleeping. */
+    if (KeGetCurrentIrql() == PASSIVE_LEVEL) {
+        ULONG spin;
+        for (spin = 0; spin < 800 && (LONG)(HwCompletedFence() - Fence) < 0 && !g_Wedged; spin++) {
+            KeStallExecutionProcessor(20);
+        }
+    }
     while ((LONG)(HwCompletedFence() - Fence) < 0) {
         if (g_Wedged) {
             return FALSE;                                /* fail fast: no 5 s loop per caller */
