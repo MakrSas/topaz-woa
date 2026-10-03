@@ -1001,3 +1001,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - 23:20 bo_reuse fix result: BO cache hits 11276 / miss 1 per 60 frames, GEM_NEW gone; Chrome move 45-49 FPS. Now
   GEM_MADVISE escapes ~11000/s (every cache put/get) -> answered in fd_wddm.c without an escape (KMD never purges).
   Also new: TIMING "gpu wait" 16.5 ms per present (to investigate).
+- 23:30 With MADVISE answered locally: escapes ~60-280/s (were ~5000). Chrome move 35-40, big window 80-93 flips/s
+  (>60 = counting artefact to check). TIMING "gpu wait" ~15 ms per present -> now GPU-bound. GPU core clock is
+  300 MHz (hw.c: gfx3d RCG = GPLL0/2); A610 on SM6225 goes to ~950 MHz -> next: higher clock (needs the GX
+  voltage question answered; behind a kill switch).
