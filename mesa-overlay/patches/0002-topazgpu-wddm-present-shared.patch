@@ -311,7 +311,7 @@ index 8bb09ba..fd61721 100644
     mtx_destroy(&pDevice->CreateResourceMtx);
  }
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-index 53ef690..72ca0b9 100644
+index 53ef690..bf2b15a 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 +++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 @@ -42,6 +42,8 @@
@@ -323,7 +323,7 @@ index 53ef690..72ca0b9 100644
  #include "frontend/winsys_handle.h"
  #include "pipe/p_defines.h"
  #include "pipe/p_state.h"
-@@ -66,6 +68,16 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+@@ -66,6 +68,17 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
     struct Device *device = CastDevice(pPresentData->hDevice);
     Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
  
@@ -331,8 +331,9 @@ index 53ef690..72ca0b9 100644
 +      Resource *pDst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource) : NULL;
 +      HRESULT hr = TopazWddmPresent(device, pSrcResource, pDst, pPresentData->pDXGIContext);
 +      static unsigned n;
-+      if (++n <= 20 || FAILED(hr))
-+         TopazWddmLogf("DXGI Present #%u alloc 0x%x dst %p flags 0x%x -> 0x%08lx\n", n, pSrcResource->hAllocation,
++      if (++n <= 60 || FAILED(hr))
++         TopazWddmLogf("DXGI Present #%u res %p alloc 0x%x dst %p flags 0x%x -> 0x%08lx\n", n, pSrcResource->resource,
++                       
 +                       pPresentData->hDstResource, pPresentData->Flags.Value, (unsigned long)hr);
 +      return hr;
 +   }
@@ -340,7 +341,7 @@ index 53ef690..72ca0b9 100644
     device->pipe->screen->flush_frontbuffer(device->pipe->screen, device->pipe, 
        pSrcResource->resource, 0, 0, pPresentData->pDXGIContext, 0, NULL);
  
-@@ -123,6 +135,13 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
+@@ -123,6 +136,13 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
     Device* device = CastDevice(SetDisplayMode->hDevice);
     Resource *res = CastResource(SetDisplayMode->hResource);
  
@@ -354,7 +355,7 @@ index 53ef690..72ca0b9 100644
     if(!device->screen->resource_get_handle) {
        LOG_UNSUPPORTED_ENTRYPOINT();
        return S_OK;
-@@ -197,22 +216,44 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -197,22 +217,52 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  {
     LOG_ENTRYPOINT();
  
@@ -387,6 +388,14 @@ index 53ef690..72ca0b9 100644
 +      for (UINT i = 0; i < n; ++i)
 +         prscs[rev ? n - 1 - i : i] = CastPipeResource(hResources[i]);
 +      device->pipe->flush(device->pipe, NULL, 0);
++      {
++         static unsigned topazRot;
++         if (++topazRot <= 60)
++            TopazWddmLogf("  rotate%s: [0] %p a0x%x [1] %p a0x%x [2] %p a0x%x\n", rev ? " reverse" : "",
++                          CastResource(hResources[0])->resource, CastResource(hResources[0])->hAllocation,
++                          n > 1 ? CastResource(hResources[1])->resource : NULL, n > 1 ? CastResource(hResources[1])->hAllocation : 0,
++                          n > 2 ? CastResource(hResources[2])->resource : NULL, n > 2 ? CastResource(hResources[2])->hAllocation : 0);
++      }
 +      fd_resource_rotate_storage(device->pipe, prscs, n);
 +      if (!rev) {
 +         for (UINT i = 0; i + 1 < n; ++i)
@@ -406,7 +415,7 @@ index 53ef690..72ca0b9 100644
     return S_OK;
  }
  
-@@ -231,6 +272,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -231,6 +281,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  HRESULT APIENTRY
  _Blt(DXGI_DDI_ARG_BLT *Blt)
  {
@@ -415,7 +424,7 @@ index 53ef690..72ca0b9 100644
  
     return S_OK;
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 24131e5..d9009d5 100644
+index 24131e5..84b7ccf 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
 @@ -251,9 +251,27 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
@@ -511,6 +520,32 @@ index 24131e5..d9009d5 100644
 +   TopazWddmDestroyAllocation(CastDevice(hDevice), pResource);
     pipe_resource_reference(&pResource->resource, NULL);
  }
+ 
+@@ -723,6 +760,12 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+    struct pipe_context *pipe = pDevice->pipe;
+    Resource *pDstResource = CastResource(hDstResource);
+    Resource *pSrcResource = CastResource(hSrcResource);
++   if (pDstResource->hAllocation || pSrcResource->hAllocation) {   /* TopazGpu: swapchain copies */
++      static unsigned topazCopies;
++      if (++topazCopies <= 300)
++         TopazWddmLogf("%s dst %p(alloc 0x%x) <- src %p(alloc 0x%x)\n", __func__, pDstResource->resource,
++                       pDstResource->hAllocation, pSrcResource->resource, pSrcResource->hAllocation);
++   }
+    struct pipe_resource *dst_resource = pDstResource->resource;
+    struct pipe_resource *src_resource = pSrcResource->resource;
+    bool compatible;
+@@ -797,6 +840,12 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+    struct pipe_context *pipe = pDevice->pipe;
+    Resource *pDstResource = CastResource(hDstResource);
+    Resource *pSrcResource = CastResource(hSrcResource);
++   if (pDstResource->hAllocation || pSrcResource->hAllocation) {   /* TopazGpu: swapchain copies */
++      static unsigned topazCopies;
++      if (++topazCopies <= 300)
++         TopazWddmLogf("%s dst %p(alloc 0x%x) <- src %p(alloc 0x%x)\n", __func__, pDstResource->resource,
++                       pDstResource->hAllocation, pSrcResource->resource, pSrcResource->hAllocation);
++   }
+    struct pipe_resource *dst_resource = pDstResource->resource;
+    struct pipe_resource *src_resource = pSrcResource->resource;
  
 diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
 index 4eef1f8..3243fc3 100644
