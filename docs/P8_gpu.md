@@ -596,3 +596,18 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   the flip itself is SetVidPnSourceAddress at the next vsync).
 - Also from the journal: UMD pfnDeallocateCb of resource-bound allocations -> STATUS_INVALID_PARAMETER;
   the runtime frees those itself (UMD no longer deallocates).
+
+## STEP C2 MILESTONE (2026-10-03 09:30): Windows desktop composed by DWM on the Adreno 610
+- KMD v0.36 + Mesa patch 0002 (RAM-booted GPU0 image): DWM's flips go through (DXGI Present flags 0x2
+  -> S_OK, 336 flip presents in the KMD log within a minute, DWM pid stable). The user sees the
+  desktop on the panel: DWM renders with d3d10umd/freedreno on the Adreno 610, the KMD flips by
+  copying the BO-backed primary into the GOP framebuffer.
+- Chain that works now: ACPI GPU0 POST adapter -> VidPN/mode set -> UMD primaries/swapchain as
+  WDDM allocations naming freedreno BOs -> DXGI flip present (pfnPresentCb) -> DxgkDdiPresent(Flip)
+  no-op -> SetVidPnSourceAddress -> timer vsync -> CPU copy BO -> framebuffer; brightness via the
+  same adapter.
+- Known limits / next: CPU copy of every flipped frame from write-combined BOs (slow; next: scan out
+  the BO directly by programming the MDP SSPP address), present waits for the GPU fence, R/B order of
+  RGBA primaries, Modern Standby (PDC watchdog 0x14F) untested/broken, preemption disabled
+  system-wide (GraphicsDrivers\Scheduler EnablePreemption=0), UMD still opt-in by C:\topaz\umd.enable,
+  only RAM-boot UEFI has GPU0.
