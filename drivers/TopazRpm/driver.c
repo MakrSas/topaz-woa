@@ -334,6 +334,8 @@ static BOOLEAN RpmWrite(PDEVICE_CONTEXT Ctx, ULONG Set, ULONG Type, ULONG Id, UL
     return !Ctx->LastErr;
 }
 
+static VOID IpaProbe(VOID);
+
 static VOID Link(PDEVICE_CONTEXT Ctx)
 {
     PHYSICAL_ADDRESS pa;
