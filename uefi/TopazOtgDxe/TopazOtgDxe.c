@@ -513,11 +513,14 @@ STATIC EFI_STATUS DisableGpu0(VOID)
   return gpue == 1 ? EFI_SUCCESS : EFI_NOT_FOUND;
 }
 
+/* first text row of the menu: rows above sit under the rounded corners / camera cut-out */
+#define MENU_ROW  8
+
 STATIC VOID MenuDraw(UINTN Sel, UINTN Left)
 {
   UINTN i;
 
-  gST->ConOut->SetCursorPosition (gST->ConOut, 0, 2);
+  gST->ConOut->SetCursorPosition (gST->ConOut, 0, MENU_ROW + 2);
   for (i = 0; i < MENU_COUNT; i++) {
     ConPrint ("  %a %a          \r\n", (i == Sel) ? ">>" : "  ", mMenu[i]);
   }
@@ -540,7 +543,7 @@ STATIC UINTN BootMenu(UINTN TimeoutSec)
     ticks++;
   }
   /* no ClearScreen: the boot logos stay, the text cells only cover the top rows */
-  gST->ConOut->SetCursorPosition (gST->ConOut, 0, 0);
+  gST->ConOut->SetCursorPosition (gST->ConOut, 0, MENU_ROW);
   ConPrint ("  ==== topaz: choose OS ====\r\n");
   MenuDraw (sel, left);
   LOG ("slots: %r a=%016lx b=%016lx\n", mAbStatus, mAb.AttrA, mAb.AttrB);

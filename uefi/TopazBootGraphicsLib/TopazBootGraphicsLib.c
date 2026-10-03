@@ -115,6 +115,24 @@ DisplayBootGraphic (
   }
 
   if (gST->ConOut != NULL) {
+    /*
+     * GraphicsConsole centers the default 80x25 text area, so the boot menu landed on the Mi
+     * logo. Switch to the largest text mode (full screen, menu at the top) before drawing:
+     * SetMode clears the screen.
+     */
+    UINTN  Mode, Cols, Rows, Best = (UINTN)gST->ConOut->Mode->Mode, BestCells = 0;
+
+    for (Mode = 0; Mode < (UINTN)gST->ConOut->Mode->MaxMode; Mode++) {
+      if (!EFI_ERROR (gST->ConOut->QueryMode (gST->ConOut, Mode, &Cols, &Rows)) && (Cols * Rows > BestCells)) {
+        Best      = Mode;
+        BestCells = Cols * Rows;
+      }
+    }
+
+    if (Best != (UINTN)gST->ConOut->Mode->Mode) {
+      gST->ConOut->SetMode (gST->ConOut, Best);
+    }
+
     gST->ConOut->EnableCursor (gST->ConOut, FALSE);
   }
 
