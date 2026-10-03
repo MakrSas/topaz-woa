@@ -217,6 +217,104 @@ static BOOLEAN FileExists(PCWSTR Path)
     return FALSE;
 }
 
+/* v0.43: C:\topaz\gpu.mhz (one of the stock OPPs: 320 465 600 785 820 980 1025 1100 1260) -> gpu_cc_pll0
+   (Zonda, GPUCC + 0x0, sequence from the stock khaje kernel gpucc-khaje.c / clk-alpha-pll.c) at that rate and
+   gfx3d = PLL0 / 1. The GX corner is not voted (RPM), so high rates may hang: recovery = normal boot + edit file. */
+#define ZP_MODE        0x00
+#define ZP_L           0x04
+#define ZP_ALPHA       0x08
+#define ZP_USER        0x0c
+#define ZP_CFG         0x10
+#define ZP_CFG_U       0x14
+#define ZP_CFG_U1      0x18
+#define ZP_TEST        0x1c
+#define ZP_OPMODE      0x28
+#define ZP_BYPASSNL    (1u << 1)
+#define ZP_RESET_N     (1u << 2)
+#define ZP_OUTCTRL     (1u << 0)
+#define ZP_LOCK        (1u << 31)
+
+static ULONG ReadMhzFile(VOID)
+{
+    UNICODE_STRING nd = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\gpu.mhz");
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+    CHAR buf[16];
+    ULONG v = 0, i;
+
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
+        return 0;
+    }
+    InitializeObjectAttributes(&oa, &nd, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateFile(&h, GENERIC_READ | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
+                                 FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+        return 0;
+    }
+    RtlZeroMemory(buf, sizeof(buf));
+    if (NT_SUCCESS(ZwReadFile(h, NULL, NULL, NULL, &iosb, buf, sizeof(buf) - 1, NULL, NULL))) {
+        for (i = 0; i < sizeof(buf) && buf[i] >= '0' && buf[i] <= '9'; i++) {
+            v = v * 10 + (ULONG)(buf[i] - '0');
+        }
+    }
+    ZwClose(h);
+    return v;
+}
+
+/* f = 19.2 MHz * (L + alpha / 2^16), alpha signed (Zonda: L rounded up when alpha bit 15 is set) */
+static BOOLEAN ZondaLA(ULONG Mhz, ULONG *L, ULONG *A)
+{
+    static const ULONG t[][3] = {
+        { 320, 17, 0xAAAB }, { 465, 24, 0x3800 }, { 600, 31, 0x4000 }, { 785, 41, 0xE2AA }, { 820, 43, 0xB555 },
+        { 980, 51, 0x0AAB }, { 1025, 53, 0x62AA }, { 1100, 57, 0x4AAB }, { 1260, 66, 0xA000 },
+    };
+    ULONG i;
+    for (i = 0; i < sizeof(t) / sizeof(t[0]); i++) {
+        if (t[i][0] == Mhz) {
+            *L = t[i][1];
+            *A = t[i][2];
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static BOOLEAN GpuPllStart(ULONG Mhz)
+{
+    ULONG l, a;
+    if (!ZondaLA(Mhz, &l, &a)) {
+        LogPrint("  gpu.mhz %u: not a stock OPP, ignored\n", Mhz);
+        return FALSE;
+    }
+    LogPrint("  gpu_cc_pll0 before: mode %08x l %08x alpha %08x user %08x opmode %08x\n", Rd(g_GpuCc, ZP_MODE),
+             Rd(g_GpuCc, ZP_L), Rd(g_GpuCc, ZP_ALPHA), Rd(g_GpuCc, ZP_USER), Rd(g_GpuCc, ZP_OPMODE));
+    /* configure (clk_zonda_pll_configure) */
+    Rmw(g_GpuCc, ZP_MODE, ZP_OUTCTRL, 0);
+    Wr(g_GpuCc, ZP_OPMODE, 0);
+    Wr(g_GpuCc, ZP_L, l);
+    Wr(g_GpuCc, ZP_ALPHA, a);
+    Wr(g_GpuCc, ZP_CFG, 0x08200800);
+    Wr(g_GpuCc, ZP_CFG_U, 0x05022001);
+    Wr(g_GpuCc, ZP_CFG_U1, 0x00000010);
+    Wr(g_GpuCc, ZP_USER, 0x01000101);
+    Rmw(g_GpuCc, ZP_MODE, ZP_BYPASSNL, 0);
+    Rmw(g_GpuCc, ZP_MODE, 0, ZP_RESET_N);
+    /* enable (clk_zonda_pll_enable) */
+    Rmw(g_GpuCc, ZP_MODE, 0, ZP_BYPASSNL);
+    KeStallExecutionProcessor(1);
+    Rmw(g_GpuCc, ZP_MODE, 0, ZP_RESET_N);
+    Wr(g_GpuCc, ZP_OPMODE, 1);
+    if (!Poll(g_GpuCc, ZP_MODE, ZP_LOCK, ZP_LOCK, 1000)) {
+        LogPrint("  gpu_cc_pll0: no lock (mode %08x)\n", Rd(g_GpuCc, ZP_MODE));
+        return FALSE;
+    }
+    Rmw(g_GpuCc, ZP_USER, 0, 0xF);
+    Rmw(g_GpuCc, ZP_MODE, 0, ZP_OUTCTRL);
+    KeStallExecutionProcessor(100);
+    LogPrint("  gpu_cc_pll0: locked at %u MHz (l %u alpha %04x, mode %08x)\n", Mhz, l, a, Rd(g_GpuCc, ZP_MODE));
+    return TRUE;
+}
+
 static BOOLEAN PowerUp(VOID)
 {
     PowerCycleIfOn();
@@ -242,11 +340,19 @@ static BOOLEAN PowerUp(VOID)
     /* v0.42: C:\topaz\gpu.600 -> core 600 MHz (GPLL0 / 1; stock OPP 600 MHz = SVS_L1 corner; we cannot vote the
        RPM GX corner yet, so it runs on whatever the bootloader left - opt-in), else 300 MHz (GPLL0 / 2) */
     {
+        ULONG mhz = ReadMhzFile();
         BOOLEAN fast = FileExists(L"\\??\\C:\\topaz\\gpu.600");
-        if (!RcgSet(0x101c, SRC_GPLL0, fast ? 1 : 2)) {
-            return FALSE;
+        if (mhz != 0 && GpuPllStart(mhz)) {
+            if (!RcgSet(0x101c, 1, 1)) {                 /* parent 1 = GPU_CC_PLL0_OUT_MAIN */
+                return FALSE;
+            }
+            LogPrint("  gfx3d: %u MHz from gpu_cc_pll0 (C:\\topaz\\gpu.mhz)\n", mhz);
+        } else {
+            if (!RcgSet(0x101c, SRC_GPLL0, fast ? 1 : 2)) {
+                return FALSE;
+            }
+            LogPrint("  gfx3d: %u MHz%s\n", fast ? 600 : 300, fast ? " (C:\\topaz\\gpu.600)" : "");
         }
-        LogPrint("  gfx3d: %u MHz%s\n", fast ? 600 : 300, fast ? " (C:\\topaz\\gpu.600)" : "");
     }
     Rmw(g_GpuCc, 0x1054, 0, (1u << 14) | (1u << 13));
     if (!BranchOn(g_GpuCc, 0x1054, "gpucc_gx_gfx3d")) {

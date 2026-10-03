@@ -1013,3 +1013,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - 23:55 v0.42 with gpu.600 boots fine ("gfx3d: 600 MHz"), user: "much smoother". Bench: GPU wait per present
   6-12 ms (was ~15), frame 17-33 ms. Next GPU step: 785 MHz (NOM) needs the GPU PLL (gpu_cc_pll0) and very likely
   a higher GX corner (RPM vote) - not attempted yet.
+- 00:10 Max clock attempt (user: "try the max, step down if it breaks"). Stock khaje kernel (MiCode topaz-t-oss
+  gpucc-khaje.c): gpu_cc_pll0 = ZONDA at GPUCC+0x0, config l 0x21 alpha 0x5555 cfg 0x08200800 cfg_u 0x05022001
+  cfg_u1 0x10 user 0x01000101; gfx3d ftbl 320..1260 MHz all from PLL0 /1 (parent index 1). VDD_GFX = VDD_CX =
+  pm6125 S3 level (RPM), shared. TopazGpuW v0.43: C:\topaz\gpu.mhz (stock OPP) -> PLL0 configured/enabled per
+  clk_zonda_pll_configure/enable, gfx3d parent 1 div 1; L/alpha table computed with Zonda signed alpha.
