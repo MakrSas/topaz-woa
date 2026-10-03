@@ -2,11 +2,9 @@
   tapas BootGraphicsLib (replaces MsGraphicsPkg BootGraphicsLib, which clears the screen and
   centers the Silicium logo).
 
-  BG_SYSTEM_LOGO: put back the Xiaomi splash that TopazOtgDxe copied from the framebuffer at
-  its entry point (GraphicsConsole cleared the panel in between), blank the bottom band where
-  the splash says "Powered by Android" and draw the Silicium logo there. The Xiaomi logo
-  (bounding box of the lit pixels above the band) becomes the BGRT image, so Windows Boot
-  Manager shows it too. Without a saved splash: black screen + Silicium logo at the bottom.
+  BG_SYSTEM_LOGO: black screen, the Mi logo (MiLogo.bmp, a FREEFORM file in FvMain) centered
+  like the Xiaomi splash, and the Silicium logo (PcdLogoFile) at the bottom where the splash
+  says "Powered by Android". The Mi logo is also the BGRT image, so Windows Boot Manager shows it.
   Other graphics (no OS, battery, ...) keep the upstream black + centered behaviour.
 
   Copyright (c) 2011 - 2018, Intel Corporation. All rights reserved.<BR>
@@ -25,60 +23,62 @@
 #include <Library/BootGraphicsProviderLib.h>
 #include <Library/BmpSupportLib.h>
 #include <Library/UefiLib.h>
-#include "../../Drivers/TopazOtgDxe/TopazSplash.h"
+#include <Library/DxeServicesLib.h>
 
-#define BAND_TOP_PCT    75     /* "Powered by Android" lives below 3/4 of the height */
-#define LOGO_BOTTOM_GAP 150    /* pixels between the Silicium logo and the bottom edge */
+/* MiLogo.bmp, added to FvMain by uefi/build_topaz_uefi.sh */
+#define TOPAZ_MI_LOGO_GUID \
+  { 0x9a4c2e17, 0x5b3d, 0x4f81, { 0xa6, 0x0e, 0x7d, 0x12, 0xc9, 0x48, 0x3b, 0x5f } }
 
-STATIC EFI_GUID  mSplashGuid = TOPAZ_SPLASH_PROTOCOL_GUID;
+#define LOGO_BOTTOM_GAP  150   /* pixels between the Silicium logo and the bottom edge */
 
-STATIC BOOLEAN
-IsLit (
-  IN EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *P
+STATIC EFI_GUID  mMiLogoGuid = TOPAZ_MI_LOGO_GUID;
+
+/* Decode a BMP and Blt it horizontally centered; BottomGap < 0 = vertically centered, else
+   the image ends BottomGap pixels above the bottom edge. */
+STATIC EFI_STATUS
+DrawBmp (
+  IN  EFI_GRAPHICS_OUTPUT_PROTOCOL   *Gop,
+  IN  UINT8                          *Bmp,
+  IN  UINTN                          BmpSize,
+  IN  INTN                           BottomGap,
+  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **BltOut OPTIONAL,
+  OUT UINTN                          *DestX OPTIONAL,
+  OUT UINTN                          *DestY OPTIONAL,
+  OUT UINTN                          *W OPTIONAL,
+  OUT UINTN                          *H OPTIONAL
   )
 {
-  return (P->Red | P->Green | P->Blue) >= 0x20;
-}
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Blt = NULL;
+  UINTN                          BltSize, Width, Height, SizeOfX, SizeOfY, Dx, Dy;
+  EFI_STATUS                     Status;
 
-/* BGRT: crop the lit area of the splash above the band. */
-STATIC VOID
-SetBgrtFromSplash (
-  IN EDKII_BOOT_LOGO2_PROTOCOL  *BootLogo2,
-  IN TOPAZ_SPLASH               *S,
-  IN UINTN                      BandTop
-  )
-{
-  UINTN                          x, y, x0 = S->Width, y0 = BandTop, x1 = 0, y1 = 0, w, h;
-  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *crop;
-
-  for (y = 0; y < BandTop; y++) {
-    for (x = 0; x < S->Width; x++) {
-      if (IsLit (&S->Pixels[y * S->Width + x])) {
-        x0 = MIN (x0, x);
-        x1 = MAX (x1, x);
-        y0 = MIN (y0, y);
-        y1 = MAX (y1, y);
-      }
-    }
+  Status = TranslateBmpToGopBlt (Bmp, BmpSize, &Blt, &BltSize, &Height, &Width);
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
-  if ((x1 < x0) || (y1 < y0)) {
-    return;
+  SizeOfX = Gop->Mode->Info->HorizontalResolution;
+  SizeOfY = Gop->Mode->Info->VerticalResolution;
+  if ((Width > SizeOfX) || (Height + MAX (BottomGap, 0) > SizeOfY)) {
+    FreePool (Blt);
+    return EFI_BAD_BUFFER_SIZE;
   }
 
-  w    = x1 - x0 + 1;
-  h    = y1 - y0 + 1;
-  crop = AllocatePool (w * h * sizeof (*crop));
-  if (crop == NULL) {
-    return;
+  Dx = (SizeOfX - Width) / 2;
+  Dy = (BottomGap < 0) ? (SizeOfY - Height) / 2 : SizeOfY - Height - (UINTN)BottomGap;
+  Status = Gop->Blt (Gop, Blt, EfiBltBufferToVideo, 0, 0, Dx, Dy, Width, Height, Width * sizeof (*Blt));
+
+  if (BltOut != NULL) {
+    *BltOut = Blt;
+    *DestX  = Dx;
+    *DestY  = Dy;
+    *W      = Width;
+    *H      = Height;
+  } else {
+    FreePool (Blt);
   }
 
-  for (y = 0; y < h; y++) {
-    CopyMem (&crop[y * w], &S->Pixels[(y0 + y) * S->Width + x0], w * sizeof (*crop));
-  }
-
-  BootLogo2->SetBootLogo (BootLogo2, crop, (INTN)x0, (INTN)y0, w, h);
-  FreePool (crop);
+  return Status;
 }
 
 EFI_STATUS
@@ -88,15 +88,13 @@ DisplayBootGraphic (
   )
 {
   EFI_STATUS                     Status;
-  UINTN                          Height, Width, SizeOfX, SizeOfY, BltSize, ImageSize, BandTop;
-  INTN                           DestX, DestY;
+  UINTN                          ImageSize, MiSize, SizeOfY, Dx, Dy, W, H;
   UINT8                          *ImageData = NULL;
-  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Blt       = NULL;
+  UINT8                          *MiData    = NULL;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *MiBlt     = NULL;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Black;
   EFI_GRAPHICS_OUTPUT_PROTOCOL   *Gop;
   EDKII_BOOT_LOGO2_PROTOCOL      *BootLogo2 = NULL;
-  TOPAZ_SPLASH                   *Splash    = NULL;
-  BOOLEAN                        UseSplash;
 
   Status = gBS->HandleProtocol (gST->ConsoleOutHandle, &gEfiGraphicsOutputProtocolGuid, (VOID **)&Gop);
   if (EFI_ERROR (Status)) {
@@ -115,44 +113,26 @@ DisplayBootGraphic (
     gST->ConOut->EnableCursor (gST->ConOut, FALSE);
   }
 
-  SizeOfX = Gop->Mode->Info->HorizontalResolution;
   SizeOfY = Gop->Mode->Info->VerticalResolution;
-  BandTop = SizeOfY * BAND_TOP_PCT / 100;
-
-  if (EFI_ERROR (gBS->LocateProtocol (&mSplashGuid, NULL, (VOID **)&Splash))) {
-    Splash = NULL;
-  }
-
-  UseSplash = (Graphic == BG_SYSTEM_LOGO) && (Splash != NULL) && (Splash->Lit != 0) &&
-              (Splash->Width == SizeOfX) && (Splash->Height == SizeOfY);
-
   ZeroMem (&Black, sizeof (Black));
-  if (UseSplash) {
-    Gop->Blt (Gop, Splash->Pixels, EfiBltBufferToVideo, 0, 0, 0, 0, SizeOfX, BandTop, SizeOfX * sizeof (*Blt));
-    Gop->Blt (Gop, &Black, EfiBltVideoFill, 0, 0, 0, BandTop, SizeOfX, SizeOfY - BandTop, 0);
-  } else {
-    Gop->Blt (Gop, &Black, EfiBltVideoFill, 0, 0, 0, 0, SizeOfX, SizeOfY, 0);
-  }
+  Gop->Blt (Gop, &Black, EfiBltVideoFill, 0, 0, 0, 0, Gop->Mode->Info->HorizontalResolution, SizeOfY, 0);
 
   Status = GetBootGraphic (Graphic, &ImageSize, &ImageData);
-  if (!EFI_ERROR (Status)) {
-    Status = TranslateBmpToGopBlt (ImageData, ImageSize, &Blt, &BltSize, &Height, &Width);
-  }
-
-  if (EFI_ERROR (Status) || (Width > SizeOfX) || (Height + LOGO_BOTTOM_GAP > SizeOfY)) {
-    DEBUG ((DEBUG_ERROR, "%a: logo %r\n", __FUNCTION__, Status));
+  if (EFI_ERROR (Status)) {
     goto CleanUp;
   }
 
-  DestX = (SizeOfX - Width) / 2;
-  DestY = (Graphic == BG_SYSTEM_LOGO) ? (INTN)(SizeOfY - LOGO_BOTTOM_GAP - Height) : (INTN)(SizeOfY - Height) / 2;
-  Status = Gop->Blt (Gop, Blt, EfiBltBufferToVideo, 0, 0, (UINTN)DestX, (UINTN)DestY, Width, Height, Width * sizeof (*Blt));
+  if (Graphic != BG_SYSTEM_LOGO) {
+    Status = DrawBmp (Gop, ImageData, ImageSize, -1, NULL, NULL, NULL, NULL, NULL);
+    goto CleanUp;
+  }
 
-  if ((Graphic == BG_SYSTEM_LOGO) && (BootLogo2 != NULL)) {
-    if (UseSplash) {
-      SetBgrtFromSplash (BootLogo2, Splash, BandTop);
-    } else {
-      BootLogo2->SetBootLogo (BootLogo2, Blt, DestX, DestY, Width, Height);
+  /* Silicium logo at the bottom, where the Xiaomi splash says "Powered by Android" */
+  DrawBmp (Gop, ImageData, ImageSize, LOGO_BOTTOM_GAP, NULL, NULL, NULL, NULL, NULL);
+  if (!EFI_ERROR (GetSectionFromAnyFv (&mMiLogoGuid, EFI_SECTION_RAW, 0, (VOID **)&MiData, &MiSize))) {
+    Status = DrawBmp (Gop, MiData, MiSize, -1, &MiBlt, &Dx, &Dy, &W, &H);
+    if (!EFI_ERROR (Status) && (BootLogo2 != NULL)) {
+      BootLogo2->SetBootLogo (BootLogo2, MiBlt, (INTN)Dx, (INTN)Dy, W, H);   /* BGRT */
     }
   }
 
@@ -160,8 +140,12 @@ DisplayBootGraphic (
   Status = EFI_SUCCESS;
 
 CleanUp:
-  if (Blt != NULL) {
-    FreePool (Blt);
+  if (MiBlt != NULL) {
+    FreePool (MiBlt);
+  }
+
+  if (MiData != NULL) {
+    FreePool (MiData);
   }
 
   if (ImageData != NULL) {

@@ -1,5 +1,5 @@
 ## @file
-#  tapas BootGraphicsLib: Xiaomi splash (saved by TopazOtgDxe) + Silicium logo at the bottom.
+#  tapas BootGraphicsLib: Mi logo centered + Silicium logo at the bottom.
 #  Based on MsGraphicsPkg BootGraphicsLib.
 #  SPDX-License-Identifier: BSD-2-Clause-Patent
 ##
@@ -27,6 +27,7 @@
   DebugLib
   BootGraphicsProviderLib
   BmpSupportLib
+  DxeServicesLib
   MemoryAllocationLib
 
 [Protocols]

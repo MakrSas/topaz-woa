@@ -21,10 +21,8 @@
 #include <Guid/EventGroup.h>
 #include <Guid/Acpi.h>
 #include <IndustryStandard/Acpi.h>
-#include <Library/MemoryAllocationLib.h>
 #include <Protocol/EFIPmicPon.h>
 #include "AbSlot.h"
-#include "TopazSplash.h"
 
 #define TAG "TopazOtg: "
 
@@ -515,32 +513,6 @@ STATIC EFI_STATUS DisableGpu0(VOID)
   return gpue == 1 ? EFI_SUCCESS : EFI_NOT_FOUND;
 }
 
-/* Copy ABL's splash out of the framebuffer before BDS's console clears it (see TopazSplash.h). */
-STATIC TOPAZ_SPLASH mSplash;
-
-STATIC VOID SaveSplash(VOID)
-{
-  STATIC EFI_GUID Guid = TOPAZ_SPLASH_PROTOCOL_GUID;
-  EFI_HANDLE h = NULL;
-  UINT32 *fb = (UINT32 *)TOPAZ_FB_BASE;
-  UINTN i, count = (UINTN)TOPAZ_FB_WIDTH * TOPAZ_FB_HEIGHT;
-
-  mSplash.Pixels = AllocatePool (count * sizeof (UINT32));
-  if (mSplash.Pixels == NULL) {
-    return;
-  }
-  CopyMem (mSplash.Pixels, fb, count * sizeof (UINT32));
-  for (i = 0; i < count; i++) {
-    if ((((UINT32 *)mSplash.Pixels)[i] & 0x00E0E0E0) != 0) {
-      mSplash.Lit++;
-    }
-  }
-  mSplash.Width  = TOPAZ_FB_WIDTH;
-  mSplash.Height = TOPAZ_FB_HEIGHT;
-  LOG ("splash: %u lit pixels\n", mSplash.Lit);
-  gBS->InstallProtocolInterface (&h, &Guid, EFI_NATIVE_INTERFACE, &mSplash);
-}
-
 STATIC VOID MenuDraw(UINTN Sel, UINTN Left)
 {
   UINTN i;
@@ -567,7 +539,7 @@ STATIC UINTN BootMenu(UINTN TimeoutSec)
     gBS->Stall (100 * 1000);
     ticks++;
   }
-  /* no ClearScreen: the Xiaomi splash stays, the text cells only cover the top rows */
+  /* no ClearScreen: the boot logos stay, the text cells only cover the top rows */
   gST->ConOut->SetCursorPosition (gST->ConOut, 0, 0);
   ConPrint ("  ==== topaz: choose OS ====\r\n");
   MenuDraw (sel, left);
@@ -703,7 +675,6 @@ TopazOtgEntry (
   UINT32 ctl;
   EFI_EVENT ev;
 
-  SaveSplash ();
   EfiCreateEventReadyToBootEx (TPL_CALLBACK, OnReadyToBoot, NULL, &ev);
 
   LOG ("start, gpio4 ctl=%08x gpio5 ctl=%08x usb_sw(gpio66) ctl=%08x io=%08x\n",

@@ -18,9 +18,11 @@ apply "$HERE/patches/mu-topazotg.diff" .                    # TopazOtgDxe in dsc
 
 mkdir -p Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe
 cp "$HERE"/TopazOtgDxe/*.{c,h,inf} Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe/
-# Xiaomi splash kept + Silicium logo at the bottom (TopazBootGraphicsLib, splash saved by TopazOtgDxe)
+# Mi logo centered + Silicium logo at the bottom (TopazBootGraphicsLib, MiLogo.bmp in FvMain)
 mkdir -p Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib
-cp "$HERE"/TopazBootGraphicsLib/*.{c,inf} Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/
+cp "$HERE"/TopazBootGraphicsLib/*.{c,inf,bmp} Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/
+grep -q MiLogo.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf ||
+    sed -i 's#^  !include QcomPkg/Extra.fdf.inc#&\n\n  FILE FREEFORM = 9A4C2E17-5B3D-4F81-A60E-7D12C9483B5F {\n    SECTION RAW = tapasPkg/Library/TopazBootGraphicsLib/MiLogo.bmp\n  }#' Platforms/Xiaomi/tapasPkg/tapas.fdf
 grep -q TopazBootGraphicsLib Platforms/Xiaomi/tapasPkg/tapas.dsc ||
     sed -i 's#^  ConfigurationMapLib|.*$#&\n  BootGraphicsLib|tapasPkg/Library/TopazBootGraphicsLib/TopazBootGraphicsLib.inf#' Platforms/Xiaomi/tapasPkg/tapas.dsc
 

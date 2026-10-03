@@ -10,7 +10,6 @@
   TopazOtgDxe.c
   AbSlot.c
   AbSlot.h
-  TopazSplash.h
 
 [Packages]
   MdePkg/MdePkg.dec
