@@ -383,6 +383,7 @@ STATIC VOID QrtrRx(CONST UINT8 *P, UINT32 Len)
       WlfwArrive (c->C, c->D);
     }
     WwanArrive (c->A, c->C, c->D);
+    IpaSvcArrive (c->A, c->B, c->C, c->D);
     break;
   case QRTR_TYPE_DATA:
     if (confirm) {

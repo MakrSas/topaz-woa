@@ -126,3 +126,11 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   Chain now: TopazRpm (RPM link, IPA clock) -> TopazWifi ipa_fws -> modem. Next: AP IPA setup
   (Linux ipa_setup: hardware config, SRAM/table init, GSI channels/endpoints for the AP <-> modem
   path) and the QMI INIT_DRIVER to the modem, then INIT_COMPLETE.
+- SIM test with GSI running (v0.13 + sim.on): identical modem_cfg starvation at 31.9 s.
+- v0.14: the IPA QMI handshake of Linux ipa_qmi.c. When the modem IPA service (0x31:201) appears
+  and GSI runs: INIT_DRIVER from our client port with the ipa_data-v4.2.c SRAM layout (platform
+  MSM_ANDROID, hdr 0x4a8..0x5e7, v4/v6 route 0x3a0/0x428 idx 0..7, v4/v6 filter 0x290/0x318,
+  modem mem 0xbf0+0x140c, ctrl endpoint 9, proc ctx 0x5f0..0x7ef, stats quota 0xa50 / 0x60);
+  INDICATION_REGISTER / DRIVER_INIT_COMPLETE acked; INIT_COMPLETE indication when all three are
+  in. SRAM canaries (0xdeadbeef) written at 0x5847000 like ipa_mem_config(). Tables are NOT
+  zero-initialised yet (Linux does that with IPA immediate commands over GSI).

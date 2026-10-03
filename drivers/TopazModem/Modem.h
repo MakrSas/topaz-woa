@@ -59,7 +59,9 @@ VOID           WwanArrive(UINT32 Svc, UINT32 Node, UINT32 Port);
 BOOLEAN        WwanRx(UINT32 DstPort, CONST UINT8 *Data, UINT32 Len);
 VOID           WwanPoll(VOID);
 VOID           WwanSummary(VOID);
-VOID           Smp2pIpaPoll(VOID);              /* ModemPas.c: answer the modem's IPA power query */
+VOID           Smp2pIpaPoll(VOID);
+VOID           IpaSvcArrive(UINT32 Svc, UINT32 Inst, UINT32 Node, UINT32 Port);  /* ModemSvc.c */
+extern BOOLEAN gIpaFwRunning;                   /* ModemPas.c: GSI firmware enabled this boot */              /* ModemPas.c: answer the modem's IPA power query */
 
 /* ---- Windows only (port.c / ModemPas.c / driver.c) ---- */
 EFI_STATUS     ModemPasTest(VOID);

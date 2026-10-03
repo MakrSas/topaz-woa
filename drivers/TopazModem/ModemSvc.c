@@ -24,6 +24,7 @@
 #define PORT_RMTFS   0x4003
 #define PORT_SESS    0x4100
 #define PORT_IPAS    0x4005                     /* our IPA QMI service (AP side) */
+#define PORT_IPAC    0x4006                     /* our client of the modem IPA service */
 
 #define QMI_REQ      0
 #define QMI_RESP     2
@@ -796,6 +797,96 @@ VOID SvcInit(EFI_FILE_PROTOCOL *Root)
  */
 STATIC BOOLEAN mIpaSvc;
 STATIC UINTN   mIpaReqs;
+STATIC UINT32  mIpaModemNode, mIpaModemPort;         /* modem IPA service 0x31:201 */
+STATIC BOOLEAN mIpaIndReq, mIpaModemReady, mIpaUcReady, mIpaIndSent, mIpaInitSent;
+
+#define IPA_QMI_INDICATION_REGISTER   0x20
+#define IPA_QMI_INIT_DRIVER           0x21
+#define IPA_QMI_INIT_COMPLETE         0x22
+#define IPA_QMI_DRIVER_INIT_COMPLETE  0x35
+
+/* ipa_qmi.c ipa_qmi_ready(): INIT_COMPLETE indication once the modem answered INIT_DRIVER, sent
+   DRIVER_INIT_COMPLETE and asked for the indication. Linux sends it to the modem's server address. */
+STATIC VOID IpaQmiReady(VOID)
+{
+  QMSG m;
+
+  if (!mIpaModemReady || !mIpaUcReady || !mIpaIndReq || mIpaIndSent) {
+    return;
+  }
+  QmInit (&m, 0, IPA_QMI_INIT_COMPLETE);
+  m.B[0] = 4;                                   /* indication */
+  QmResult (&m, TRUE);
+  QmSend (&m, PORT_IPAS, mIpaModemNode, mIpaModemPort);
+  mIpaIndSent = TRUE;
+  Out ("  t=%u.%03u ipa-qmi: INIT_COMPLETE indication sent to the modem\r\n", (UINT32)(ModemMs () / 1000),
+       (UINT32)(ModemMs () % 1000));
+}
+
+STATIC VOID PutTlv32(QMSG *M, UINT8 T, UINT32 V) { QmTlv (M, T, &V, 4); }
+STATIC VOID PutTlv64(QMSG *M, UINT8 T, UINT32 A, UINT32 B) { UINT32 v[2] = { A, B }; QmTlv (M, T, v, 8); }
+
+/*
+ * INIT_DRIVER (ipa_qmi.c init_modem_driver_req) with the IPA v4.2 SRAM layout of Linux
+ * data/ipa_data-v4.2.c (mem_offset 0: SHARED_MEM_SIZE = 0x415, base 0), modem_route_count 8,
+ * AP_MODEM_RX = endpoint 9. TLV types from ipa_qmi_msg.c ipa_init_modem_driver_req_ei.
+ */
+STATIC VOID IpaSendInitDriver(VOID)
+{
+  QMSG m;
+
+  QmInit (&m, 0x1A00, IPA_QMI_INIT_DRIVER);
+  m.B[0] = QMI_REQ;
+  PutTlv32 (&m, 0x10, 3);                       /* platform: MSM_ANDROID */
+  PutTlv64 (&m, 0x11, 0x04A8, 0x04A8 + 0x0140 - 1);  /* modem header table */
+  PutTlv64 (&m, 0x12, 0x03A0, 8 - 1);           /* v4 route: start, last modem index */
+  PutTlv64 (&m, 0x13, 0x0428, 8 - 1);           /* v6 route */
+  PutTlv32 (&m, 0x14, 0x0290);                  /* v4 filter */
+  PutTlv32 (&m, 0x15, 0x0318);                  /* v6 filter */
+  PutTlv64 (&m, 0x16, 0x0BF0, 0x140C);          /* modem memory: start, size */
+  PutTlv32 (&m, 0x17, 9);                       /* ctrl comm dest endpoint = AP_MODEM_RX */
+  {
+    UINT8 skip = 0;                             /* first boot: modem loads the uC */
+    QmTlv (&m, 0x18, &skip, 1);
+  }
+  PutTlv64 (&m, 0x19, 0x05F0, 0x05F0 + 0x0200 - 1);  /* modem proc ctx */
+  PutTlv32 (&m, 0x1F, 0x0A50);                  /* stats quota base */
+  PutTlv32 (&m, 0x20, 0x0060);                  /* stats quota size (Linux: mem_offset + size) */
+  *(UINT16 *)(m.B + 5) = (UINT16)(m.N - 7);
+  QrtrSend (QRTR_TYPE_DATA, PORT_IPAC, mIpaModemNode, mIpaModemPort, m.B, m.N);
+  mIpaInitSent = TRUE;
+  Out ("  t=%u.%03u ipa-qmi: INIT_DRIVER sent to the modem (%u B)\r\n", (UINT32)(ModemMs () / 1000),
+       (UINT32)(ModemMs () % 1000), m.N);
+}
+
+/* QRTR NEW_SERVER for any service (Glink.c): the modem's IPA service is 0x31 instance 2 version 1 */
+VOID IpaSvcArrive(UINT32 Svc, UINT32 Inst, UINT32 Node, UINT32 Port)
+{
+  if (Svc != 0x31 || Inst != 0x201) {
+    return;
+  }
+  mIpaModemNode = Node;
+  mIpaModemPort = Port;
+  if (mIpaSvc && gIpaFwRunning && !mIpaInitSent) {
+    IpaSendInitDriver ();
+  }
+}
+
+STATIC VOID IpaClientRx(CONST UINT8 *D, UINT32 Len)
+{
+  UINT16 l = 0;
+  CONST UINT8 *r = QmFind (D, Len, 0x02, &l);
+
+  if (Len < 7 || D[0] != QMI_RESP) {
+    return;
+  }
+  Out ("  t=%u.%03u ipa-qmi: INIT_DRIVER response: result %u error %u\r\n", (UINT32)(ModemMs () / 1000),
+       (UINT32)(ModemMs () % 1000), r != NULL ? *(CONST UINT16 *)r : 0xFFFF, r != NULL ? *(CONST UINT16 *)(r + 2) : 0xFFFF);
+  if (r != NULL && *(CONST UINT16 *)r == 0) {
+    mIpaModemReady = TRUE;
+    IpaQmiReady ();
+  }
+}
 
 STATIC VOID IpaSvcRx(UINT32 Node, UINT32 Port, UINT16 Txn, UINT16 Msg, CONST UINT8 *D, UINT32 Len)
 {
@@ -814,6 +905,12 @@ STATIC VOID IpaSvcRx(UINT32 Node, UINT32 Port, UINT16 Txn, UINT16 Msg, CONST UIN
   QmInit (&m, Txn, Msg);
   QmResult (&m, TRUE);
   QmSend (&m, PORT_IPAS, Node, Port);
+  if (Msg == IPA_QMI_INDICATION_REGISTER) {
+    mIpaIndReq = TRUE;
+  } else if (Msg == IPA_QMI_DRIVER_INIT_COMPLETE) {
+    mIpaUcReady = TRUE;
+  }
+  IpaQmiReady ();
 }
 
 VOID SvcAnnounce(VOID)
@@ -849,6 +946,9 @@ VOID SvcAnnounce(VOID)
     c[4] = PORT_IPAS;
     QrtrSend (QRTR_TYPE_NEW_SERVER, QRTR_PORT_CTRL, QrtrModemNode (), QRTR_PORT_CTRL, c, sizeof (c));
     Out ("  announced AP IPA QMI service 0x31:101 (C:\\topaz\\fw\\ipa.on)\r\n");
+    if (mIpaModemPort != 0 && gIpaFwRunning && !mIpaInitSent) {
+      IpaSendInitDriver ();                     /* the modem's IPA service came first */
+    }
   }
 }
 
@@ -864,6 +964,10 @@ BOOLEAN SvcRx(UINT32 SrcNode, UINT32 SrcPort, UINT32 DstPort, CONST UINT8 *Data,
   }
   if (DstPort == PORT_WLFWC) {
     WlfwRx (Data, Len);
+    return TRUE;
+  }
+  if (DstPort == PORT_IPAC) {
+    IpaClientRx (Data, Len);
     return TRUE;
   }
   if (WwanRx (DstPort, Data, Len)) {

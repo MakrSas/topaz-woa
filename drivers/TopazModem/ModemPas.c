@@ -444,6 +444,31 @@ STATIC VOID ModemWatch(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
 #define IPA_FW_SIZE       0x00010000u
 #define GSI_STATUS_PA     (0x05804000u + 0x1F000u)   /* GSI_STATUS, EE 0: bit 0 ENABLED */
 
+BOOLEAN gIpaFwRunning;
+
+/* Linux ipa_mem_config(): 0xdeadbeef canaries just below the SRAM regions that have them
+   (data/ipa_data-v4.2.c canary_count 2 / END_MARKER 1). SRAM = ipa-shared 0x5847000. */
+#define IPA_SRAM_PA       0x05847000u
+STATIC VOID IpaCanaries(VOID)
+{
+  STATIC CONST UINT16 two[] = { 0x288, 0x290, 0x310, 0x318, 0x398, 0x3A0, 0x420, 0x428, 0x4A8, 0x5F0, 0x9F8, 0xA50 };
+  UINT32 *sram = MapPhys (IPA_SRAM_PA, 0x2000, FALSE);
+  UINTN i;
+
+  if (sram == NULL) {
+    return;
+  }
+  for (i = 0; i < ARRAY_SIZE (two); i++) {
+    sram[two[i] / 4 - 1] = 0xDEADBEEF;
+    sram[two[i] / 4 - 2] = 0xDEADBEEF;
+  }
+  sram[0x2000 / 4 - 1] = 0xDEADBEEF;
+  MemoryFence ();
+  Out ("  ipa: SRAM canaries written (%u regions + end marker), word@0x290-4 = %08x\r\n",
+       (UINT32)ARRAY_SIZE (two), sram[0x290 / 4 - 1]);
+  UnmapPhys (sram, 0x2000);
+}
+
 STATIC UINT32 IpaClockKhz(VOID)
 {
   UNICODE_STRING key = RTL_CONSTANT_STRING (L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\TopazRpm\\State");
@@ -583,7 +608,11 @@ STATIC VOID IpaFwLoad(EFI_FILE_PROTOCOL *Root)
     if (gs != NULL) {
       Out ("  ipa: GSI_STATUS = %08x%a\r\n", gs[(GSI_STATUS_PA & 0xFFF) / 4],
            (gs[(GSI_STATUS_PA & 0xFFF) / 4] & 1) ? " (ENABLED: GSI firmware running)" : "");
+      gIpaFwRunning = (gs[(GSI_STATUS_PA & 0xFFF) / 4] & 1) != 0;
       UnmapPhys (gs, SIZE_4KB);
+    }
+    if (gIpaFwRunning) {
+      IpaCanaries ();
     }
   }
 Out:
