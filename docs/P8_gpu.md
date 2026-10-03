@@ -928,3 +928,12 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   explorer keeps crashing, FPS very low, and TopazWifi died (no SSH). Plan: normal boot (no GPU0, no UMD) to get
   SSH back and collect explorer crash dumps / UMD logs. Safety switch added: C:\topaz\umd.dwmonly -> only dwm.exe
   opens the Adreno UMD, every other process fails OpenAdapter (D3D falls back).
+- 19:45 Recovery: TopazWifi did not start in the normal boot because its boot guard C:\topaz\wifi.boot survived
+  a crash within the first 20 s of a boot (driver refuses to start while it exists). User deleted it by hand ->
+  Wi-Fi/SSH back. LESSON: after a crash during boot, check/delete C:\topaz\wifi.boot.
+- Post-mortem of the explorer problem (GPU0 session 15:27-15:38): WER AppHangB1 for explorer.exe, hang type
+  0x8000000 (cross-process wait); no bugcheck (Event 41/6008 only = hard hang / power-off, no dump). KMD log:
+  no rejected/failed submits, no GEM_NEW failures, many "device gone" lines (processes recreating devices),
+  ~550 BOs / 296 MB peak. UMD logs show nothing fatal. Cause not identified yet.
+- Installed for the next GPU0 boot: UMD with C:\topaz\umd.dwmonly (present) -> only dwm.exe uses the Adreno UMD,
+  explorer & apps fall back to the Microsoft renderer. umd.env = defaults.
