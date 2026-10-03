@@ -196,6 +196,27 @@ static VOID Sptprac(VOID)
     LogPrint("  sptprac: power on -> status %08x after %u us\n", Rd(g_Gmu, GMU_SPTPRAC_STATUS), i);
 }
 
+static BOOLEAN FileExists(PCWSTR Path)
+{
+    UNICODE_STRING nd;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
+        return FALSE;
+    }
+    RtlInitUnicodeString(&nd, Path);
+    InitializeObjectAttributes(&oa, &nd, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                FILE_SHARE_READ, FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+                                NULL, 0))) {
+        ZwClose(h);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 static BOOLEAN PowerUp(VOID)
 {
     PowerCycleIfOn();
@@ -218,8 +239,14 @@ static BOOLEAN PowerUp(VOID)
         LogPrint("  GX GDSC: no PWR_ON\n");
         return FALSE;
     }
-    if (!RcgSet(0x101c, SRC_GPLL0, 2)) {                 /* core 300 MHz */
-        return FALSE;
+    /* v0.42: C:\topaz\gpu.600 -> core 600 MHz (GPLL0 / 1; stock OPP 600 MHz = SVS_L1 corner; we cannot vote the
+       RPM GX corner yet, so it runs on whatever the bootloader left - opt-in), else 300 MHz (GPLL0 / 2) */
+    {
+        BOOLEAN fast = FileExists(L"\\??\\C:\\topaz\\gpu.600");
+        if (!RcgSet(0x101c, SRC_GPLL0, fast ? 1 : 2)) {
+            return FALSE;
+        }
+        LogPrint("  gfx3d: %u MHz%s\n", fast ? 600 : 300, fast ? " (C:\\topaz\\gpu.600)" : "");
     }
     Rmw(g_GpuCc, 0x1054, 0, (1u << 14) | (1u << 13));
     if (!BranchOn(g_GpuCc, 0x1054, "gpucc_gx_gfx3d")) {

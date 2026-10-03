@@ -1005,3 +1005,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   (>60 = counting artefact to check). TIMING "gpu wait" ~15 ms per present -> now GPU-bound. GPU core clock is
   300 MHz (hw.c: gfx3d RCG = GPLL0/2); A610 on SM6225 goes to ~950 MHz -> next: higher clock (needs the GX
   voltage question answered; behind a kill switch).
+- 23:40 Stock DT (vendor_boot fdt.dts) GPU OPPs (qcom,gpu-pwrlevels-0): 1260/1115 MHz TURBO_L1 (0x1a0),
+  1025 TURBO (0x180), 785 NOM (0x100), 600 SVS_L1 (0xc0), 465 SVS (0x80), 320 LOW_SVS (0x40). User asked to raise
+  the GPU clock. TopazGpuW v0.42: C:\topaz\gpu.600 -> gfx3d = GPLL0/1 = 600 MHz (no PLL needed; the GX corner
+  cannot be voted over RPM from Windows yet, so it relies on the bootloader's rail level - opt-in, recovery =
+  normal boot (no GPU0) + delete the file).
