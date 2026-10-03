@@ -529,10 +529,10 @@ index 83bc243..b48f556 100644
    cpp_args : _c_args_d3d10umd,
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 new file mode 100644
-index 0000000..bf871a0
+index 0000000..37eac24
 --- /dev/null
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,278 @@
 +/*
 + * TopazGpu step C2: the WDDM side of resources that leave the UMD (docs/P8_gpu.md in topaz-woa).
 + *
@@ -716,10 +716,24 @@ index 0000000..bf871a0
 +      screen->fence_reference(screen, &fence, NULL);
 +   }
 +   if (!pDevice->topazCtx) {
-+      if (pDevice->device.base.createContext(&pDevice->device.base, &pDevice->topazCtx) < 0) {
-+         pDevice->topazCtx = NULL;
-+         return E_FAIL;
++      /* own pfnCreateContextCb: gdikmt's leaves EngineAffinity 0 (invalid for a MultiEngineAware KMD) */
++      struct gdikmt_context_d3dddi *c = (struct gdikmt_context_d3dddi *)calloc(1, sizeof(*c));
++      D3DDDICB_CREATECONTEXT cc;
++      HRESULT hrc;
++      if (!c)
++         return E_OUTOFMEMORY;
++      memset(&cc, 0, sizeof(cc));
++      cc.NodeOrdinal = 0;
++      cc.EngineAffinity = 1;
++      hrc = pDevice->device.KTCallbacks.pfnCreateContextCb(pDevice->device.hRTDevice, &cc);
++      TopazWddmLogf("topaz: CreateContextCb -> 0x%08lx hContext %p\n", (unsigned long)hrc, cc.hContext);
++      if (FAILED(hrc)) {
++         free(c);
++         return hrc;
 +      }
++      c->base.device = &pDevice->device.base;
++      c->hContext = cc.hContext;
++      pDevice->topazCtx = &c->base;
 +   }
 +   /* not gdikmt's present(): it never passes a destination; a DXGI blt present with hDstResource
 +      (DWM to its primary) needs hDstAllocation */
@@ -730,7 +744,11 @@ index 0000000..bf871a0
 +      p.hDstAllocation = pDst ? pDst->hAllocation : 0;
 +      p.pDXGIContext = pDXGIContext;
 +      p.hContext = ((struct gdikmt_context_d3dddi *)pDevice->topazCtx)->hContext;
-+      return pDevice->device.pDXGIBaseCallbacks->pfnPresentCb(pDevice->device.hRTDevice, &p);
++      HRESULT hr = pDevice->device.pDXGIBaseCallbacks->pfnPresentCb(pDevice->device.hRTDevice, &p);
++      if (FAILED(hr))
++         TopazWddmLogf("topaz: PresentCb src 0x%x dst 0x%x ctx %p -> 0x%08lx\n", p.hSrcAllocation, p.hDstAllocation,
++                       p.hContext, (unsigned long)hr);
++      return hr;
 +   }
 +}
 +
