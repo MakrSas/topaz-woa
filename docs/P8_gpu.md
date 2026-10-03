@@ -879,3 +879,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   (minx, miny, 16384-maxx, 16384-maxy) via the stream uploader on scissor/RS changes, zeros = no clip), and
   KILL/KILL_IF are now compiled as demote by default (TOPAZ_DEMOTE=0 = terminate), so the cut pixels stay
   helper lanes and derivatives at the edge are right.
+- 17:20 FS-scissor+demote result: much worse - strong dotted diagonals along triangle seams of the strips (also
+  with TOPAZ_DEMOTE=0): on this stack ANY kill/demote in the PS breaks helper lanes outside the primitive.
+  FS scissor and demote are opt-in again (TOPAZ_FSSCISSOR=1, TOPAZ_DEMOTE=1). New default (TOPAZ_SCFIX=0
+  disables): quad-aligned hardware scissor, and the extra 1-px strips (aligned minus real rect) are saved to a
+  scratch texture before the draws and copied back before anything can observe them (next scissor, RT change,
+  RS scissor off / unscissored draw, ClearRTV, ResourceCopy(Region), Present).
