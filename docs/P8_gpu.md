@@ -779,3 +779,12 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   wrong transform), over-draw lands OUTSIDE DWM's damage area and DWM never repaints it (which also fits "no
   change with FULLCOPY/POISON"). Added TOPAZ_DRAWLOG=1 (every Draw*/ClearRTV logged with RT pointer + size,
   viewport, RS-scissor flag, scissor rect) to compare draws against the stale area.
+- 13:00 DRAWLOG analysis (umd-2356.log, DWM pid 2356; 1080x2400 swapchain RT; all draws have rs_scissor=1, vp = full):
+  window close animation: draws with scissor 0,2,928,2314 -> 0,2,940,2194 -> (frame k+2) 0,0,1047,2194 (n=6 x2),
+  0,36,1047,794 (n=6 x2), 0,0,1047,2194 (n=6) -> later frames only 794/711/665. So DWM DID draw the
+  full-height damage rect once (the cleanup frame), yet the screen keeps the zoomed-window blob at rows
+  ~1310-2300. The copies (ResourceCopyRegion) = the buffer-age sync of the complement of the damage
+  (4 copies for a rectangle damage). Conclusion: the pixels of the cleanup draw in rows >1310 were not
+  produced correctly -> draw-side bug, not flip/copy/rotation/scissor-state. Next: log PS SRVs + copy boxes
+  (DRAWLOG now prints t0..t2 texture ptr/size/format per draw, and the copy boxes) and compare with the
+  stale rect.
