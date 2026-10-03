@@ -841,3 +841,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   dashed horizontal scrollbar thumb) -> not the complement copies. FPS unchanged (29). Next experiment
   TOPAZ_UPDSYNC=1: ResourceUpdateSubresourceUP on textures without DISCARD_RANGE (freedreno then skips its
   shadow/staging upload path).
+- 15:20 TOPAZ_UPDSYNC=1: strokes remain (faint straight horizontal/vertical lines through the window at seemingly regular positions -> suspect GMEM bin edges). Next: FD_MESA_DEBUG=sysmem.
