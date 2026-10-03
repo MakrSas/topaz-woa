@@ -823,3 +823,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   TOPAZ_OLDEVENT=1 restores the old behaviour for comparison.
 - Also reported (14:19 photo): icons in the quick-settings flyout (Wi-Fi, airplane mode, battery saver) are
   missing / very faint - glyph (Segoe Fluent Icons) rendering, to investigate next.
+- 14:30 EVENT-query fix installed (no switches): FPS 43 (fpsbench: moving window, tools/gpu/fpsbench.ps1 via a
+  /IT scheduled task; baseline 43, SYNCMAP=2 31) but the stale zoomed blocks are STILL there -> DWM does not rely
+  on event queries for this (fix kept, it is correct anyway). Next: TOPAZ_MAPLOG=1 (buffer maps DISCARD/NOOVERWRITE
+  + IaSetVertexBuffers offsets) to see the ring pattern.
