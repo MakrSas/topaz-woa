@@ -833,3 +833,6 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   TOPAZ_SYNCMAP=2) is now the DEFAULT (TOPAZ_SYNCMAP=0 disables it). Cost: fpsbench 43 -> ~31 FPS.
   Open: real root cause (why freedreno does not see the ring region as still in use / why DISCARD-renaming is
   not enough) to win the FPS back.
+- 15:00 Dashed 1-px strokes: DWM copies the damage complement from the previous buffer every frame, often as 1-2 px
+  strips (118x1, 2x115, 9x1 ...) exactly along damage edges where the strokes show. Experiment TOPAZ_COPYPATH=1:
+  swapchain ResourceCopyRegion through util_resource_copy_region (CPU map/memcpy) instead of freedreno's blit.
