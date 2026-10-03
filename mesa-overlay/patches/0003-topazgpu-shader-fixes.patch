@@ -1,5 +1,5 @@
 diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
-index 78eac1c..7f96bd4 100644
+index 78eac1c..9b7509f 100644
 --- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
 +++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
 @@ -970,9 +970,23 @@ ttn_barrier(nir_builder *b)
@@ -97,10 +97,23 @@ index 78eac1c..7f96bd4 100644
  }
  
  /* TGSI_OPCODE_TXQ is actually two distinct operations:
-@@ -2107,6 +2176,15 @@ ttn_emit_instruction(struct ttn_compile *c)
+@@ -2107,6 +2176,28 @@ ttn_emit_instruction(struct ttn_compile *c)
        dst = ttn_txq(c, src);
        break;
  
++   case TGSI_OPCODE_DDX:
++   case TGSI_OPCODE_DDY: {
++      /* TopazGpu experiment TOPAZ_DERIV: 1 = fine derivatives (dsxpp/dsypp), 2 = coarse (explicit) */
++      const char *dv = getenv("TOPAZ_DERIV");
++      nir_op op = tgsi_op == TGSI_OPCODE_DDX ? nir_op_fddx : nir_op_fddy;
++      if (dv && dv[0] == '1')
++         op = tgsi_op == TGSI_OPCODE_DDX ? nir_op_fddx_fine : nir_op_fddy_fine;
++      else if (dv && dv[0] == '2')
++         op = tgsi_op == TGSI_OPCODE_DDX ? nir_op_fddx_coarse : nir_op_fddy_coarse;
++      dst = ttn_alu(b, op, dst_bitsize, src);
++      break;
++   }
++
 +   case TGSI_OPCODE_SVIEWINFO:
 +      if (ttn_topaz_flag("TOPAZ_SVINFO")) {
 +         dst = ttn_sviewinfo(c, src);
