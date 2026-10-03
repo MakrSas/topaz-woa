@@ -1055,3 +1055,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   advertises Rotate90/180/270, CommitVidPn records the path rotation, QueryVidPnHWCapability DriverRotation=1;
   rotated -> no direct scanout, the primary is copied into the framebuffer with a tiled CPU rotation (64x64 tiles:
   sequential WC reads, rotated writes) at each flip (after the deferred GPU fence). Faster GPU rotation later.
+- 02:20 v0.46 BSOD at boot: 0x50 PAGE_FAULT_IN_NONPAGED_AREA, read 0xfffff3fea963f000, PC = TopazGpuW+0xc718 =
+  memcpy (identified by matching the dumped code page against the .sys: dump file offset = RVA + 73632). Windows
+  re-applied a saved rotation at boot (the panel was rotated under TopazDisplay before), so the new rotated copy
+  ran and read past the source's CPU view (no bound check, unlike CopyRectToFb which clips to the panel size).
+  Phone rolled back to v0.45 (v0.46 kept as TopazGpuW.sys.v046-bsod). v0.47: rotated copy clamped to the
+  BO/aperture size, logs the real primary dims.

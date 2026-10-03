@@ -290,7 +290,24 @@ VOID DispScanoutWork(VOID)
         all.right = al->Desc.width;
         all.bottom = al->Desc.height;
         if (g_Rot != D3DKMDT_VPPR_IDENTITY && g_Rot != D3DKMDT_VPPR_UNINITIALIZED) {
-            RotCopyToFb(px, al->Desc.pitch, al->Desc.width, al->Desc.height, g_Rot);
+            /* v0.47: never read past the CPU view (v0.46 BSOD 0x50 in memcpy here) */
+            SIZE_T avail = al->Bo != NULL ? (al->Bo->Size > al->Desc.bo_offset ? al->Bo->Size - al->Desc.bo_offset : 0)
+                                          : (al->ApBytes != 0 ? al->ApBytes : al->Size);
+            ULONG w = al->Desc.width, h = al->Desc.height, pitch = al->Desc.pitch;
+            static ULONG rlog;
+            if (pitch != 0 && w * 4 > pitch) {
+                w = pitch / 4;
+            }
+            if (pitch != 0 && (SIZE_T)h * pitch > avail) {
+                h = (ULONG)(avail / pitch);
+            }
+            if (++rlog <= 5) {
+                LogPrint("scanout rotated %d: alloc %ux%u pitch %u bytes %llu (%s) -> copy %ux%u\n", g_Rot, al->Desc.width,
+                         al->Desc.height, pitch, (ULONGLONG)avail, al->Bo != NULL ? "bo" : "vidmm", w, h);
+            }
+            if (pitch != 0 && w != 0 && h != 0) {
+                RotCopyToFb(px, pitch, w, h, g_Rot);
+            }
         } else {
             CopyRectToFb(px, al->Desc.pitch, al->Desc.width, al->Desc.height, &all);
         }

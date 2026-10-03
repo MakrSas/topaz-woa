@@ -19,7 +19,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.46"
+#define TGPU_VERSION        "v0.47"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
