@@ -1041,3 +1041,10 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   no downscale shader). Same root cause as the parked bottom-edge strokes: wrong derivatives at primitive edges ->
   the 4 taps land on neighbouring texture rows.
 - 01:30 User: also a DIAGONAL stroke while dragging = the triangle seam of the window quad -> derivatives broken at any primitive edge. Suspect: SP_FS_CTRL_REG0 lodpixmask/pixlodenable (so->need_full_quad / need_pixlod) not set for our TGSI-translated shaders. fd6_program logs FS with them off; TOPAZ_FULLQUAD=1 forces both bits.
+- 01:40 ROOT CAUSE of ALL derivative strokes FOUND: fd6_program log -> every DWM fragment shader has
+  need_full_quad 0 and need_pixlod 0 (SP_FS_CTRL_REG0 lodpixmask/pixlodenable off): ir3 takes them from
+  nir info.fs.needs_quad_helper_invocations, which is never set for our tgsi_to_nir shaders, so helper lanes never
+  ran and DDX/DDY/implicit LOD were garbage at every primitive edge, triangle seam and scissor edge. Screenshot
+  before: a diagonal seam across the dragged (lifted) Chrome window; with TOPAZ_FULLQUAD=1 (both bits forced on)
+  the user confirms it is fixed. Now default on (TOPAZ_FULLQUAD=0 = old). SCFIX/FS-scissor were workarounds for
+  the same root cause; SCFIX stays for now (re-evaluate: may be removable).

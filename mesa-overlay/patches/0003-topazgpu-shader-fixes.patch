@@ -260,7 +260,7 @@ index 78eac1c..9b7509f 100644
     case TGSI_OPCODE_STORE:
        dst = ttn_mem(c, src);
 diff --git a/src/gallium/drivers/freedreno/a6xx/fd6_program.cc b/src/gallium/drivers/freedreno/a6xx/fd6_program.cc
-index 07c6dbb..821746d 100644
+index 07c6dbb..810f0dd 100644
 --- a/src/gallium/drivers/freedreno/a6xx/fd6_program.cc
 +++ b/src/gallium/drivers/freedreno/a6xx/fd6_program.cc
 @@ -1,3 +1,5 @@
@@ -269,21 +269,24 @@ index 07c6dbb..821746d 100644
  /*
   * Copyright (C) 2016 Rob Clark <robclark@freedesktop.org>
   * Copyright © 2018 Google, Inc.
-@@ -173,21 +175,34 @@ fd6_emit_shader(struct fd_context *ctx, struct fd_ringbuffer *ring,
+@@ -173,21 +175,37 @@ fd6_emit_shader(struct fd_context *ctx, struct fd_ringbuffer *ring,
                 .earlypreamble = so->early_preamble,
        ));
        break;
 -   case MESA_SHADER_FRAGMENT:
 +   case MESA_SHADER_FRAGMENT: {
-+      /* TopazGpu experiment TOPAZ_FULLQUAD=1: always run full 2x2 quads (helper lanes) for every FS */
++      /* TopazGpu (default on, TOPAZ_FULLQUAD=0 disables): always run full 2x2 quads (helper lanes). For shaders
++       * translated from D3D TGSI ir3 never set need_full_quad/need_pixlod (NIR info.fs.needs_quad_helper_invocations
++       * stays false), so helper lanes never ran: derivatives / implicit LOD were garbage at every primitive edge,
++       * triangle seam and scissor edge (DWM's downscale shader: strokes, text fragments, diagonal seams). */
 +      static int topaz_fq = -1;
 +      if (topaz_fq < 0) {
 +         const char *e = getenv("TOPAZ_FULLQUAD");
-+         topaz_fq = e && e[0] == '1';
++         topaz_fq = !(e && e[0] == '0');
 +      }
 +      if (!so->need_full_quad || !so->need_pixlod) {
 +         static unsigned topaz_fq_log;
-+         if (topaz_fq_log++ < 40)
++         if (!topaz_fq && topaz_fq_log++ < 40)
 +            fprintf(stderr, "topaz: FS %p need_full_quad %d need_pixlod %d%s\n", (void *)so, so->need_full_quad,
 +                    so->need_pixlod, topaz_fq ? " (forced on)" : "");
 +      }
