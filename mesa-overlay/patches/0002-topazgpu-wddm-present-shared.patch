@@ -603,10 +603,10 @@ index 83bc243..b48f556 100644
    cpp_args : _c_args_d3d10umd,
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 new file mode 100644
-index 0000000..64193a3
+index 0000000..cd028ba
 --- /dev/null
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,295 @@
 +/*
 + * TopazGpu step C2: the WDDM side of resources that leave the UMD (docs/P8_gpu.md in topaz-woa).
 + *
@@ -841,6 +841,22 @@ index 0000000..64193a3
 +   if (done)
 +      return;
 +   done = true;
++   /* C:\ProgramData\topaz\umd.env: NAME=VALUE lines (e.g. FD_MESA_DEBUG=sysmem) for processes
++    * without an environment of ours, like DWM; read before the screen is created */
++   {
++      FILE *f = fopen("C:\\ProgramData\\topaz\\umd.env", "r");
++      if (f) {
++         char line[256];
++         while (fgets(line, sizeof(line), f)) {
++            size_t n = strlen(line);
++            while (n && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' '))
++               line[--n] = 0;
++            if (n && line[0] != '#' && strchr(line, '='))
++               _putenv(line);
++         }
++         fclose(f);
++      }
++   }
 +   if (GetFileAttributesA("C:\\ProgramData\\topaz\\umd.log.enable") == INVALID_FILE_ATTRIBUTES)
 +      return;
 +   snprintf(path, sizeof(path), "C:\\ProgramData\\topaz\\umd-%lu.log", (unsigned long)GetCurrentProcessId());
@@ -848,7 +864,8 @@ index 0000000..64193a3
 +      setvbuf(stderr, NULL, _IONBF, 0);
 +      topaz_log_on = true;
 +      topaz_log_tgsi = GetFileAttributesA("C:\\ProgramData\\topaz\\umd.tgsi") != INVALID_FILE_ATTRIBUTES;
-+      fprintf(stderr, "==== topazgpu UMD log, pid %lu ====\n", (unsigned long)GetCurrentProcessId());
++      fprintf(stderr, "==== topazgpu UMD log, pid %lu, FD_MESA_DEBUG=%s ====\n", (unsigned long)GetCurrentProcessId(),
++              getenv("FD_MESA_DEBUG") ? getenv("FD_MESA_DEBUG") : "");
 +   }
 +}
 +
