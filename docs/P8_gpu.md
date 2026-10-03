@@ -976,3 +976,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   window moved): 40-44 flips/s (v0.40: 22-25); fpsbench -Big ~32, small ~26 (bench window has no content).
   DWM TIMING still ~37 ms average frame (includes idle frames). Next: DWM CPU per frame (~13 ms) / UMD overhead.
 - 22:00 Touch-drag is the real limit: dragging Chrome/Explorer by finger gives 6-9 DWM flips/s, the same window moved by script gives 40+. TopazTouch v0.5 logs reads/s and I2C read time per second while touching.
+- 22:20 Touch path measured: TopazTouch reads 147/s (1.1 ms I2C reads, v0.5 stats), a WinForms window gets ~150
+  mouse/touch moves/s (tools/gpu/touchrate.ps1) -> input is fine. DxgKrnl ETW during a finger drag of Explorer
+  (15 s, decoded on the Mac from tracerpt CSV): 342k events, 160k Profiler start/stop pairs from dwm.exe, of which
+  74833 DxgkEscape (~5000 escapes/s ~ 300 per present) -> DWM busy-polls through our msm escapes. VSync 63/s,
+  DxgkPresent 16/s. Added TOPAZ_ESCLOG=1 (escape counts per DRM command per second, fd_wddm.c).

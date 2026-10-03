@@ -79,10 +79,42 @@ fd_wddm_close(int fd)
    return 0;
 }
 
+/* TopazGpu: TOPAZ_ESCLOG=1 logs escape counts per DRM command nr once per second (busy-polling hunt) */
+extern void TopazWddmLogf(const char *fmt, ...);
+static unsigned esc_count[256];
+static ULONGLONG esc_t0;
+static int esc_log = -1;
+
+static void
+esc_stats(unsigned nr)
+{
+   if (esc_log < 0) {
+      const char *e = getenv("TOPAZ_ESCLOG");
+      esc_log = e && e[0] == '1';
+   }
+   if (!esc_log)
+      return;
+   esc_count[nr & 0xff]++;
+   ULONGLONG now = GetTickCount64();
+   if (!esc_t0)
+      esc_t0 = now;
+   if (now - esc_t0 >= 1000) {
+      char line[512];
+      int n = snprintf(line, sizeof(line), "ESC/s:");
+      for (unsigned i = 0; i < 256 && n < (int)sizeof(line) - 16; i++)
+         if (esc_count[i])
+            n += snprintf(line + n, sizeof(line) - n, " %02x=%u", i, esc_count[i]);
+      TopazWddmLogf("%s\n", line);
+      memset(esc_count, 0, sizeof(esc_count));
+      esc_t0 = now;
+   }
+}
+
 static int
 esc(int fd, unsigned nr, void *data, unsigned size)
 {
    struct topazgpu_escape *e;
+   esc_stats(nr);
    int i = slot(fd), ret;
    fd_wddm_escape_fn fn;
    void *ctx;
