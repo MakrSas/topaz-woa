@@ -866,3 +866,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   DWM draws these partial layer pieces with shader edge-AA and expects full coverage when the edge lies on a
   pixel boundary; on our stack the edge pixel gets partial coverage. Next: identify the PS (probe/DRAWLOG now
   print the bound PS tokens pointer; umd.tgsi dumps are tagged "(the TGSI above is PS <ptr>)").
+- 16:50 ROOT CAUSE of the dashed strokes: the DPI-scaled window layer is drawn by DWM's downscale PS (4 SAMPLEs
+  at IN.xy + DDX/DDY * {+-0.375, +-0.125}). Probe: every wrong edge pixel is a strip edge whose 2x2-quad partner
+  lies outside the damage scissor (left edges all odd x: 445, 413, 581, ...; right edges where x+1 is cut).
+  On a6xx scissored-out pixels apparently do not serve as helper lanes, so the derivatives at that column
+  are garbage and the taps sample elsewhere -> 1-px wrong columns/rows left behind (DWM never repaints them).
+  Fix: scissor rects aligned to even coordinates (whole quads), default on; TOPAZ_SCALIGN=0 = old.

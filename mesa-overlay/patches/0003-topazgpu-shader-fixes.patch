@@ -344,7 +344,7 @@ index e7c2a1c..35d10d0 100644
        ret = pipe->get_query_result(pipe, state, wait, &result);
     } else {
 diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-index a0262da..21d2d32 100644
+index a0262da..4578590 100644
 --- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 +++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 @@ -31,12 +31,242 @@
@@ -601,12 +601,23 @@ index a0262da..21d2d32 100644
     if (ClearViewports) {
        memset(states + NumViewports, 0,
               sizeof(struct pipe_viewport_state) * ClearViewports);
-@@ -122,6 +356,21 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -122,6 +356,32 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
        states[i].miny = pRect->top    < 0 ? 0 : pRect->top;
        states[i].maxx = pRect->right  < 0 ? 0 : pRect->right;
        states[i].maxy = pRect->bottom < 0 ? 0 : pRect->bottom;
 +      /* TopazGpu experiment TOPAZ_SCPAD=1: right/bottom +1 px, =2: every edge 1 px wider (dashed strokes
 +       * along damage edges = edge pixels DWM thinks it painted?) */
++      /* TopazGpu: align scissors to 2x2 pixel quads. On a6xx, pixels removed by the scissor do not act as
++       * helper lanes of their quad, so DDX/DDY at a scissor edge use garbage: DWM's downscale shader
++       * (4 taps offset by derivatives) produced wrong edge columns -> 1-px strokes where damage rects
++       * started/ended on an odd pixel. TOPAZ_SCALIGN=0 = old behaviour. */
++      const char *al = getenv("TOPAZ_SCALIGN");
++      if (!(al && al[0] == '0')) {
++         states[i].minx &= ~1u;
++         states[i].miny &= ~1u;
++         states[i].maxx = (states[i].maxx + 1) & ~1u;
++         states[i].maxy = (states[i].maxy + 1) & ~1u;
++      }
 +      const char *pad = getenv("TOPAZ_SCPAD");
 +      if (pad && (pad[0] == '1' || pad[0] == '2')) {
 +         states[i].maxx += 1;
@@ -623,7 +634,7 @@ index a0262da..21d2d32 100644
     }
     if (ClearScissorRects) {
        memset(states + NumScissorRects, 0,
-@@ -236,6 +485,7 @@ CreateRasterizerState(
+@@ -236,6 +496,7 @@ CreateRasterizerState(
     state.line_rectangular = 0;
  
     pRasterizerState->handle = pipe->create_rasterizer_state(pipe, &state);
@@ -631,7 +642,7 @@ index a0262da..21d2d32 100644
  }
  
  
-@@ -283,5 +533,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+@@ -283,5 +544,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
     struct pipe_context *pipe = CastPipeContext(hDevice);
     void *state = CastPipeRasterizerState(hRasterizerState);
  
