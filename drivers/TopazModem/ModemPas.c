@@ -280,6 +280,70 @@ STATIC UINT32 *Smp2pFind(SMP2P_HDR *H, CONST CHAR8 *Name)
   return NULL;
 }
 
+/*
+ * IPA power query (Linux drivers/net/ipa/ipa_smp2p.c, downstream ipa3 smp2p): our outbound "ipa"
+ * entry has bit 0 = "enabled" answer valid, bit 1 = AP IPA power on; the modem's inbound "ipa"
+ * entry raises bit 0 = power query, bit 1 = GSI setup ready. "The modem will poll the valid bit
+ * until it is set" - with nobody answering it spins once the SIM brings up data services
+ * (suspected cause of "Task starvation: modem_cfg", TopazWifi v0.7..v0.9). IPA is not set up on
+ * the AP yet, so the answer is "valid, power off".
+ */
+#define IPA_OUT_VALID    (1u << 0)
+#define IPA_OUT_ENABLED  (1u << 1)
+#define IPA_IN_QUERY     (1u << 0)
+#define IPA_IN_SETUP     (1u << 1)
+
+STATIC SMP2P_HDR *mSmpIn, *mSmpOut;
+STATIC UINT32    *mIpaIn, *mIpaOut, mIpaLast = 0xFFFFFFFF;
+STATIC UINTN      mIpaAnswers;
+
+STATIC UINT32 *Smp2pAddOut(SMP2P_HDR *O, CONST CHAR8 *Name, UINT32 Value)
+{
+  SMP2P_ENTRY *e = (SMP2P_ENTRY *)(O + 1);
+  UINT32 *v = Smp2pFind (O, Name);
+
+  if (v != NULL || O->Valid >= O->Total || O->Valid >= SMP2P_MAX_ENTRY) {
+    return v;
+  }
+  ZeroMem (e[O->Valid].Name, sizeof (e[O->Valid].Name));
+  CopyMem (e[O->Valid].Name, Name, AsciiStrLen (Name));
+  e[O->Valid].Value = Value;
+  MemoryFence ();
+  O->Valid++;
+  MemoryFence ();
+  Smp2pKick ();
+  return &e[O->Valid - 1].Value;
+}
+
+VOID Smp2pIpaPoll(VOID)
+{
+  UINT32 v;
+
+  if (mSmpIn == NULL || mIpaOut == NULL) {
+    return;
+  }
+  if (mIpaIn == NULL) {
+    mIpaIn = Smp2pFind (mSmpIn, "ipa");
+    if (mIpaIn == NULL) {
+      return;
+    }
+  }
+  v = *mIpaIn;
+  if (v == mIpaLast) {
+    return;
+  }
+  Out ("  t=%u.%03u smp2p: modem ipa entry %08x%a%a\r\n", (UINT32)(ModemMs () / 1000), (UINT32)(ModemMs () % 1000),
+       v, (v & IPA_IN_QUERY) ? " POWER-QUERY" : "", (v & IPA_IN_SETUP) ? " GSI-SETUP-READY" : "");
+  if ((v & IPA_IN_QUERY) && !(mIpaLast != 0xFFFFFFFF && (mIpaLast & IPA_IN_QUERY))) {
+    *mIpaOut = IPA_OUT_VALID;                   /* power off, answer valid */
+    MemoryFence ();
+    Smp2pKick ();
+    mIpaAnswers++;
+    Out ("  smp2p: answered IPA power query: valid, AP IPA power off (%u)\r\n", (UINT32)mIpaAnswers);
+  }
+  mIpaLast = v;
+}
+
 STATIC VOID ModemWatch(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
 {
   SMEM_PART_HDR *part;
@@ -307,6 +371,8 @@ STATIC VOID ModemWatch(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
     Out ("  created apps->modem item 428: %p\r\n", out);
   }
   if (out != NULL) {
+    mSmpOut = out;
+    mIpaOut = Smp2pAddOut (out, "ipa", 0);      /* before the modem boots, like Linux at probe */
     Smp2pDump ("apps->modem (428)", out);
   }
 
@@ -346,6 +412,8 @@ STATIC VOID ModemWatch(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
     Out ("  modem SMP2P item 435 never appeared\r\n");
   } else if ((last & 3) == 2) {
     gModemState = sk;
+    mSmpIn = in;
+    Smp2pDump ("modem->apps (435)", in);
     GlinkQrtrSpike (0, Root);                  /* until driver stop or FATAL */
     Out ("  after P2: slave-kernel=%08x%a, wdog pending=%u\r\n", *sk, (*sk & 1) ? " FATAL" : "",
          (MmioRead32 (gGicdVa + 0x200 + (MSS_WDOG_INTID / 32) * 4) >> (MSS_WDOG_INTID % 32)) & 1);

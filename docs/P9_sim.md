@@ -40,3 +40,10 @@ IPA v4.2 / GSI) → stage 3 Windows network adapter (raw-IP NetAdapter, later MB
   "unhandled QRTR" log budget had been eaten by DEL_CLIENT packets.
 - v0.9: provisioning only with C:\topaz\fw\sim.on (Wi-Fi stays usable by default); logs late
   NEW_SERVERs, all QRTR control packets except DEL_CLIENT and up to 200 unhandled DATA packets.
+- v0.9 run (sim.on): modem found **t2 (250-20)** this time; after provisioning two late services
+  (svc 0x21, 0x12) appear; no unanswered QRTR / TFTP / rmtfs traffic before the identical
+  modem_cfg starvation. Remaining suspect: SMP2P. The modem's "ipa" entry raises an IPA power
+  query and "polls the valid bit until it is set" (Linux ipa_smp2p.c) - nobody answers it.
+- v0.10: outbound SMP2P entry "ipa" (bit0 valid, bit1 power) created before the modem boots;
+  the GLINK loop watches the modem's "ipa" entry (bit0 query, bit1 GSI setup ready), logs it and
+  answers queries with "valid, power off".

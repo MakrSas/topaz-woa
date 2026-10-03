@@ -684,6 +684,7 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
     ScanPoll ();
     HttPoll ();
     WwanPoll ();                                /* SIM / network status (QMI, log only) */
+    Smp2pIpaPoll ();                            /* modem IPA power query over SMP2P */
 #ifdef TOPAZ_WIFICX
     AssocPoll ();                               /* TopazWifi: station association */
     HttTxPoll ();                               /* TopazWifi: data frames from Windows */
