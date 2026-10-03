@@ -1092,3 +1092,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   420x420 centered + BGRT, SiliciumText.bmp 480x55 150 px above the bottom), no framebuffer copy.
   RAM test of "Windows (no GPU)": installed DSDT has TPZX0610 and no TPZG0610, ACPI\TPZG0610\0 not
   present, ROOT\DISPLAY\0000 (TopazDisplay) OK at 1080 wide -> safe-display boot works.
+- 21:55 **v8 FLASHED to boot_b** (`~/work/win/uefi/Mu-topaz-v8-RELEASE.img`, sha256 e27aa74a…, user's
+  request): main menu = WinRE-look touch page (look/icons/fonts from NTDEV's exynos9810-woa, see
+  NOTICE.md) with a 5 s countdown to Windows; back arrow -> old text menu. v6/v7 were RAM-tested
+  (page + keys); the countdown path was flashed untested. Rollback:
+  `fastboot flash boot_b ~/work/topaz-poweroff.img` (full 128 MiB backup: bootb-backup-1003.img).

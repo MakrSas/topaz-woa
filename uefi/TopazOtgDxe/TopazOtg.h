@@ -27,7 +27,8 @@ EFI_STATUS I2cRead (UINT8 Addr, UINT8 *Buf, UINT32 Len);
 /* WinRE-look menu choices (same order as the text menu) */
 enum { WINRE_WINDOWS, WINRE_WINDOWS_NOGPU, WINRE_FASTBOOT, WINRE_POWEROFF, WINRE_BACK, WINRE_UNAVAILABLE };
 
-/* Show the WinRE-look "Choose an option" page; touch + volume/power keys. Leaves SE1 selected. */
-UINTN WinReMenu (VOID);
+/* Show the WinRE-look "Choose an option" page; touch + volume/power keys. Leaves SE1 selected.
+   TimeoutSec != 0: count down and return WINRE_WINDOWS unless touched / a key is pressed. */
+UINTN WinReMenu (UINTN TimeoutSec);
 
 #endif

@@ -93,6 +93,8 @@ def main():
     assets += [tile(*it) for it in ITEMS]                                     # 1..4 tiles
     assets.append(Image.open(NT / "icons" / "winre_ic_back.png").convert("L"))  # 5 back arrow
     assets.append(text_img("Tap an option, or use Volume up/down and Power", FONT_REGULAR, 27, DIM))  # 6 hint
+    for n in range(1, 10):                                                    # 7..15 countdown 1..9 s
+        assets.append(text_img(f"Starting Windows in {n} s", FONT_REGULAR, 27))
     for i, im in enumerate(assets):
         save_bmp(im, out / f"winre_{i:02d}.bmp")
     print(f"{len(assets)} assets -> {out}")

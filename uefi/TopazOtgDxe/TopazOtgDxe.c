@@ -585,6 +585,7 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
 {
   EFI_INPUT_KEY key;
   UINTN choice;
+  BOOLEAN textMenu = FALSE, firstMenu = TRUE;
 
   gBS->CloseEvent (Event);
   /*
@@ -611,12 +612,23 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
     mAbStatus = AbSlotMarkBSuccessful (&mAb);        /* keep ABL from falling back to slot a */
   }
 
+  /*
+   * Main menu = WinRE-look touch page with a 5 s countdown to Windows. Its back arrow (or missing
+   * bitmaps) falls back to the old 3 s text menu, whose last item opens the touch page again.
+   */
   for (;;) {
-    choice = BootMenu (3);
-    if (choice == MENU_WINRE) {
-      choice = WinReMenu ();
-      DisplayBootGraphic (BG_SYSTEM_LOGO);              /* logos back, text menu / boot messages on top */
+    if (!textMenu) {
+      choice = WinReMenu (firstMenu ? 5 : 0);
+      firstMenu = FALSE;
+      DisplayBootGraphic (BG_SYSTEM_LOGO);              /* logos back, boot messages / text menu on top */
       if (choice >= WINRE_BACK) {
+        textMenu = TRUE;
+        continue;
+      }
+    } else {
+      choice = BootMenu (3);
+      if (choice == MENU_WINRE) {
+        textMenu = FALSE;
         continue;
       }
     }

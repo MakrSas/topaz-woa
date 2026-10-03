@@ -17,13 +17,14 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/DxeServicesLib.h>
 #include <Library/BmpSupportLib.h>
+#include <Library/TimerLib.h>
 #include <Protocol/GraphicsOutput.h>
 #include "TopazOtg.h"
 
 /* FREEFORM file with the RAW sections, see build_topaz_uefi.sh */
 STATIC EFI_GUID  mWinReGuid = { 0x5d0b7a63, 0x2c84, 0x4e19, { 0xb7, 0x3f, 0x91, 0x0a, 0x6e, 0x52, 0xc4, 0x28 } };
 
-enum { ASSET_HEADER, ASSET_TILE0, ASSET_BACK = ASSET_TILE0 + 4, ASSET_HINT, ASSET_COUNT };
+enum { ASSET_HEADER, ASSET_TILE0, ASSET_BACK = ASSET_TILE0 + 4, ASSET_HINT, ASSET_COUNT1, ASSET_COUNT = ASSET_COUNT1 + 9 };
 
 #define TILE_COUNT   4
 #define FOCUS_BACK   TILE_COUNT          /* focus index of the back arrow */
@@ -37,6 +38,7 @@ enum { ASSET_HEADER, ASSET_TILE0, ASSET_BACK = ASSET_TILE0 + 4, ASSET_HINT, ASSE
 #define BACK_BOX_Y   205
 #define BACK_BOX     120
 #define HINT_BOTTOM  260
+#define COUNT_BOTTOM 340                 /* "Starting Windows in N s" above the hint */
 #define OUTLINE      3                   /* focus: white outline, black inside */
 
 typedef struct {
@@ -226,11 +228,30 @@ STATIC BOOLEAN TouchPoll(UINTN *X, UINTN *Y)
 
 /* ---- page loop ---------------------------------------------------------------- */
 
-UINTN WinReMenu(VOID)
+STATIC UINTN mCountShown;
+
+/* countdown line: N = 1..9 seconds, 0 = erase */
+STATIC VOID DrawCountdown(UINTN N)
+{
+  UINTN sx = mGop->Mode->Info->HorizontalResolution, sy = mGop->Mode->Info->VerticalResolution;
+  ASSET *a = &mAsset[ASSET_COUNT1];
+
+  if (N == mCountShown) {
+    return;
+  }
+  Fill (0, sy - COUNT_BOTTOM, sx, a->H, 0);
+  if (N >= 1 && N <= 9) {
+    Draw (ASSET_COUNT1 + N - 1, (sx - mAsset[ASSET_COUNT1 + N - 1].W) / 2, sy - COUNT_BOTTOM, 0);
+  }
+  mCountShown = N;
+}
+
+UINTN WinReMenu(UINTN TimeoutSec)
 {
   EFI_INPUT_KEY key;
   UINTN focus = 0, pressed = MAX_UINTN, x = 0, y = 0, hit, result;
-  BOOLEAN down;
+  BOOLEAN down, counting = (TimeoutSec != 0);
+  UINT64 start;
 
   if (EFI_ERROR (gBS->LocateProtocol (&gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&mGop)) ||
       EFI_ERROR (LoadAssets ())) {
@@ -238,12 +259,25 @@ UINTN WinReMenu(VOID)
   }
   TouchInit ();
   DrawPage (focus);
+  mCountShown = 0;
+  start = GetTimeInNanoSecond (GetPerformanceCounter ());
   while (gST->ConIn != NULL && !EFI_ERROR (gST->ConIn->ReadKeyStroke (gST->ConIn, &key))) {
     /* drop the key that opened the page */
   }
 
   for (;;) {
+    if (counting) {
+      UINT64 ms = (GetTimeInNanoSecond (GetPerformanceCounter ()) - start) / 1000000;
+      if (ms >= TimeoutSec * 1000) {
+        result = WINRE_WINDOWS;                          /* nobody touched it: default */
+        break;
+      }
+      DrawCountdown (MIN (9, TimeoutSec - (UINTN)(ms / 1000)));
+    }
+
     if (gST->ConIn != NULL && !EFI_ERROR (gST->ConIn->ReadKeyStroke (gST->ConIn, &key))) {
+      counting = FALSE;
+      DrawCountdown (0);
       if (key.ScanCode == SCAN_UP || key.ScanCode == SCAN_DOWN) {
         DrawFocus (focus, FALSE);
         focus = (focus + (key.ScanCode == SCAN_UP ? FOCUS_BACK : 1)) % (FOCUS_BACK + 1);
@@ -255,6 +289,10 @@ UINTN WinReMenu(VOID)
     }
 
     down = TouchPoll (&x, &y);
+    if (down && counting) {
+      counting = FALSE;
+      DrawCountdown (0);
+    }
     hit  = down ? HitTest (x, y) : MAX_UINTN;
     if (down && pressed == MAX_UINTN && hit != MAX_UINTN) {
       pressed = hit;                                     /* finger down on an option */
