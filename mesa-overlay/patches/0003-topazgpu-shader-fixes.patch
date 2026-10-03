@@ -740,7 +740,7 @@ index 84b7ccf..0d5fb58 100644
                                &transfer);
     }
 diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
-index 3243fc3..c8d5f59 100644
+index 3243fc3..341cf9e 100644
 --- a/src/gallium/frontends/d3d10umd/Shader.cpp
 +++ b/src/gallium/frontends/d3d10umd/Shader.cpp
 @@ -31,6 +31,8 @@
@@ -770,7 +770,7 @@ index 3243fc3..c8d5f59 100644
  
     pShader->handle = pipe->create_fs_state(pipe, &pShader->state);
 +   {
-+      extern bool topaz_log_tgsi;   /* TopazGpu: tag the TGSI dump above with the tokens pointer used in logs */
++      extern "C" bool topaz_log_tgsi;   /* TopazGpu: tag the TGSI dump above with the tokens pointer used in logs */
 +      if (topaz_log_tgsi) {
 +         fprintf(stderr, "---- (the TGSI above is PS %p)\n", (const void *)pShader->state.tokens);
 +         fflush(stderr);
