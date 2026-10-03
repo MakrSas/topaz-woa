@@ -886,3 +886,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   scratch texture before the draws and copied back before anything can observe them (next scissor, RT change,
   RS scissor off / unscissored draw, ClearRTV, ResourceCopy(Region), Present).
 - 17:35 SCFIX result: the distinct grey vertical strokes are gone, only very faint light dots remain (also faint dots along triangle seams of the strips -> derivatives at triangle seams slightly off too). Experiment TOPAZ_DERIV=1/2 (fine/coarse fddx/fddy for TGSI DDX/DDY).
+- 17:50 TOPAZ_DERIV=1 (fine) / =2 (coarse): no clear gain (fine slightly worse on seams); default stays nir fddx. umd.env back to defaults (SCFIX on).
