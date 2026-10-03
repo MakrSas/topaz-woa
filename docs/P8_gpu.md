@@ -808,3 +808,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   shadows correct. Only the thin dashed strokes remain. => artifacts (1) and (3) are a CPU/GPU sync hazard
   (data the CPU changes before deferred draws execute). (2) dashed strokes is a separate issue. Next: narrow it
   (TOPAZ_SYNCMAP=1 alone).
+- 14:10 TOPAZ_SYNCMAP=1 alone (NO_OVERWRITE maps synchronized, i.e. flush + wait when the buffer is pending/busy):
+  also clean (no stale blocks, shadows ok) but low FPS. => the hazard is on Map(WRITE_NOOVERWRITE). Next split:
+  TOPAZ_SYNCMAP=2 = only flush the pending batches before an unsynchronized map (no wait). Fixed by =2 ->
+  data overwritten under draws still recorded in an unflushed batch; not fixed -> the GPU still reads the buffer
+  after the submit, i.e. freedreno's BO busy tracking (fence) is wrong on WDDM.
