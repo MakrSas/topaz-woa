@@ -693,3 +693,53 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   welcome screen -> not glyph/texture layout. d3d10umd scissor/copy-box conversions are correct.
   Suspect the flip-completion timing (v0.39 reports flips done by the timer before the MDP latch, DWM
   may start drawing into the buffer still being fetched). v0.40 staged; umd.env back to defaults.
+
+## STATE AT STOP (2026-10-03 ~11:15) - read this first when resuming
+### Where we are
+- GPU0 RAM-boot (`fastboot boot ~/work/win/uefi/Mu-topaz-v4-GPU0-RELEASE.img` on s8build): Windows desktop
+  composed by DWM on the Adreno 610 through Mesa d3d10umd+freedreno, TopazGpuW v0.40 on the phone
+  (System32\drivers\TopazGpuW.sys), direct MDP scanout (VIG0 SRC0_ADDR = BO PA, flip done when the CTL
+  flush bit clears), brightness slider through the GPU adapter, fps 13-60 (log "fps:" line), no rejected
+  submits (512-IB limit). UMD = latest mesa.yml artifact (patch 0002 incl. storage rotation, umd.env,
+  TopazWddm* logging) in System32\topazgpu_d3d10.dll; C:\topaz\umd.enable, C:\ProgramData\topaz\umd.log.enable
+  present; umd.env = defaults. Normal (flashed) boot = TopazDisplay v0.8, unchanged.
+- Open symptoms: (1) stale regions (zoomed window-open animation frame, old window copy) until the area is
+  redrawn; (2) 1-px dashed lines/arcs where DWM redraws small regions (touch circle, menu text, user
+  avatar); (3) popup drop shadows clipped with a hard edge; portrait only; Modern Standby BSOD 0x14F
+  (timeouts set to 0); preemption disabled system-wide.
+
+### Fresh analysis (independent agent, 2026-10-03, code reading only)
+- Rotate/present contract is CONSISTENT: dxgiddi.h `pResources` "0 <= 1, 1 <= 2" = our default direction
+  (TOPAZ_ROTATE_REVERSE / TOPAZ_NOROTATE are wrong by definition); the runtime does not rotate allocation
+  handles itself and Dxgkrnl scans out exactly the allocation the UMD passed to pfnPresentCb -> presented
+  buffer == scanned-out BO. DWM copies everything OUTSIDE the damage rect D from [0] (previous frame) and
+  redraws only inside D (NOROTATE -> black outside D proves it). So stale content means pixels INSIDE D
+  are not written in that frame -> a draw-side (shader/translation) bug, not flip/rotation. v0.40
+  changing nothing fits.
+- Defects found in our tgsi_to_nir/d3d10umd path (mesa patch 0002):
+  (a) ttn_sample ignores the resource swizzle on Src[1] (e.g. t0.wxyz for scalar .a reads; gallivm applies
+      it) -> alpha masks read the wrong channel (often 0).
+  (b) D3D `discard` compiled as terminate (nir_discard -> ir3 kill) instead of demote: helper pixels die,
+      derivatives/LOD of the rest of a 2x2 quad become garbage -> typical dashed 1-px artifacts along
+      curves. ir3 supports demote.
+  (c) SVIEWINFO (resinfo/GetDimensions) unimplemented in tgsi_to_nir -> returns 0 (blur 1/size = inf).
+  Minor: KMD FILL paging op writes into BO-backed allocations (VidMM does not own that memory) -> skip
+  FILL when Al->Bo != NULL.
+- Checked and correct: scissor conversion, viewport scissor, a6xx 2D blit rects for linear BGRA, MSAA
+  not involved.
+### Next steps (in order)
+1. Zero-cost: with umd.tgsi on, grep DWM's umd-*.log for "unknown TGSI opcode" (SVIEWINFO), SAMPLE with
+   non-xyzw SVIEW swizzle, KILL/KILL_IF followed by DDX/DDY/SAMPLE.
+2. Fixes behind umd.env switches, then make default:
+   A ttn_sample: `r = nir_pad_vector_imm_int(...); swz = Src[1].Register.Swizzle{X,Y,Z,W}; return
+     nir_swizzle(b, r, swz, 4);` (TOPAZ_SVSWZ=1)
+   B ttn_kill/ttn_kill_if: nir_demote / nir_demote_if + info.fs.uses_demote = true (TOPAZ_DEMOTE=1)
+   C TGSI_OPCODE_SVIEWINFO -> nir_texop_txs (texture_index = Src[1].Index, lod = src[0].x) +
+     nir_texop_query_levels for .w, like ttn_txq.
+3. Decisive experiment TOPAZ_POISON=1: after fd_resource_rotate_storage clear hResources[1] (next back
+   buffer) to magenta (create_surface + clear_render_target). Magenta on screen = pixels in D not written
+   (draw-side); grey arcs staying = drawn wrong -> (b); shadow falloff magenta = not drawn, background =
+   transparent -> (a)/(c). TOPAZ_FULLCOPY=1 (copy all of [0] into [1]) as a cross-check.
+4. KMD: ignore DXGK_OPERATION_FILL for BO-backed allocations.
+5. Later: async present (no fence wait), path rotation, Modern Standby, then flashing a GPU0 UEFI only
+   with the user's consent.
