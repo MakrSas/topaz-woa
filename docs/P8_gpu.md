@@ -991,3 +991,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   all ~2300/s are 16-64 KiB CACHED_COHERENT = RING_FLAGS cmdstream/state-object suballoc BOs (fd_bo_new_ring,
   SUBALLOC_SIZE 32K) that freedreno's ring cache does not reuse. Added BO-cache counters (hits, miss, busy-head
   = find_in_bucket gave up because the oldest entry is busy, put, expired) to the TIMING log.
+- 23:00 BO cache counters during a Chrome move: hits 744, miss 9106, busy-head 0, put 744 per 60 frames -> freed BOs mostly bypass the cache (not a busy problem). Added try_recycle reason counters.

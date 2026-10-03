@@ -1,3 +1,36 @@
+diff --git a/src/freedreno/drm/freedreno_bo.c b/src/freedreno/drm/freedreno_bo.c
+index 80b5a45..f4458bc 100644
+--- a/src/freedreno/drm/freedreno_bo.c
++++ b/src/freedreno/drm/freedreno_bo.c
+@@ -359,11 +359,28 @@ bo_del(struct fd_bo *bo)
+    bo->funcs->destroy(bo);
+ }
+ 
++/* TopazGpu debug: why freed BOs skip the cache */
++unsigned fd_dbg_del_suballoc, fd_dbg_del_nocache, fd_dbg_del_bocache, fd_dbg_del_ringcache, fd_dbg_del_shared;
++
++void
++fd_bo_del_debug_stats(unsigned *v)
++{
++   v[0] = fd_dbg_del_suballoc; v[1] = fd_dbg_del_nocache; v[2] = fd_dbg_del_bocache; v[3] = fd_dbg_del_ringcache;
++   v[4] = fd_dbg_del_shared;
++   fd_dbg_del_suballoc = fd_dbg_del_nocache = fd_dbg_del_bocache = fd_dbg_del_ringcache = fd_dbg_del_shared = 0;
++}
++
+ static bool
+ try_recycle(struct fd_bo *bo)
+ {
+    struct fd_device *dev = bo->dev;
+ 
++   if (suballoc_bo(bo)) fd_dbg_del_suballoc++;
++   else if (bo->bo_reuse == BO_CACHE) fd_dbg_del_bocache++;
++   else if (bo->bo_reuse == RING_CACHE) fd_dbg_del_ringcache++;
++   else fd_dbg_del_nocache++;
++   if (bo->alloc_flags & (FD_BO_SHARED | _FD_BO_NOSYNC)) fd_dbg_del_shared++;
++
+    /* No point in BO cache for suballocated buffers: */
+    if (suballoc_bo(bo))
+       return false;
 diff --git a/src/freedreno/drm/freedreno_bo_cache.c b/src/freedreno/drm/freedreno_bo_cache.c
 index 933e246..2198701 100644
 --- a/src/freedreno/drm/freedreno_bo_cache.c
@@ -1352,20 +1385,21 @@ index 2aecca7..b6a066a 100644
     D3D10_DDI_QUERY_DATA_PIPELINE_STATISTICS Statistics;
  };
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-index cd028ba..b2f3758 100644
+index cd028ba..278c8dc 100644
 --- a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -163,6 +163,9 @@ TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HAN
+@@ -163,6 +163,10 @@ TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HAN
     return pDevice->screen->resource_from_handle(pDevice->screen, &templat, &wh, 0);
  }
  
 +extern "C" void fd_bo_cache_debug_stats(unsigned *v);
++extern "C" void fd_bo_del_debug_stats(unsigned *v);
 +extern "C" void fd_context_debug_fences(struct pipe_context *pctx, uint32_t *ctl, uint32_t *last);
 +
  /* DXGI Present: finish the GPU work on the source, then let the KMD blt/flip it */
  HRESULT
  TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGIContext)
-@@ -175,11 +178,55 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+@@ -175,11 +179,58 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
        TopazWddmLogf("topaz: Present of a resource without allocation\n");
        return S_OK;
     }
@@ -1408,8 +1442,11 @@ index cd028ba..b2f3758 100644
 +            fd_context_debug_fences(pipe, &ctl, &last);
 +            unsigned cs[6];
 +            fd_bo_cache_debug_stats(cs);
-+            TopazWddmLogf("FENCES control %u last %u | BO cache: hits %u miss %u busy-head %u put %u expired %u nobucket %u\n",
-+                          ctl, last, cs[0], cs[1], cs[2], cs[3], cs[4], cs[5]);
++            unsigned ds[5];
++            fd_bo_del_debug_stats(ds);
++            TopazWddmLogf("FENCES control %u last %u | BO cache: hits %u miss %u busy-head %u put %u expired %u nobucket %u"
++                          " | del: suballoc %u nocache %u bo %u ring %u shared/nosync %u\n",
++                          ctl, last, cs[0], cs[1], cs[2], cs[3], cs[4], cs[5], ds[0], ds[1], ds[2], ds[3], ds[4]);
 +         }
 +         TopazWddmLogf("TIMING 60 presents: frame %.1f ms, flush %.2f, gpu wait %.2f, present cb %.2f, NO_OVERWRITE flushes/frame %.1f (%.2f ms/frame), draws/frame %.0f in %.2f ms\n",
 +                       sumFrame / 59, sumFlush / 60, sumWait / 60, sumCb / 60, g_topazMapFlushes / 60.0,
@@ -1422,7 +1459,7 @@ index cd028ba..b2f3758 100644
     if (!pDevice->topazCtx) {
        /* own pfnCreateContextCb: gdikmt's leaves EngineAffinity 0 (invalid for a MultiEngineAware KMD) */
        struct gdikmt_context_d3dddi *c = (struct gdikmt_context_d3dddi *)calloc(1, sizeof(*c));
-@@ -209,7 +256,12 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+@@ -209,7 +260,12 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
        p.hDstAllocation = pDst ? pDst->hAllocation : 0;
        p.pDXGIContext = pDXGIContext;
        p.hContext = ((struct gdikmt_context_d3dddi *)pDevice->topazCtx)->hContext;
@@ -1435,7 +1472,7 @@ index cd028ba..b2f3758 100644
        if (FAILED(hr))
           TopazWddmLogf("topaz: PresentCb src 0x%x dst 0x%x ctx %p -> 0x%08lx\n", p.hSrcAllocation, p.hDstAllocation,
                         p.hContext, (unsigned long)hr);
-@@ -290,6 +342,21 @@ bool
+@@ -290,6 +346,21 @@ bool
  TopazWddmEnabled(void)
  {
     TopazWddmLogInit();
