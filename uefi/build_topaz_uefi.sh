@@ -18,7 +18,7 @@ apply "$HERE/patches/mu-topazotg.diff" .                    # TopazOtgDxe in dsc
 
 mkdir -p Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe
 cp "$HERE"/TopazOtgDxe/*.{c,h,inf} Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe/
-# Mi logo centered + Silicium logo at the bottom (TopazBootGraphicsLib, MiLogo.bmp in FvMain)
+# Mi logo centered + original Silicium logo at the bottom (TopazBootGraphicsLib, MiLogo.bmp in FvMain)
 mkdir -p Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib
 cp "$HERE"/TopazBootGraphicsLib/*.{c,inf,bmp} Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/
 grep -q MiLogo.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf ||
@@ -30,8 +30,8 @@ rm -rf $W
 sed -i '/FILE FREEFORM = 5D0B7A63-2C84-4E19-B73F-910A6E52C428/,/^  }/d' Platforms/Xiaomi/tapasPkg/tapas.fdf   # rebuilt: the asset count changes
 secs=$(for f in $W/winre_*.bmp; do printf '\\n    SECTION RAW = tapasPkg/Drivers/TopazOtgDxe/winre/%s' "$(basename $f)"; done)
 sed -i "s#^  !include QcomPkg/Extra.fdf.inc#&\\n\\n  FILE FREEFORM = 5D0B7A63-2C84-4E19-B73F-910A6E52C428 {$secs\\n  }#" Platforms/Xiaomi/tapasPkg/tapas.fdf
-grep -q SiliciumText.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf ||
-    sed -i 's#^  !include QcomPkg/Extra.fdf.inc#&\n\n  FILE FREEFORM = 2F6D81C4-7E19-4B3A-9C52-0BE46A17D893 {\n    SECTION RAW = tapasPkg/Library/TopazBootGraphicsLib/SiliciumText.bmp\n  }#' Platforms/Xiaomi/tapasPkg/tapas.fdf
+sed -i '/FILE FREEFORM = 2F6D81C4-7E19-4B3A-9C52-0BE46A17D893/,/^  }/d' Platforms/Xiaomi/tapasPkg/tapas.fdf   # old SiliciumText.bmp
+rm -f Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/SiliciumText.bmp
 grep -q TopazBootGraphicsLib Platforms/Xiaomi/tapasPkg/tapas.dsc ||
     sed -i 's#^  ConfigurationMapLib|.*$#&\n  BootGraphicsLib|tapasPkg/Library/TopazBootGraphicsLib/TopazBootGraphicsLib.inf#' Platforms/Xiaomi/tapasPkg/tapas.dsc
 

@@ -29,5 +29,5 @@ No Segoe UI or other Microsoft font files are used.
 
 The UEFI is built from [Mu-Silicium](https://github.com/Project-Silicium/Mu-Silicium);
 `uefi/TopazBootGraphicsLib` is based on MsGraphicsPkg BootGraphicsLib (Microsoft, Intel,
-BSD-2-Clause-Patent). The "Project Silicium" text and the Mi logo bitmaps are only used on the
+BSD-2-Clause-Patent). The Silicium logo and the Mi logo bitmap are only used on the
 boot screen of this device port.

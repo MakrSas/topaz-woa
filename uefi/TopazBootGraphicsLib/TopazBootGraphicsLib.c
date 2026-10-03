@@ -3,8 +3,8 @@
   centers the Silicium logo).
 
   BG_SYSTEM_LOGO: black screen, the Mi logo (MiLogo.bmp, a FREEFORM file in FvMain) centered
-  like the Xiaomi splash, and "Project Silicium" (SiliciumText.bmp; PcdLogoFile if missing) at
-  the bottom where the splash says "Powered by Android". The Mi logo is also the BGRT image, so Windows Boot Manager shows it.
+  like the Xiaomi splash, and the Silicium logo (PcdLogoFile) at the bottom where the splash
+  says "Powered by Android". The Mi logo is also the BGRT image, so Windows Boot Manager shows it.
   Other graphics (no OS, battery, ...) keep the upstream black + centered behaviour.
 
   Copyright (c) 2011 - 2018, Intel Corporation. All rights reserved.<BR>
@@ -25,16 +25,13 @@
 #include <Library/UefiLib.h>
 #include <Library/DxeServicesLib.h>
 
-/* MiLogo.bmp and SiliciumText.bmp, added to FvMain by uefi/build_topaz_uefi.sh */
+/* MiLogo.bmp, added to FvMain by uefi/build_topaz_uefi.sh */
 #define TOPAZ_MI_LOGO_GUID \
   { 0x9a4c2e17, 0x5b3d, 0x4f81, { 0xa6, 0x0e, 0x7d, 0x12, 0xc9, 0x48, 0x3b, 0x5f } }
-#define TOPAZ_SILICIUM_TEXT_GUID \
-  { 0x2f6d81c4, 0x7e19, 0x4b3a, { 0x9c, 0x52, 0x0b, 0xe4, 0x6a, 0x17, 0xd8, 0x93 } }
 
-#define LOGO_BOTTOM_GAP  150   /* pixels between the Silicium text and the bottom edge */
+#define LOGO_BOTTOM_GAP  100   /* pixels between the Silicium logo and the bottom edge */
 
-STATIC EFI_GUID  mMiLogoGuid       = TOPAZ_MI_LOGO_GUID;
-STATIC EFI_GUID  mSiliciumTextGuid = TOPAZ_SILICIUM_TEXT_GUID;
+STATIC EFI_GUID  mMiLogoGuid = TOPAZ_MI_LOGO_GUID;
 
 /* Decode a BMP and Blt it horizontally centered; BottomGap < 0 = vertically centered, else
    the image ends BottomGap pixels above the bottom edge. */
@@ -94,8 +91,6 @@ DisplayBootGraphic (
   UINTN                          ImageSize, MiSize, SizeOfY, Dx, Dy, W, H;
   UINT8                          *ImageData = NULL;
   UINT8                          *MiData    = NULL;
-  UINT8                          *TextData  = NULL;
-  UINTN                          TextSize;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *MiBlt     = NULL;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Black;
   EFI_GRAPHICS_OUTPUT_PROTOCOL   *Gop;
@@ -150,12 +145,8 @@ DisplayBootGraphic (
     goto CleanUp;
   }
 
-  /* "Project Silicium" at the bottom, where the Xiaomi splash says "Powered by Android" */
-  if (!EFI_ERROR (GetSectionFromAnyFv (&mSiliciumTextGuid, EFI_SECTION_RAW, 0, (VOID **)&TextData, &TextSize))) {
-    DrawBmp (Gop, TextData, TextSize, LOGO_BOTTOM_GAP, NULL, NULL, NULL, NULL, NULL);
-  } else {
-    DrawBmp (Gop, ImageData, ImageSize, LOGO_BOTTOM_GAP, NULL, NULL, NULL, NULL, NULL);
-  }
+  /* Silicium logo (PcdLogoFile) at the bottom, where the Xiaomi splash says "Powered by Android" */
+  DrawBmp (Gop, ImageData, ImageSize, LOGO_BOTTOM_GAP, NULL, NULL, NULL, NULL, NULL);
 
   if (!EFI_ERROR (GetSectionFromAnyFv (&mMiLogoGuid, EFI_SECTION_RAW, 0, (VOID **)&MiData, &MiSize))) {
     Status = DrawBmp (Gop, MiData, MiSize, -1, &MiBlt, &Dx, &Dy, &W, &H);
@@ -170,10 +161,6 @@ DisplayBootGraphic (
 CleanUp:
   if (MiBlt != NULL) {
     FreePool (MiBlt);
-  }
-
-  if (TextData != NULL) {
-    FreePool (TextData);
   }
 
   if (MiData != NULL) {
