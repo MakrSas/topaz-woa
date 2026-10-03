@@ -19,10 +19,14 @@
  * v0.3: with C:\topaz\ipa.probe, after an acked vote, read a few IPA / GSI registers (first
  * access to IPA). Layout as mainline sc7180 (IPA v4.2): ipa-reg = ipa-base + 0x40000 = 0x5840000,
  * shared SRAM 0x5847000, gsi = 0x5804000 (DT gsi-base); registers from drivers/net/ipa/reg.
+ * v0.3 result: installed with devcon update over a running v0.2, the second VERSION on the live
+ * link got only a VERSION_ACK and the whole SoC went down (RPM crash) before the IPA probe ran.
+ * v0.4: never re-handshake - if the FIFO indices are not both 0 the link was used since boot,
+ * so the driver only logs. TopazRpm must be updated by file swap + reboot, never restarted.
  */
 #include "driver.h"
 
-#define TOPAZ_RPM_VERSION   "v0.3"
+#define TOPAZ_RPM_VERSION   "v0.4"
 
 #define MSG_RAM_PA          0x045F0000ULL
 #define MSG_RAM_SIZE        0x7000
@@ -522,7 +526,10 @@ static NTSTATUS EvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESL
 
     LogPrint("survey: %08x\n", status);
     if (NT_SUCCESS(status) && ctx->Tx.Size != 0 && ctx->Rx.Size != 0) {
-        if (FileExists(L"\\??\\C:\\topaz\\rpm.on")) {
+        if (Rd(ctx, ctx->Tx.Off) != 0 || Rd(ctx, ctx->Tx.Off + 4) != 0 ||
+            Rd(ctx, ctx->Rx.Off) != 0 || Rd(ctx, ctx->Rx.Off + 4) != 0) {
+            LogPrint("FIFOs used since boot (driver restarted?): no second handshake - it crashed the RPM\n");
+        } else if (FileExists(L"\\??\\C:\\topaz\\rpm.on")) {
             LogPrint("C:\\topaz\\rpm.on present: linking\n");
             Link(ctx);
         } else {

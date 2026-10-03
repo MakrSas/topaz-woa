@@ -98,3 +98,8 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   and "glink_ssr" (rcid 4), our OPEN acked, **IPA clock 100 MHz acked (msg# 1)**. Same channel can
   carry the GPU rail votes later.
 - TopazRpm v0.3 (C:\topaz\ipa.probe): first read of IPA/GSI registers after the vote.
+- **TopazRpm v0.3 install = whole SoC down**: devcon update restarted the driver, the second
+  VERSION on the already-live link got a VERSION_ACK only, then the system died (RPM crash) before
+  the IPA probe; after the reboot the store still had v0.2 (update never completed). Rule: TopazRpm
+  is updated only by file swap + reboot. v0.4 refuses to handshake when the FIFO indices show
+  earlier traffic.
