@@ -842,3 +842,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   TOPAZ_UPDSYNC=1: ResourceUpdateSubresourceUP on textures without DISCARD_RANGE (freedreno then skips its
   shadow/staging upload path).
 - 15:20 TOPAZ_UPDSYNC=1: strokes remain (faint straight horizontal/vertical lines through the window at seemingly regular positions -> suspect GMEM bin edges). Next: FD_MESA_DEBUG=sysmem.
+- 15:35 FD_MESA_DEBUG=sysmem: strokes remain (not GMEM bins). DUMP (pid 1276): the mmc window texture
+  (1182x1820) is clean, the presented frame has the dashed/straight 1-px strokes (rows of the tree view, right
+  pane) -> added by DWM's composition on our stack, not by the app/upload. The window is composed at ~0.86 scale.
+  Strokes look like leftover pixels exactly at damage-rect edges. Experiment TOPAZ_SCPAD=1/2: scissor 1 px wider
+  (right/bottom, or all sides).

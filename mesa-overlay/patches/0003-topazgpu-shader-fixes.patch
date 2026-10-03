@@ -343,7 +343,7 @@ index e7c2a1c..35d10d0 100644
        ret = pipe->get_query_result(pipe, state, wait, &result);
     } else {
 diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-index a0262da..c949e00 100644
+index a0262da..78a4c96 100644
 --- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 +++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 @@ -31,12 +31,166 @@
@@ -524,18 +524,29 @@ index a0262da..c949e00 100644
     if (ClearViewports) {
        memset(states + NumViewports, 0,
               sizeof(struct pipe_viewport_state) * ClearViewports);
-@@ -123,6 +281,10 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -122,6 +280,21 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+       states[i].miny = pRect->top    < 0 ? 0 : pRect->top;
        states[i].maxx = pRect->right  < 0 ? 0 : pRect->right;
        states[i].maxy = pRect->bottom < 0 ? 0 : pRect->bottom;
-    }
++      /* TopazGpu experiment TOPAZ_SCPAD=1: right/bottom +1 px, =2: every edge 1 px wider (dashed strokes
++       * along damage edges = edge pixels DWM thinks it painted?) */
++      const char *pad = getenv("TOPAZ_SCPAD");
++      if (pad && (pad[0] == '1' || pad[0] == '2')) {
++         states[i].maxx += 1;
++         states[i].maxy += 1;
++         if (pad[0] == '2') {
++            states[i].minx = states[i].minx ? states[i].minx - 1 : 0;
++            states[i].miny = states[i].miny ? states[i].miny - 1 : 0;
++         }
++      }
++   }
 +   if (NumScissorRects) {
 +      g_topazSc[0] = pRects[0].left; g_topazSc[1] = pRects[0].top;
 +      g_topazSc[2] = pRects[0].right; g_topazSc[3] = pRects[0].bottom;
-+   }
+    }
     if (ClearScissorRects) {
        memset(states + NumScissorRects, 0,
-              sizeof(struct pipe_scissor_state) * ClearScissorRects);
-@@ -236,6 +398,7 @@ CreateRasterizerState(
+@@ -236,6 +409,7 @@ CreateRasterizerState(
     state.line_rectangular = 0;
  
     pRasterizerState->handle = pipe->create_rasterizer_state(pipe, &state);
@@ -543,7 +554,7 @@ index a0262da..c949e00 100644
  }
  
  
-@@ -283,5 +446,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+@@ -283,5 +457,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
     struct pipe_context *pipe = CastPipeContext(hDevice);
     void *state = CastPipeRasterizerState(hRasterizerState);
  
