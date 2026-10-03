@@ -165,3 +165,10 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   allocation (v4.2 quirk) resets/hangs the SoC; after that: AP ipa_hardware_config /
   resource config / table init (Linux ipa_setup), then SIM provisioning (modem_cfg) retest,
   then the data path.
+- **v0.17 result:** every GSI read and the setup writes pass (STATUS 1, ERROR_LOG 6c8dbd9c stale,
+  GLOB_IRQ_EN 0, STTS 0, SCRATCH_0 88500011); the SoC resets right after
+  `GENERIC_CMD = 0x402` (ALLOCATE_CHANNEL ch 0, EE 1). The command itself kills the SoC.
+  Theory: GSI/IPA DMA goes through the SMMU (DT ipa_smmu_ap iommus stream 0x140, wlan 0x141,
+  uc 0x142) and nobody set those streams up - same failure mode as WLAN before its identity
+  context bank (stream 0x1A0, wlanprobe.c SmmuWlanMap). Next: identity bank for 0x140..0x142
+  before ipa_fws / GSI commands.
