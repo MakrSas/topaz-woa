@@ -837,3 +837,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   strips (118x1, 2x115, 9x1 ...) exactly along damage edges where the strokes show. Experiment TOPAZ_COPYPATH=1:
   swapchain ResourceCopyRegion through util_resource_copy_region (CPU map/memcpy) instead of freedreno's blit.
 - Note (2026-10-03): the user's phone reports codename **tapas** (Redmi Note 12 4G without NFC); topaz is the NFC variant of the same SM6225 platform. Names in the repo stay "topaz".
+- 15:10 TOPAZ_COPYPATH=1 (CPU swapchain copies): strokes remain (thin vertical lines inside the window body,
+  dashed horizontal scrollbar thumb) -> not the complement copies. FPS unchanged (29). Next experiment
+  TOPAZ_UPDSYNC=1: ResourceUpdateSubresourceUP on textures without DISCARD_RANGE (freedreno then skips its
+  shadow/staging upload path).
