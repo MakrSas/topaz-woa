@@ -942,3 +942,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   Screenshot tool: C:\topaz\shot.ps1 via a /IT scheduled task (GDI CopyFromScreen; not DPI-aware yet).
   Added TOPAZ_TIMING=1 (per 60 presents: frame time, flush, GPU wait in Present, NO_OVERWRITE flushes/frame) and
   TOPAZ_NOPRESENTWAIT=1 (skip the CPU fence wait in Present; experiment).
+- 20:05 TIMING (dwm, base): frame 33-38 ms, GPU wait in Present 0.03 ms (GPU already idle), flush 0.15 ms, 31-37 NO_OVERWRITE flushes per frame; fpsbench clusters at exactly 30 -> vsync-quantised (flip waits for the MDP latch), frame work slightly > 16.7 ms. Measuring time spent in the NO_OVERWRITE flushes and in pfnPresentCb next.
