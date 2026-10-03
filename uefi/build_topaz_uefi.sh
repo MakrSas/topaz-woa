@@ -23,6 +23,8 @@ mkdir -p Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib
 cp "$HERE"/TopazBootGraphicsLib/*.{c,inf,bmp} Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/
 grep -q MiLogo.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf ||
     sed -i 's#^  !include QcomPkg/Extra.fdf.inc#&\n\n  FILE FREEFORM = 9A4C2E17-5B3D-4F81-A60E-7D12C9483B5F {\n    SECTION RAW = tapasPkg/Library/TopazBootGraphicsLib/MiLogo.bmp\n  }#' Platforms/Xiaomi/tapasPkg/tapas.fdf
+grep -q SiliciumText.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf ||
+    sed -i 's#^  !include QcomPkg/Extra.fdf.inc#&\n\n  FILE FREEFORM = 2F6D81C4-7E19-4B3A-9C52-0BE46A17D893 {\n    SECTION RAW = tapasPkg/Library/TopazBootGraphicsLib/SiliciumText.bmp\n  }#' Platforms/Xiaomi/tapasPkg/tapas.fdf
 grep -q TopazBootGraphicsLib Platforms/Xiaomi/tapasPkg/tapas.dsc ||
     sed -i 's#^  ConfigurationMapLib|.*$#&\n  BootGraphicsLib|tapasPkg/Library/TopazBootGraphicsLib/TopazBootGraphicsLib.inf#' Platforms/Xiaomi/tapasPkg/tapas.dsc
 
