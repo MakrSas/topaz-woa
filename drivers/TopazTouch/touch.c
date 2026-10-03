@@ -288,7 +288,8 @@ static VOID TouchThread(PVOID Context)
     PDEVICE_CONTEXT Ctx = (PDEVICE_CONTEXT)Context;
     UCHAR buf[FTS_TOUCH_DATA_LEN];
     LARGE_INTEGER period;
-    ULONG errors = 0, polls = 0;
+    ULONG errors = 0, polls = 0, reads = 0, statPolls = 0;
+    LONG64 rdSum = 0, rdMax = 0, statT0 = (LONG64)KeQueryInterruptTime();
     BOOLEAN wasTouching = FALSE;
 
     period.QuadPart = -10000LL * 5; /* 5 ms */
@@ -303,7 +304,31 @@ static VOID TouchThread(PVOID Context)
         if (!irqLow && !wasTouching && (polls % 20) != 0) {
             continue;
         }
-        status = GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x00, buf, sizeof(buf));
+        {
+            LONG64 r0 = (LONG64)KeQueryInterruptTime();
+            status = GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x00, buf, sizeof(buf));
+            LONG64 dt = (LONG64)KeQueryInterruptTime() - r0;   /* 100 ns */
+            rdSum += dt;
+            if (dt > rdMax) {
+                rdMax = dt;
+            }
+            reads++;
+        }
+        /* rate stats once per second while touching (diagnostics for slow touch drags) */
+        {
+            LONG64 now = (LONG64)KeQueryInterruptTime();
+            if (now - statT0 >= 10000000LL) {
+                if (wasTouching && reads) {
+                    LogPrint("rate: %u polls, %u reads/s, read avg %lld us max %lld us\n", polls - statPolls, reads,
+                             rdSum / reads / 10, rdMax / 10);
+                }
+                statT0 = now;
+                statPolls = polls;
+                reads = 0;
+                rdSum = 0;
+                rdMax = 0;
+            }
+        }
         if (!NT_SUCCESS(status)) {
             if (errors++ < 20) {
                 LogPrint("read error %08x irq=%08x\n", status, Ctx->Bus.LastIrqStatus);

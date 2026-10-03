@@ -975,3 +975,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - 21:45 TopazGpuW v0.41 on the phone (GPU0 RAM boot): "vsync: 1 ms high-resolution timer". movebench (Chrome
   window moved): 40-44 flips/s (v0.40: 22-25); fpsbench -Big ~32, small ~26 (bench window has no content).
   DWM TIMING still ~37 ms average frame (includes idle frames). Next: DWM CPU per frame (~13 ms) / UMD overhead.
+- 22:00 Touch-drag is the real limit: dragging Chrome/Explorer by finger gives 6-9 DWM flips/s, the same window moved by script gives 40+. TopazTouch v0.5 logs reads/s and I2C read time per second while touching.
