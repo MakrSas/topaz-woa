@@ -767,3 +767,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   damage the content is then exactly the previous frame, so remaining artifacts are inside the damage rect
   (draw-side) and stale regions caused by diverged buffers must vanish.
 - umd.env now = TOPAZ_SVSWZ=1, TOPAZ_DEMOTE=1, TOPAZ_SVINFO=1 (fixes on) for the user's visual check.
+- 12:30 user photos with SVSWZ+DEMOTE+SVINFO on: artifacts all still present (old window copies at their
+  previous position, big blurred white areas, dashed 1-px lines in the window frame, clipped Start-menu
+  shadow) - no visible gain, so (a)/(b)/(c) are not the (main) cause. Next A/B: umd.env = TOPAZ_FULLCOPY=1
+  only (CI run 37109561377).
