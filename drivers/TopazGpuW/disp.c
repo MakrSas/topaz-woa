@@ -72,7 +72,9 @@ static BOOLEAN DirectSelect(TGPU_ALLOCATION *Al)
     }
     return FALSE;
 }
-static PHYSICAL_ADDRESS g_ScanPa;               /* its address as Dxgkrnl knows it */
+static PHYSICAL_ADDRESS g_ScanPa;               /* its address as Dxgkrnl knows it (last flip) */
+static PHYSICAL_ADDRESS g_ShownPa;              /* v0.40: address reported in CRTC_VSYNC = really on screen */
+static ULONG g_FlipWaits;
 static volatile LONG g_ScanDirty;
 static volatile LONG g_FlipPending;
 static volatile LONG g_VsyncOn;
@@ -95,7 +97,7 @@ static BOOLEAN VsyncSync(PVOID Ctx)
     RtlZeroMemory(&d, sizeof(d));
     d.InterruptType = DXGK_INTERRUPT_CRTC_VSYNC;
     d.CrtcVsync.VidPnTargetId = 0;
-    d.CrtcVsync.PhysicalAddress = g_ScanPa;
+    d.CrtcVsync.PhysicalAddress = g_ShownPa;
     g_Dxgk->DxgkCbNotifyInterrupt(g_Dxgk->DeviceHandle, &d);
     g_Dxgk->DxgkCbQueueDpc(g_Dxgk->DeviceHandle);
     return TRUE;
@@ -116,13 +118,27 @@ static VOID VsyncDpc(PKDPC Dpc, PVOID Ctx, PVOID A1, PVOID A2)
         LONG f = InterlockedExchange(&g_FlipCount, 0);
         g_FpsTicks = 0;
         if (f != 0) {
-            LogPrint("fps: %ld flips/s (%s)\n", f, g_DirectActive ? "direct" : "copy");
+            LogPrint("fps: %ld flips/s (%s, %u waits for the MDP latch)\n", f, g_DirectActive ? "direct" : "copy",
+                     g_FlipWaits);
         }
     }
     if (InterlockedExchange(&g_ScanDirty, 0)) {
         EngKickScanout();
     }
-    flip = InterlockedExchange(&g_FlipPending, 0) != 0;
+    /* v0.40: a direct-scanout flip is done when the MDP latched it at the panel vsync: the CTL0_FLUSH bit
+       of VIG0 clears then. Until that Dxgkrnl keeps seeing the old address, so DWM never reuses the
+       buffer that is still being fetched. Copy-path flips are done at once. */
+    flip = FALSE;
+    if (g_FlipPending) {
+        if (g_DirectActive && g_Mdp != NULL &&
+            (READ_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_CTL0 + CTL_FLUSH)) & CTL_FLUSH_VIG0)) {
+            g_FlipWaits++;
+        } else {
+            InterlockedExchange(&g_FlipPending, 0);
+            g_ShownPa = g_ScanPa;
+            flip = TRUE;
+        }
+    }
     if (g_Dxgk != NULL && (g_VsyncOn || flip)) {
         g_Dxgk->DxgkCbSynchronizeExecution(g_Dxgk->DeviceHandle, VsyncSync, NULL, 0, &ret);
         if (++g_VsyncCount <= 3 || (flip && g_VsyncCount < 50)) {

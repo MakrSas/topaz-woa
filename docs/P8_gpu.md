@@ -685,3 +685,6 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   MDP vsync interrupt (INTF1/CTL) for flip completion; (b) small dashes/bars next to text since the
   first GPU run - probably the glyph atlas updated by the CPU while the GPU still samples it (UMD
   map/update synchronisation).
+- v0.40: flip completion for direct scanout only once CTL0_FLUSH's VIG0 bit cleared (MDP latched the
+  new address at the panel vsync); CRTC_VSYNC reports the address really on screen (g_ShownPa). fps line
+  also counts how often a flip had to wait for the latch.
