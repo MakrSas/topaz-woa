@@ -1088,3 +1088,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - Backup of boot_b before any flash: s8build `~/work/win/uefi/bootb-backup-1003.img` (128 MiB, first
   3153920 bytes == `~/work/topaz-poweroff.img`).
 - PowerShell trap: `rd` is an alias of Remove-Item; never name helper functions `rd`.
+- 21:25 v5c (sha256 e3b76d5b…, commit 4637847): the logos are now drawn from FvMain files (MiLogo.bmp
+  420x420 centered + BGRT, SiliciumText.bmp 480x55 150 px above the bottom), no framebuffer copy.
+  RAM test of "Windows (no GPU)": installed DSDT has TPZX0610 and no TPZG0610, ACPI\TPZG0610\0 not
+  present, ROOT\DISPLAY\0000 (TopazDisplay) OK at 1080 wide -> safe-display boot works.
