@@ -972,3 +972,6 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - TopazGpuW v0.41: 1 ms EX_TIMER_HIGH_RESOLUTION poll; a pending direct flip is reported done right after the
   CTL0_FLUSH VIG0 bit clears (= real panel vsync) and the 60 Hz vsync phase is re-locked to that moment
   (g_NextVsync = latch + 16.667 ms); fallback to the old KTIMER if ExAllocateTimer fails.
+- 21:45 TopazGpuW v0.41 on the phone (GPU0 RAM boot): "vsync: 1 ms high-resolution timer". movebench (Chrome
+  window moved): 40-44 flips/s (v0.40: 22-25); fpsbench -Big ~32, small ~26 (bench window has no content).
+  DWM TIMING still ~37 ms average frame (includes idle frames). Next: DWM CPU per frame (~13 ms) / UMD overhead.
