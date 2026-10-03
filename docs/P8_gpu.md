@@ -1040,3 +1040,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   window's top and bottom primitive edges (e.g. next to "Элементов: 20"), gone after release (window back to 1:1,
   no downscale shader). Same root cause as the parked bottom-edge strokes: wrong derivatives at primitive edges ->
   the 4 taps land on neighbouring texture rows.
+- 01:30 User: also a DIAGONAL stroke while dragging = the triangle seam of the window quad -> derivatives broken at any primitive edge. Suspect: SP_FS_CTRL_REG0 lodpixmask/pixlodenable (so->need_full_quad / need_pixlod) not set for our TGSI-translated shaders. fd6_program logs FS with them off; TOPAZ_FULLQUAD=1 forces both bits.

@@ -259,6 +259,54 @@ index 78eac1c..9b7509f 100644
     case TGSI_OPCODE_LOAD:
     case TGSI_OPCODE_STORE:
        dst = ttn_mem(c, src);
+diff --git a/src/gallium/drivers/freedreno/a6xx/fd6_program.cc b/src/gallium/drivers/freedreno/a6xx/fd6_program.cc
+index 07c6dbb..821746d 100644
+--- a/src/gallium/drivers/freedreno/a6xx/fd6_program.cc
++++ b/src/gallium/drivers/freedreno/a6xx/fd6_program.cc
+@@ -1,3 +1,5 @@
++#include <stdio.h>
++#include <stdlib.h>
+ /*
+  * Copyright (C) 2016 Rob Clark <robclark@freedesktop.org>
+  * Copyright © 2018 Google, Inc.
+@@ -173,21 +175,34 @@ fd6_emit_shader(struct fd_context *ctx, struct fd_ringbuffer *ring,
+                .earlypreamble = so->early_preamble,
+       ));
+       break;
+-   case MESA_SHADER_FRAGMENT:
++   case MESA_SHADER_FRAGMENT: {
++      /* TopazGpu experiment TOPAZ_FULLQUAD=1: always run full 2x2 quads (helper lanes) for every FS */
++      static int topaz_fq = -1;
++      if (topaz_fq < 0) {
++         const char *e = getenv("TOPAZ_FULLQUAD");
++         topaz_fq = e && e[0] == '1';
++      }
++      if (!so->need_full_quad || !so->need_pixlod) {
++         static unsigned topaz_fq_log;
++         if (topaz_fq_log++ < 40)
++            fprintf(stderr, "topaz: FS %p need_full_quad %d need_pixlod %d%s\n", (void *)so, so->need_full_quad,
++                    so->need_pixlod, topaz_fq ? " (forced on)" : "");
++      }
+       OUT_REG(ring, A6XX_SP_FS_CTRL_REG0(
+                .halfregfootprint = so->info.max_half_reg + 1,
+                .fullregfootprint = so->info.max_reg + 1,
+                .branchstack = ir3_shader_branchstack_hw(so),
+                .threadsize = thrsz,
+                .varying = so->total_in != 0,
+-               .lodpixmask = so->need_full_quad,
++               .lodpixmask = so->need_full_quad || topaz_fq,
+                /* unknown bit, seems unnecessary */
+                .unk24 = true,
+-               .pixlodenable = so->need_pixlod,
++               .pixlodenable = so->need_pixlod || topaz_fq,
+                .earlypreamble = so->early_preamble,
+                .mergedregs = so->mergedregs,
+       ));
+       break;
++   }
+    case MESA_SHADER_COMPUTE:
+       thrsz = ctx->screen->info->a6xx.supports_double_threadsize ? thrsz : THREAD128;
+       OUT_REG(ring, A6XX_SP_CS_CTRL_REG0(
 diff --git a/src/gallium/drivers/freedreno/freedreno_context.c b/src/gallium/drivers/freedreno/freedreno_context.c
 index b2d2693..0782b3e 100644
 --- a/src/gallium/drivers/freedreno/freedreno_context.c
