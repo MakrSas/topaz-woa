@@ -1031,3 +1031,6 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   completed (g_Deferred), the 1 ms timer programs the MDP once the fence completed, the flip-done check waits
   until then; destroyed allocations cancel a deferred flip. The UMD side is TOPAZ_NOPRESENTWAIT=1 (no fence_finish
   in Present) - to be made default after testing.
+- 01:05 Async present result (v0.45 KMD + TOPAZ_NOPRESENTWAIT=1): gpu wait 0, Chrome move 67-77 flips/s (was 45-55),
+  ~1650 flips deferred to the GPU fence; user: looks OK (no garbage). Now the UMD default is no wait
+  (TOPAZ_PRESENTWAIT=1 restores it; required if an older KMD than v0.45 is installed).

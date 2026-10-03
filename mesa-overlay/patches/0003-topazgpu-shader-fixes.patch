@@ -1398,7 +1398,7 @@ index 2aecca7..b6a066a 100644
     D3D10_DDI_QUERY_DATA_PIPELINE_STATISTICS Statistics;
  };
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-index cd028ba..278c8dc 100644
+index cd028ba..b78348a 100644
 --- a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 @@ -163,6 +163,10 @@ TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HAN
@@ -1412,7 +1412,7 @@ index cd028ba..278c8dc 100644
  /* DXGI Present: finish the GPU work on the source, then let the KMD blt/flip it */
  HRESULT
  TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGIContext)
-@@ -175,11 +179,58 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+@@ -175,11 +179,60 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
        TopazWddmLogf("topaz: Present of a resource without allocation\n");
        return S_OK;
     }
@@ -1425,7 +1425,9 @@ index cd028ba..278c8dc 100644
 +   LARGE_INTEGER t0, t1, t2;
 +   if (timing < 0) {
 +      timing = getenv("TOPAZ_TIMING") && getenv("TOPAZ_TIMING")[0] == '1';
-+      nowait = getenv("TOPAZ_NOPRESENTWAIT") && getenv("TOPAZ_NOPRESENTWAIT")[0] == '1';
++      /* default: no CPU wait - TopazGpuW >= v0.45 defers the MDP flip until the BO's GPU fence completed.
++       * TOPAZ_PRESENTWAIT=1 restores the wait (needed with an older KMD). */
++      nowait = !(getenv("TOPAZ_PRESENTWAIT") && getenv("TOPAZ_PRESENTWAIT")[0] == '1');
 +      QueryPerformanceFrequency(&qf);
 +   }
 +   QueryPerformanceCounter(&t0);
@@ -1472,7 +1474,7 @@ index cd028ba..278c8dc 100644
     if (!pDevice->topazCtx) {
        /* own pfnCreateContextCb: gdikmt's leaves EngineAffinity 0 (invalid for a MultiEngineAware KMD) */
        struct gdikmt_context_d3dddi *c = (struct gdikmt_context_d3dddi *)calloc(1, sizeof(*c));
-@@ -209,7 +260,12 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+@@ -209,7 +262,12 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
        p.hDstAllocation = pDst ? pDst->hAllocation : 0;
        p.pDXGIContext = pDXGIContext;
        p.hContext = ((struct gdikmt_context_d3dddi *)pDevice->topazCtx)->hContext;
@@ -1485,7 +1487,7 @@ index cd028ba..278c8dc 100644
        if (FAILED(hr))
           TopazWddmLogf("topaz: PresentCb src 0x%x dst 0x%x ctx %p -> 0x%08lx\n", p.hSrcAllocation, p.hDstAllocation,
                         p.hContext, (unsigned long)hr);
-@@ -290,6 +346,21 @@ bool
+@@ -290,6 +348,21 @@ bool
  TopazWddmEnabled(void)
  {
     TopazWddmLogInit();
