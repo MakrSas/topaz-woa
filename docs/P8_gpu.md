@@ -668,3 +668,11 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   copy. Kill switch C:\topaz\gpuw.nodirect. Direct mode is only enabled when VIG0 still holds the
   POST framebuffer address/stride at start.
 - 10:22 the taskbar hung once; restarting explorer.exe fixed it.
+
+### v0.38 result + missing UI pieces found (10:30)
+- Direct scanout works ("direct scanout: on", every DWM flip "(direct scanout)"): user reports higher
+  FPS, still below 60, same artifacts (Start icon, empty windows).
+- UMD logs: "flush_submit_list: submit failed: -22" + msm_dump_submit in dwm and other processes ->
+  the KMD rejected GEM_SUBMITs with more than 64 IBs (DWM sent 66): the whole submit (part of a frame)
+  was dropped. v0.39: up to 512 IBs (heap arrays; ring 8192 dwords), every rejected/failed submit is
+  logged, and "fps: N flips/s" is logged once a second by the vsync DPC.

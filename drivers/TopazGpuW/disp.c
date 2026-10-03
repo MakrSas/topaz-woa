@@ -78,6 +78,7 @@ static volatile LONG g_FlipPending;
 static volatile LONG g_VsyncOn;
 static KMUTEX g_ScanLock;                       /* engine copies vs. DestroyAllocation */
 
+static volatile LONG g_FlipCount, g_FpsTicks;   /* v0.39: flips per second in the log */
 static KTIMER g_VsyncTimer;
 static KDPC g_VsyncDpc;
 static BOOLEAN g_TimerOn;
@@ -111,6 +112,13 @@ static VOID VsyncDpc(PKDPC Dpc, PVOID Ctx, PVOID A1, PVOID A2)
     UNREFERENCED_PARAMETER(A1);
     UNREFERENCED_PARAMETER(A2);
     g_LastVsync = (LONG64)KeQueryInterruptTime();
+    if (++g_FpsTicks >= REFRESH) {
+        LONG f = InterlockedExchange(&g_FlipCount, 0);
+        g_FpsTicks = 0;
+        if (f != 0) {
+            LogPrint("fps: %ld flips/s (%s)\n", f, g_DirectActive ? "direct" : "copy");
+        }
+    }
     if (InterlockedExchange(&g_ScanDirty, 0)) {
         EngKickScanout();
     }
@@ -223,6 +231,7 @@ NTSTATUS DispSetSourceAddress(const DXGKARG_SETVIDPNSOURCEADDRESS *A)
 
     g_ScanCur = (TGPU_ALLOCATION *)A->hAllocation;
     g_ScanPa = A->PrimaryAddress;
+    InterlockedIncrement(&g_FlipCount);
     direct = DirectSelect(g_ScanCur);
     if (!direct) {
         InterlockedExchange(&g_ScanDirty, 1);

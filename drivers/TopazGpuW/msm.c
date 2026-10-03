@@ -289,22 +289,27 @@ static NTSTATUS Submit(struct drm_msm_gem_submit *A)
 {
     struct drm_msm_gem_submit_bo *bos = NULL;
     struct drm_msm_gem_submit_cmd *cmds = NULL;
-    ULONGLONG ib[64];
-    ULONG dw[64], i, fence = 0;
+    ULONGLONG *ib = NULL;
+    ULONG *dw = NULL, i, fence = 0;
     NTSTATUS st = STATUS_SUCCESS;
     TGPU_BO *bo;
 
     if (HwWedged() && !HwRecover()) {
         return STATUS_DEVICE_HARDWARE_ERROR;
     }
-    if (A->nr_cmds == 0 || A->nr_cmds > 64 || A->nr_bos > 65536) {
+    /* v0.39: was 64 - DWM submits 66+ IBs at once and the whole submit was rejected (EINVAL):
+       missing Start icon / empty windows. 512 IBs = 2053 ring dwords of the 8192. */
+    if (A->nr_cmds == 0 || A->nr_cmds > 512 || A->nr_bos > 65536) {
+        LogPrint("GEM_SUBMIT rejected: %u cmds %u bos\n", A->nr_cmds, A->nr_bos);
         return STATUS_INVALID_PARAMETER;
     }
+    ib = (ULONGLONG *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*ib) * A->nr_cmds, TGPU_POOL_TAG);
+    dw = (ULONG *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*dw) * A->nr_cmds, TGPU_POOL_TAG);
     bos = (struct drm_msm_gem_submit_bo *)ExAllocatePool2(POOL_FLAG_NON_PAGED,
         sizeof(*bos) * (A->nr_bos + 1), TGPU_POOL_TAG);
     cmds = (struct drm_msm_gem_submit_cmd *)ExAllocatePool2(POOL_FLAG_NON_PAGED,
         sizeof(*cmds) * A->nr_cmds, TGPU_POOL_TAG);
-    if (bos == NULL || cmds == NULL) {
+    if (bos == NULL || cmds == NULL || ib == NULL || dw == NULL) {
         st = STATUS_NO_MEMORY;
         goto out;
     }
@@ -330,6 +335,8 @@ static NTSTATUS Submit(struct drm_msm_gem_submit *A)
         }
         bo = BoGet(bos[cmds[i].submit_idx].handle);
         if ((ULONGLONG)cmds[i].submit_offset + cmds[i].size > bo->Size) {
+            LogPrint("GEM_SUBMIT rejected: cmd %u offset %u size %u > bo %u size %llu\n", i, cmds[i].submit_offset,
+                     cmds[i].size, bo->Handle, (ULONGLONG)bo->Size);
             st = STATUS_INVALID_PARAMETER;
             goto out;
         }
@@ -350,6 +357,15 @@ out:
     }
     if (cmds != NULL) {
         ExFreePoolWithTag(cmds, TGPU_POOL_TAG);
+    }
+    if (ib != NULL) {
+        ExFreePoolWithTag(ib, TGPU_POOL_TAG);
+    }
+    if (dw != NULL) {
+        ExFreePoolWithTag(dw, TGPU_POOL_TAG);
+    }
+    if (!NT_SUCCESS(st)) {
+        LogPrint("GEM_SUBMIT failed %08x (%u cmds)\n", st, A->nr_cmds);
     }
     return st;
 }
