@@ -23,6 +23,13 @@ mkdir -p Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib
 cp "$HERE"/TopazBootGraphicsLib/*.{c,inf,bmp} Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/
 grep -q MiLogo.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf ||
     sed -i 's#^  !include QcomPkg/Extra.fdf.inc#&\n\n  FILE FREEFORM = 9A4C2E17-5B3D-4F81-A60E-7D12C9483B5F {\n    SECTION RAW = tapasPkg/Library/TopazBootGraphicsLib/MiLogo.bmp\n  }#' Platforms/Xiaomi/tapasPkg/tapas.fdf
+# WinRE-look touch menu bitmaps (uefi/winre/mkwinre.py, needs python3-pil), one FREEFORM file, RAW section order = WinRe.c
+W=Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe/winre
+/usr/bin/python3 "$HERE/winre/mkwinre.py" $W
+grep -q winre_00.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf || {
+    secs=$(for f in $W/winre_*.bmp; do printf '\\n    SECTION RAW = tapasPkg/Drivers/TopazOtgDxe/winre/%s' "$(basename $f)"; done)
+    sed -i "s#^  !include QcomPkg/Extra.fdf.inc#&\\n\\n  FILE FREEFORM = 5D0B7A63-2C84-4E19-B73F-910A6E52C428 {$secs\\n  }#" Platforms/Xiaomi/tapasPkg/tapas.fdf
+}
 grep -q SiliciumText.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf ||
     sed -i 's#^  !include QcomPkg/Extra.fdf.inc#&\n\n  FILE FREEFORM = 2F6D81C4-7E19-4B3A-9C52-0BE46A17D893 {\n    SECTION RAW = tapasPkg/Library/TopazBootGraphicsLib/SiliciumText.bmp\n  }#' Platforms/Xiaomi/tapasPkg/tapas.fdf
 grep -q TopazBootGraphicsLib Platforms/Xiaomi/tapasPkg/tapas.dsc ||

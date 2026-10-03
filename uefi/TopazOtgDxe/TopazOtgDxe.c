@@ -23,6 +23,8 @@
 #include <IndustryStandard/Acpi.h>
 #include <Protocol/EFIPmicPon.h>
 #include "AbSlot.h"
+#include "TopazOtg.h"
+#include <Library/BootGraphicsLib.h>
 
 #define TAG "TopazOtg: "
 
@@ -34,7 +36,7 @@
 STATIC CHAR16 mLog[4096];
 STATIC UINTN  mLogLen;
 
-STATIC VOID LogAdd(CONST CHAR8 *Fmt, ...)
+VOID LogAdd(CONST CHAR8 *Fmt, ...)
 {
   CHAR8   a[256];
   VA_LIST ap;
@@ -49,7 +51,6 @@ STATIC VOID LogAdd(CONST CHAR8 *Fmt, ...)
   }
 }
 
-#define LOG(...) LogAdd (__VA_ARGS__)
 
 /* TLMM */
 #define TLMM_PIN(tile, pin)   (0x00400000UL + (tile) + (pin) * 0x1000UL)
@@ -62,14 +63,12 @@ STATIC VOID LogAdd(CONST CHAR8 *Fmt, ...)
 /* GCC */
 #define GCC_BASE              0x01400000UL
 #define GCC_QUP_VOTE          (GCC_BASE + 0x7900C)
-#define GCC_QUP_VOTE_BITS     ((1u << 6) | (1u << 7) | (1u << 8) | (1u << 9) | (1u << 11))
-#define GCC_QUP0_S1_CBCR      (GCC_BASE + 0x1F274)
-#define GCC_QUP0_S1_RCG       (GCC_BASE + 0x1F278)
+#define GCC_QUP_VOTE_COMMON   ((1u << 6) | (1u << 7) | (1u << 8) | (1u << 9))
 #define RCG_CMD_DFSR          0x14
 #define RCG_PERF_DFSR(l)      (0x1C + 4 * (l))
 
-/* GENI SE */
-#define SE_BASE               0x04A84000UL
+/* GENI SE: TOPAZ_SE1 (charger / Type-C) or TOPAZ_SE2 (touch), selected by GeniOpen */
+STATIC UINTN mSeBase = TOPAZ_SE1_BASE;
 #define GENI_FORCE_DEFAULT_REG   0x20
 #define GENI_OUTPUT_CTRL         0x24
 #define GENI_CGC_CTRL            0x28
@@ -116,8 +115,8 @@ STATIC VOID LogAdd(CONST CHAR8 *Fmt, ...)
 STATIC UINT32 mTxDepth = 16;
 STATIC UINT32 mLastIrq;
 
-#define SE_R(o)      MmioRead32(SE_BASE + (o))
-#define SE_W(o, v)   MmioWrite32(SE_BASE + (o), (v))
+#define SE_R(o)      MmioRead32(mSeBase + (o))
+#define SE_W(o, v)   MmioWrite32(mSeBase + (o), (v))
 
 STATIC VOID GeniCancel(VOID)
 {
@@ -159,7 +158,7 @@ STATIC EFI_STATUS GeniWaitDone(VOID)
   return EFI_SUCCESS;
 }
 
-STATIC EFI_STATUS I2cWrite(UINT8 Addr, CONST UINT8 *Buf, UINT32 Len, BOOLEAN Stop)
+EFI_STATUS I2cWrite(UINT8 Addr, CONST UINT8 *Buf, UINT32 Len, BOOLEAN Stop)
 {
   UINT32 done = 0, word, n;
   UINTN i;
@@ -180,7 +179,7 @@ STATIC EFI_STATUS I2cWrite(UINT8 Addr, CONST UINT8 *Buf, UINT32 Len, BOOLEAN Sto
   return GeniWaitDone ();
 }
 
-STATIC EFI_STATUS I2cRead(UINT8 Addr, UINT8 *Buf, UINT32 Len)
+EFI_STATUS I2cRead(UINT8 Addr, UINT8 *Buf, UINT32 Len)
 {
   UINT32 got = 0, words, word, n;
   UINTN spins = 0;
@@ -227,23 +226,23 @@ STATIC EFI_STATUS RegWrite(UINT8 Addr, UINT8 Reg, UINT8 Val)
   return I2cWrite (Addr, b, 2, TRUE);
 }
 
-STATIC VOID ClocksOn(VOID)
+STATIC VOID ClocksOn(CONST TOPAZ_SE *Se)
 {
   UINT32 cbcr = 0, dfs, perf, lvl, sel = 0;
   UINTN i;
 
-  MmioOr32 (GCC_QUP_VOTE, GCC_QUP_VOTE_BITS);
+  MmioOr32 (GCC_QUP_VOTE, GCC_QUP_VOTE_COMMON | (1u << Se->VoteBit));
   for (i = 0; i < 1000; i++) {
-    cbcr = MmioRead32 (GCC_QUP0_S1_CBCR);
+    cbcr = MmioRead32 (GCC_BASE + Se->CbcrOff);
     if ((cbcr & (1u << 31)) == 0) {
       break;
     }
     MicroSecondDelay(1);
   }
   /* QUP RCGs run in DFS mode: pick the perf level that is XO (19.2 MHz) undivided. */
-  dfs = MmioRead32 (GCC_QUP0_S1_RCG + RCG_CMD_DFSR);
+  dfs = MmioRead32 (GCC_BASE + Se->RcgOff + RCG_CMD_DFSR);
   for (lvl = 0; lvl < 8; lvl++) {
-    perf = MmioRead32 (GCC_QUP0_S1_RCG + RCG_PERF_DFSR (lvl));
+    perf = MmioRead32 (GCC_BASE + Se->RcgOff + RCG_PERF_DFSR (lvl));
     LOG ("dfs[%u]=%08x\n", lvl, perf);
     if (((perf >> 8) & 7) == 0 && ((perf >> 12) & 3) == 0 && (perf & 0x1F) <= 1) {
       sel = lvl;
@@ -254,7 +253,7 @@ STATIC VOID ClocksOn(VOID)
     sel = 0;
   }
   SE_W(SE_GENI_CLK_SEL, sel);
-  LOG ("vote=%08x s1_cbcr=%08x cmd_dfsr=%08x clk_sel=%u\n",
+  LOG ("vote=%08x cbcr=%08x cmd_dfsr=%08x clk_sel=%u\n",
           MmioRead32 (GCC_QUP_VOTE), cbcr, dfs, sel);
 }
 
@@ -263,8 +262,8 @@ STATIC EFI_STATUS GeniInit(VOID)
   UINT32 fw = SE_R(GENI_FW_REVISION_RO), cfg0, cfg1, cfg[4] = { 0 }, i, idx = 7;
 
   mTxDepth = (SE_R(SE_HW_PARAM_0) >> 16) & 0x3F;
-  LOG ("se1 fw_rev=%08x proto=%u tx_depth=%u status=%08x\n",
-          fw, (fw >> 8) & 0xFF, mTxDepth, SE_R(SE_GENI_STATUS));
+  LOG ("se %08x fw_rev=%08x proto=%u tx_depth=%u status=%08x\n",
+          (UINT32)mSeBase, fw, (fw >> 8) & 0xFF, mTxDepth, SE_R(SE_GENI_STATUS));
   if (((fw >> 8) & 0xFF) != 3) {
     return EFI_UNSUPPORTED;
   }
@@ -306,6 +305,17 @@ STATIC EFI_STATUS GeniInit(VOID)
   SE_W(SE_I2C_SCL_COUNTERS, (10u << 20) | (11u << 10) | 26u);
   return EFI_SUCCESS;
 }
+
+/* Route I2cRead/I2cWrite to a serial engine: clocks on (XO DFS level) + FIFO-mode I2C setup. */
+EFI_STATUS GeniOpen(CONST TOPAZ_SE *Se)
+{
+  mSeBase = Se->Base;
+  ClocksOn (Se);
+  return GeniInit ();
+}
+
+CONST TOPAZ_SE gTopazSe1 = { TOPAZ_SE1_BASE, 0x1F274, 0x1F278, 11 };   /* charger / Type-C */
+CONST TOPAZ_SE gTopazSe2 = { TOPAZ_SE2_BASE, 0x1F3A4, 0x1F3A8, 12 };   /* FocalTech touch */
 
 STATIC VOID DumpRegs(UINT8 Addr, CONST CHAR8 *Name, CONST UINT8 *Regs, UINTN Count)
 {
@@ -426,8 +436,10 @@ STATIC VOID DumpLog(VOID)
  * SetActiveSlot (type GUID swap of every _a/_b pair), see docs/AGENT_BRIEF_drivers.md 2c.
  * Android is started from the PC with `fastboot set_active a`.
  */
-enum { MENU_WINDOWS, MENU_WINDOWS_NOGPU, MENU_FASTBOOT, MENU_POWEROFF, MENU_COUNT, MENU_ANDROID = 100, MENU_TWRP };
-STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Windows (no GPU, safe display)", "Fastboot", "Power off" };
+/* first four = WINRE_* order, so a WinRE-page choice is a menu choice */
+enum { MENU_WINDOWS, MENU_WINDOWS_NOGPU, MENU_FASTBOOT, MENU_POWEROFF, MENU_WINRE, MENU_COUNT, MENU_ANDROID = 100, MENU_TWRP };
+STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Windows (no GPU, safe display)", "Fastboot", "Power off",
+                                          "Choose an option... (touch menu, WinRE look)" };
 
 /*
  * Layout: slot b boot_b = this UEFI (active by default), slot a = Android + TWRP in
@@ -601,6 +613,13 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
 
   for (;;) {
     choice = BootMenu (3);
+    if (choice == MENU_WINRE) {
+      choice = WinReMenu ();
+      DisplayBootGraphic (BG_SYSTEM_LOGO);              /* logos back, text menu / boot messages on top */
+      if (choice >= WINRE_BACK) {
+        continue;
+      }
+    }
     if (choice == MENU_ANDROID || choice == MENU_TWRP) {
       EFI_STATUS st = EFI_ERROR (mAbStatus) ? mAbStatus :
                       !AB_ACTIVE (mAb.AttrB) ? EFI_ALREADY_STARTED : AbSlotRequestA (&mAb);
@@ -689,8 +708,7 @@ TopazOtgEntry (
   MmioWrite32 (TLMM_PIN (TLMM_WEST, QUP1_I2C_SDA), ctl);
   MmioWrite32 (TLMM_PIN (TLMM_WEST, QUP1_I2C_SCL), ctl);
 
-  ClocksOn ();
-  s = GeniInit ();
+  s = GeniOpen (&gTopazSe1);
   if (EFI_ERROR (s)) {
     LOG ("GENI init failed: %r\n", s);
     return EFI_SUCCESS;
