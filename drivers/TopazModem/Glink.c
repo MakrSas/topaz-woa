@@ -379,6 +379,7 @@ STATIC VOID QrtrRx(CONST UINT8 *P, UINT32 Len)
       Out ("  t=%u.%03u *** WLFW service 0x45 up: inst %x node %u port %x ***\r\n", T, c->B, c->C, c->D);
       WlfwArrive (c->C, c->D);
     }
+    WwanArrive (c->A, c->C, c->D);
     break;
   case QRTR_TYPE_DATA:
     if (confirm) {
@@ -592,6 +593,11 @@ STATIC CONST CHAR8 *SvcName(UINT32 Svc)
   case 0x42: return "servreg-notif";
   case 0x2B: return "ssctl";
   case 0x31: return "ipa";
+  case 0x01: return "wds";
+  case 0x02: return "dms";
+  case 0x03: return "nas";
+  case 0x0B: return "uim";
+  case 0x1A: return "wda";
   default:   return "";
   }
 }
@@ -672,6 +678,7 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
     busy = CePoll ();                           /* WLAN copy engines (no-op until CeStart) */
     ScanPoll ();
     HttPoll ();
+    WwanPoll ();                                /* SIM / network status (QMI, log only) */
 #ifdef TOPAZ_WIFICX
     AssocPoll ();                               /* TopazWifi: station association */
     HttTxPoll ();                               /* TopazWifi: data frames from Windows */
@@ -701,6 +708,7 @@ VOID GlinkQrtrSpike(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
          mTxqHead != mTxqTail ? mTxqLen[mTxqHead % TXQ_LEN] : 0, mRx != NULL ? RxAvail () : 0, mDesc[1], mDesc[0]);
   }
   SvcSummary ();
+  WwanSummary ();
   HtcSummary ();
   WmiSummary ();
   ScanSummary ();

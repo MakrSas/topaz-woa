@@ -78,6 +78,7 @@
     <ClCompile Include="Wlfw.c" />
     <ClCompile Include="wlanprobe.c" />
     <ClCompile Include="wmi.c" />
+    <ClCompile Include="wwan.c" />
   </ItemGroup>
   <ItemGroup>
     <MARMASM Include="smc.asm" />

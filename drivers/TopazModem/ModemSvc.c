@@ -736,6 +736,9 @@ BOOLEAN SvcRx(UINT32 SrcNode, UINT32 SrcPort, UINT32 DstPort, CONST UINT8 *Data,
     WlfwRx (Data, Len);
     return TRUE;
   }
+  if (WwanRx (DstPort, Data, Len)) {
+    return TRUE;
+  }
   if (DstPort >= PORT_SESS && DstPort < PORT_SESS + 0x10000) {
     return TftpSession (SrcNode, SrcPort, DstPort, Data, Len);
   }
