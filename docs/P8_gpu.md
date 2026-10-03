@@ -964,3 +964,11 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   CB (batch_mask 0 for CBs in MAPLOG) and writes in place, so earlier draws of the batch get the new constants.
   New defaults: TOPAZ_UPDFLUSH=1 (on), TOPAZ_SYNCMAP=0 (the per-NO_OVERWRITE flush is gone).
   Proper fix later: make freedreno track CB reads (or shadow/rename CBs on UpdateSubresourceUP) instead of the flush.
+- 21:20 FPS analysis with real windows (tools/gpu/movebench.ps1 moves the user's Chrome window; fpsbench -Big):
+  DWM 22-26 flips/s, frame 36-42 ms, but dwm uses only ~0.3 core (3.1 s CPU in 10 s) -> it waits ~29 ms per frame.
+  GPU wait/present cb negligible. KMD vsync = a 16 ms KTIMER: the "per second" fps lines come every ~0.86 s, i.e. the
+  timer fires on ~14-15.6 ms clock ticks, unrelated to the panel's real vsync; a direct flip is only reported done
+  at the first tick after the MDP latch (~8 extra waits/s) -> DWM loses periods.
+- TopazGpuW v0.41: 1 ms EX_TIMER_HIGH_RESOLUTION poll; a pending direct flip is reported done right after the
+  CTL0_FLUSH VIG0 bit clears (= real panel vsync) and the 60 Hz vsync phase is re-locked to that moment
+  (g_NextVsync = latch + 16.667 ms); fallback to the old KTIMER if ExAllocateTimer fails.

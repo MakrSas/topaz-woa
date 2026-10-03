@@ -103,48 +103,87 @@ static BOOLEAN VsyncSync(PVOID Ctx)
     return TRUE;
 }
 
-static KDEFERRED_ROUTINE VsyncDpc;
-static VOID VsyncDpc(PKDPC Dpc, PVOID Ctx, PVOID A1, PVOID A2)
+/* v0.41: vsync work. Called from a 1 ms high-resolution timer: a flip is reported done right after the MDP
+   latched it (CTL0_FLUSH VIG0 bit cleared = real panel vsync just passed) and the 60 Hz vsync phase is
+   re-aligned to that moment. Before, a 16 ms KTIMER (actually ~15.6 ms clock ticks, not synced to the panel)
+   checked the latch once per period, so a flip often took two periods and DWM settled at ~30 FPS. */
+static PEX_TIMER g_HrTimer;
+static LONG64 g_NextVsync;                       /* interrupt time (100 ns) of the next 60 Hz tick */
+#define VSYNC_PERIOD (10000000LL / REFRESH)
+
+static VOID VsyncNotify(BOOLEAN flip)
 {
     BOOLEAN ret;
-    BOOLEAN flip;
-
-    UNREFERENCED_PARAMETER(Dpc);
-    UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(A1);
-    UNREFERENCED_PARAMETER(A2);
-    g_LastVsync = (LONG64)KeQueryInterruptTime();
-    if (++g_FpsTicks >= REFRESH) {
-        LONG f = InterlockedExchange(&g_FlipCount, 0);
-        g_FpsTicks = 0;
-        if (f != 0) {
-            LogPrint("fps: %ld flips/s (%s, %u waits for the MDP latch)\n", f, g_DirectActive ? "direct" : "copy",
-                     g_FlipWaits);
-        }
-    }
-    if (InterlockedExchange(&g_ScanDirty, 0)) {
-        EngKickScanout();
-    }
-    /* v0.40: a direct-scanout flip is done when the MDP latched it at the panel vsync: the CTL0_FLUSH bit
-       of VIG0 clears then. Until that Dxgkrnl keeps seeing the old address, so DWM never reuses the
-       buffer that is still being fetched. Copy-path flips are done at once. */
-    flip = FALSE;
-    if (g_FlipPending) {
-        if (g_DirectActive && g_Mdp != NULL &&
-            (READ_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_CTL0 + CTL_FLUSH)) & CTL_FLUSH_VIG0)) {
-            g_FlipWaits++;
-        } else {
-            InterlockedExchange(&g_FlipPending, 0);
-            g_ShownPa = g_ScanPa;
-            flip = TRUE;
-        }
-    }
     if (g_Dxgk != NULL && (g_VsyncOn || flip)) {
         g_Dxgk->DxgkCbSynchronizeExecution(g_Dxgk->DeviceHandle, VsyncSync, NULL, 0, &ret);
         if (++g_VsyncCount <= 3 || (flip && g_VsyncCount < 50)) {
             LogPrint("vsync %u%s pa %llx\n", g_VsyncCount, flip ? " (flip done)" : "", g_ScanPa.QuadPart);
         }
     }
+}
+
+static VOID VsyncWork(BOOLEAN periodicTick)
+{
+    LONG64 now = (LONG64)KeQueryInterruptTime();
+    BOOLEAN flip = FALSE, tick = FALSE;
+
+    if (g_FlipPending) {
+        if (g_DirectActive && g_Mdp != NULL &&
+            (READ_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_CTL0 + CTL_FLUSH)) & CTL_FLUSH_VIG0)) {
+            if (periodicTick || now >= g_NextVsync) {
+                g_FlipWaits++;
+            }
+        } else {
+            InterlockedExchange(&g_FlipPending, 0);
+            g_ShownPa = g_ScanPa;
+            flip = TRUE;
+            if (g_DirectActive) {
+                g_NextVsync = now + VSYNC_PERIOD;        /* the latch happened at the panel vsync: lock phase */
+            }
+        }
+    }
+    if (periodicTick || now >= g_NextVsync) {
+        tick = TRUE;
+        if (!periodicTick) {
+            g_NextVsync += VSYNC_PERIOD;
+            if (g_NextVsync <= now) {
+                g_NextVsync = now + VSYNC_PERIOD;
+            }
+        }
+        g_LastVsync = now;
+        if (++g_FpsTicks >= REFRESH) {
+            LONG f = InterlockedExchange(&g_FlipCount, 0);
+            g_FpsTicks = 0;
+            if (f != 0) {
+                LogPrint("fps: %ld flips/s (%s, %u waits for the MDP latch)\n", f, g_DirectActive ? "direct" : "copy",
+                         g_FlipWaits);
+            }
+        }
+        if (InterlockedExchange(&g_ScanDirty, 0)) {
+            EngKickScanout();
+        }
+    }
+    if (flip || tick) {
+        VsyncNotify(flip);
+    }
+}
+
+static KDEFERRED_ROUTINE VsyncDpc;
+static VOID VsyncDpc(PKDPC Dpc, PVOID Ctx, PVOID A1, PVOID A2)
+{
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(Ctx);
+    UNREFERENCED_PARAMETER(A1);
+    UNREFERENCED_PARAMETER(A2);
+    VsyncWork(TRUE);                             /* fallback KTIMER path: one call per ~16 ms */
+}
+
+static EXT_CALLBACK HrTimerCb;
+static VOID HrTimerCb(PEX_TIMER Timer, PVOID Ctx)
+{
+    UNREFERENCED_PARAMETER(Timer);
+    UNREFERENCED_PARAMETER(Ctx);
+    VsyncWork(FALSE);
 }
 
 VOID DispVsyncEnable(BOOLEAN Enable)
@@ -345,10 +384,18 @@ NTSTATUS DispStart(PDXGKRNL_INTERFACE Dxgk)
                  off ? ", gpuw.nodirect" : "");
     }
 
-    KeInitializeTimerEx(&g_VsyncTimer, NotificationTimer);
-    KeInitializeDpc(&g_VsyncDpc, VsyncDpc, NULL);
-    due.QuadPart = -10000LL * 16;
-    KeSetTimerEx(&g_VsyncTimer, due, 1000 / REFRESH, &g_VsyncDpc);
+    g_NextVsync = (LONG64)KeQueryInterruptTime() + VSYNC_PERIOD;
+    g_HrTimer = ExAllocateTimer(HrTimerCb, NULL, EX_TIMER_HIGH_RESOLUTION);
+    if (g_HrTimer != NULL) {
+        ExSetTimer(g_HrTimer, -10000LL, 10000LL, NULL);     /* 1 ms poll, vsync phase in VsyncWork */
+        LogPrint("vsync: 1 ms high-resolution timer, flip done at the MDP latch\n");
+    } else {
+        KeInitializeTimerEx(&g_VsyncTimer, NotificationTimer);
+        KeInitializeDpc(&g_VsyncDpc, VsyncDpc, NULL);
+        due.QuadPart = -10000LL * 16;
+        KeSetTimerEx(&g_VsyncTimer, due, 1000 / REFRESH, &g_VsyncDpc);
+        LogPrint("vsync: ExAllocateTimer failed, 16 ms KTIMER\n");
+    }
     g_TimerOn = TRUE;
     return STATUS_SUCCESS;
 }
@@ -360,7 +407,14 @@ VOID DispStop(VOID)
         LogPrint("direct scanout: back to the framebuffer (%u direct flips)\n", g_DirectFlips);
     }
     if (g_TimerOn) {
-        KeCancelTimer(&g_VsyncTimer);
+        if (g_HrTimer != NULL) {
+            EXT_DELETE_PARAMETERS dp;
+            ExInitializeDeleteTimerParameters(&dp);
+            ExDeleteTimer(g_HrTimer, TRUE, TRUE, &dp);   /* cancel + wait for a running callback */
+            g_HrTimer = NULL;
+        } else {
+            KeCancelTimer(&g_VsyncTimer);
+        }
         KeFlushQueuedDpcs();
         g_TimerOn = FALSE;
     }
