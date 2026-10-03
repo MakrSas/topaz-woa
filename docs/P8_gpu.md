@@ -570,3 +570,18 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - Next session: fastboot boot the GPU0 image, `logman create trace` DxgKrnl for a few seconds while
   DWM loops, look for the Present failure; read C:\TopazGpuW.log (flip presents) and
   C:\ProgramData\topaz\umd-<pid>.log.
+
+### 08:46 boot (KMD v0.34): why DWM's flips fail
+- DxgKrnl ETW works after removing the TopazDxg autologger (`tools`: C:\topaz\tr4.ps1 = 4-6 s trace;
+  decode with Get-WinEvent -Path + task names from Get-WinEvent -ListProvider; event 494
+  "AzureTriage" carries validation texts).
+- Per DWM cycle: "KMD should set a non-zero initial priority for allocations" (every allocation) and
+  "When opening a synchronization object, the NoGPUAccess flag specified at open time must match the
+  flag specified at creation time" (DWM opens a fence of its first device on its D3D device).
+  No Present event at all: the flip present fails inside the user-mode runtime (pfnPresentCb ->
+  E_FAIL). Own present context (EngineAffinity 1) did not change it. No-flip mode (NO_SCANOUT
+  primaries) is useless: DWM never retries with PRIMARY_OPTIONAL (it gets DXGI_DDI_ERR_UNSUPPORTED
+  forever) - `umd.noflip` removed.
+- viogpu3d (WDDM 1.3, same UMD model) runs DWM on 22621. Differences in our KMD: allocation priority 0,
+  no SupportDirectFlip / segment DirectFlip, PreemptionAware 0, EvictionSegmentSet 0. v0.35 copies
+  viogpu3d (and the phone has GraphicsDrivers\Scheduler EnablePreemption=0 like their setup).

@@ -342,8 +342,11 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
         c->WDDMVersion = DXGKDDI_WDDMv1_3;
         c->HighestAcceptableAddress.QuadPart = (LONGLONG)-1;
         c->MaxAllocationListSlotId = 16;
-        /* the CPU engine never preempts: no PreemptCommand to answer */
+        /* the CPU engine never preempts; v0.35: PreemptionAware with granularity NONE as viogpu3d
+           (it worked with DWM on 22621; DWM's flips failed in the runtime with PreemptionAware 0) */
         c->SchedulingCaps.MultiEngineAware = 1;
+        c->SchedulingCaps.PreemptionAware = 1;
+        c->SupportDirectFlip = 1;
         c->GpuEngineTopology.NbAsymetricProcessingNodes = 1;
         c->SupportNonVGA = TRUE;
         /* C2: SetVidPnSourceAddress = MMIO flip latched at the next (timer) vsync, like viogpu3d */
@@ -378,6 +381,7 @@ static NTSTATUS QueryAdapterInfoInner(const DXGKARG_QUERYADAPTERINFO *Q)
             d[0].CommitLimit = 1024ull * 1024 * 1024;
             d[0].Flags.Aperture = TRUE;
             d[0].Flags.CacheCoherent = TRUE;
+            d[0].Flags.DirectFlip = TRUE;                /* v0.35: as viogpu3d */
         }
         return STATUS_SUCCESS;
     }
@@ -678,8 +682,10 @@ static NTSTATUS APIENTRY TgCreateAllocation(const HANDLE hAdapter, DXGKARG_CREAT
         ai->PreferredSegment.SegmentId0 = 1;
         ai->SupportedReadSegmentSet = 1;
         ai->SupportedWriteSegmentSet = 1;
-        ai->EvictionSegmentSet = 0;
+        ai->EvictionSegmentSet = 1;                      /* v0.35: as viogpu3d */
         ai->MaximumRenamingListLength = 0;
+        /* v0.35: Dxgkrnl "KMD should set a non-zero initial priority for allocations" (ETW) */
+        ai->AllocationPriority = D3DDDI_ALLOCATIONPRIORITY_NORMAL;
         ai->Flags.Value = 0;
         ai->Flags.CpuVisible = 1;
         if (++count <= 40 || d == NULL) {
@@ -1207,7 +1213,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, flip logging) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, viogpu3d caps) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;
