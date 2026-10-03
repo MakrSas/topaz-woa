@@ -72,3 +72,6 @@ pas-ids 0x0f, firmware ipa_fws, memory region ipa_fw_region 0x55b00000 (64 KiB) 
 
 - v0.11 (probe): with C:\topaz\fw\ipa.on the driver announces the AP IPA QMI service 0x31:101
   (ipa_qmi.c IPA_HOST_SERVICE) and answers every modem request with success, logging msg id + TLVs.
+- ipa_fws firmware: vendor_a (EROFS) read-only from super (PhysicalDrive0 p9, LP metadata:
+  vendor_a = 691810304 B at super+6343884800), extracted on s8build `~/work/vendor_a/firmware/`:
+  ipa_fws.mdt (7020) + .b00..b04 + .elf (29120); copied to C:\topaz\fw\image\.
