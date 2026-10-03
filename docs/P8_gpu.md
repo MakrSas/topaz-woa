@@ -1097,3 +1097,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   NOTICE.md) with a 5 s countdown to Windows; back arrow -> old text menu. v6/v7 were RAM-tested
   (page + keys); the countdown path was flashed untested. Rollback:
   `fastboot flash boot_b ~/work/topaz-poweroff.img` (full 128 MiB backup: bootb-backup-1003.img).
+- 22:10 **v10 FLASHED to boot_b** (`~/work/win/uefi/Mu-topaz-v10-RELEASE.img`, sha256 622d6931…, commit
+  23b9820), RAM-tested first: stock Silicium boot screen (Mi logo dropped at the user's request), WinRE
+  touch page as main menu (5 s countdown), no USB 5V wait at ReadyToBoot (TopazBattery does the Type-C
+  roles in Windows). Rollback: `fastboot flash boot_b ~/work/topaz-poweroff.img`.
