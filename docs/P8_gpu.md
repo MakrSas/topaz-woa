@@ -887,3 +887,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   RS scissor off / unscissored draw, ClearRTV, ResourceCopy(Region), Present).
 - 17:35 SCFIX result: the distinct grey vertical strokes are gone, only very faint light dots remain (also faint dots along triangle seams of the strips -> derivatives at triangle seams slightly off too). Experiment TOPAZ_DERIV=1/2 (fine/coarse fddx/fddy for TGSI DDX/DDY).
 - 17:50 TOPAZ_DERIV=1 (fine) / =2 (coarse): no clear gain (fine slightly worse on seams); default stays nir fddx. umd.env back to defaults (SCFIX on).
+- 18:05 User: strokes almost gone, horizontal ones at the bottom remain. Repro: the mmc window's bottom content
+  row (y 1871 in that layout) gets 2x2-quad garbage (pairs 196/76/240) written by the downscale PS; it is not a
+  scissor edge. TOPAZ_DERIV fine/coarse: no change (86/119/86 bad pixels). Next: alpha of the window texture's
+  bottom resize-border rows (the 4 taps reach into them): TOPAZ_DUMPALPHA=1 dumps alpha as grey.

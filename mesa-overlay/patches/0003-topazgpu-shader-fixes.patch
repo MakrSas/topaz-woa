@@ -377,10 +377,10 @@ index e7c2a1c..35d10d0 100644
        ret = pipe->get_query_result(pipe, state, wait, &result);
     } else {
 diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-index a0262da..c79125a 100644
+index a0262da..9b030e5 100644
 --- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 +++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-@@ -31,12 +31,373 @@
+@@ -31,12 +31,377 @@
   */
  
  
@@ -536,6 +536,7 @@ index a0262da..c79125a 100644
 +/* TopazGpu: TOPAZ_DRAWLOG=1 + file C:\ProgramData\topaz\umd.dump -> at the next Present dump the presented
 + * frame and the large textures sampled recently as 32-bit BMPs (umd-dump-<pid>-<n>-<tag>.bmp) */
 +static struct pipe_resource *g_topazBig[12];
++static bool g_topazDumpAlpha;
 +static unsigned g_topazBigNext;
 +
 +static void
@@ -597,6 +598,8 @@ index a0262da..c79125a 100644
 +            row[x * 4 + 1] = s[x * 4 + 1];
 +            row[x * 4 + 2] = swap ? s[x * 4 + 0] : s[x * 4 + 2];
 +            row[x * 4 + 3] = 255;
++            if (g_topazDumpAlpha)   /* TOPAZ_DUMPALPHA=1: alpha channel as grey */
++               row[x * 4 + 0] = row[x * 4 + 1] = row[x * 4 + 2] = s[x * 4 + 3];
 +         }
 +         fwrite(row, 1, w * 4, fp);
 +      }
@@ -615,6 +618,7 @@ index a0262da..c79125a 100644
 +   if (GetFileAttributesA("C:\\ProgramData\\topaz\\umd.dump") == INVALID_FILE_ATTRIBUTES)
 +      return;
 +   DeleteFileA("C:\\ProgramData\\topaz\\umd.dump");
++   g_topazDumpAlpha = getenv("TOPAZ_DUMPALPHA") && getenv("TOPAZ_DUMPALPHA")[0] == '1';
 +   static unsigned seq;
 +   struct pipe_context *pipe = (struct pipe_context *)pipe_;
 +   seq++;
@@ -754,7 +758,7 @@ index a0262da..c79125a 100644
  /*
   * ----------------------------------------------------------------------
   *
-@@ -80,6 +441,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
+@@ -80,6 +445,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
        states[i].translate[1] = half_height + y;
        states[i].translate[2] = z;
     }
@@ -765,7 +769,7 @@ index a0262da..c79125a 100644
     if (ClearViewports) {
        memset(states + NumViewports, 0,
               sizeof(struct pipe_viewport_state) * ClearViewports);
-@@ -122,6 +487,37 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -122,6 +491,37 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
        states[i].miny = pRect->top    < 0 ? 0 : pRect->top;
        states[i].maxx = pRect->right  < 0 ? 0 : pRect->right;
        states[i].maxy = pRect->bottom < 0 ? 0 : pRect->bottom;
@@ -803,7 +807,7 @@ index a0262da..c79125a 100644
     }
     if (ClearScissorRects) {
        memset(states + NumScissorRects, 0,
-@@ -129,6 +525,7 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -129,6 +529,7 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
     }
     pipe->set_scissor_states(pipe, 0, NumScissorRects + ClearScissorRects,
                              states);
@@ -811,7 +815,7 @@ index a0262da..c79125a 100644
  }
  
  
-@@ -236,6 +633,7 @@ CreateRasterizerState(
+@@ -236,6 +637,7 @@ CreateRasterizerState(
     state.line_rectangular = 0;
  
     pRasterizerState->handle = pipe->create_rasterizer_state(pipe, &state);
@@ -819,7 +823,7 @@ index a0262da..c79125a 100644
  }
  
  
-@@ -283,5 +681,14 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+@@ -283,5 +685,14 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
     struct pipe_context *pipe = CastPipeContext(hDevice);
     void *state = CastPipeRasterizerState(hRasterizerState);
  
