@@ -891,3 +891,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   row (y 1871 in that layout) gets 2x2-quad garbage (pairs 196/76/240) written by the downscale PS; it is not a
   scissor edge. TOPAZ_DERIV fine/coarse: no change (86/119/86 bad pixels). Next: alpha of the window texture's
   bottom resize-border rows (the 4 taps reach into them): TOPAZ_DUMPALPHA=1 dumps alpha as grey.
+- 18:20 Window texture alpha (TOPAZ_DUMPALPHA): bottom rows fully opaque (255), only the top-left corner pixels
+  are 0 -> no transparent border issue. The bad row is the LAST row of the window quad (texture 1818 rows x
+  0.86 scale ends at y 1871); the garbage comes in horizontal pixel pairs (per 2x2 quad), i.e. the derivative-
+  driven taps of the downscale PS differ per quad on the bottom edge row. Not solved yet; candidates: the bottom
+  edge row's quads straddle two triangles / helper rows below the primitive, or the taps reach the black rows
+  1804-1817 of the redirection surface. umd.env back to defaults.
