@@ -90,3 +90,7 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
 {tail, head, data}; GLINK native, intentless.
 - TopazRpm v0.1: root KMDF driver, read only: TOC, FIFO indices and pending bytes -> C:\TopazRpm.log.
   Question it answers: did UEFI leave the RPM GLINK link / rpm_requests channel open?
+- TopazRpm v0.1 result: TOC grt0 with 10 FIFOs (ap2r/r2ap + mp2r/r2mp, ad2r/r2ad, cD2r/r2cD,
+  tz2r/r2tz); ap2r at 0x200, r2ap at 0x900, both 0x6f8 bytes, tail = head = 0: unused, clean link.
+- TopazRpm v0.2 (C:\topaz\rpm.on): VERSION, OPEN rpm_requests, IPA clock 100 MHz active-set vote
+  (resource "ipa" 0x617069 id 0, key "KHz"), logs the msg# ack / err string.

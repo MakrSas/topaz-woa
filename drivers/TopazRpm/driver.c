@@ -11,11 +11,14 @@
  * {u32 tail, u32 head, data[size]} at offset. GLINK native protocol on top, intentless.
  *
  * v0.1: read only - logs the TOC, both FIFOs' indices and the bytes waiting in them
- * (C:\TopazRpm.log). Nothing is written to the RPM.
+ * (C:\TopazRpm.log). Result: both FIFOs empty (tail = head = 0), nobody used the link before us.
+ * v0.2: with C:\topaz\rpm.on - GLINK VERSION handshake, OPEN "rpm_requests", one request: IPA
+ * clock 100 MHz (Linux clk-smd-rpm: resource "ipa" 0x617069 id 0, key "KHz"), active set; logs
+ * the RPM's answer ("msg#" ack or "err" string). Message format = Linux qcom_smd-rpm.c.
  */
 #include "driver.h"
 
-#define TOPAZ_RPM_VERSION   "v0.1"
+#define TOPAZ_RPM_VERSION   "v0.2"
 
 #define MSG_RAM_PA          0x045F0000ULL
 #define MSG_RAM_SIZE        0x7000
@@ -24,8 +27,43 @@
 #define FIFO_AP2R           0x61703272u     /* "ap2r" */
 #define FIFO_R2AP           0x72326170u     /* "r2ap" */
 
+#define APCS_IPC_PA         0x0F111008ULL   /* apcs_glb + 8, bit 0 = RPM */
+
+#define CMD_VERSION         0
+#define CMD_VERSION_ACK     1
+#define CMD_OPEN            2
+#define CMD_CLOSE           3
+#define CMD_OPEN_ACK        4
+#define CMD_TX_DATA         9
+#define CMD_CLOSE_ACK       11
+#define CMD_TX_DATA_CONT    12
+#define CMD_READ_NOTIF      13
+#define CMD_SIGNALS         15
+
+#define CHAN_NAME           "rpm_requests"
+#define CHAN_LCID           1
+
+#define RPM_SERVICE_REQ     0x00716572u     /* "req" */
+#define RPM_MSG_ID          0x2367736Du     /* "msg#" */
+#define RPM_MSG_ERR         0x00727265u     /* "err" */
+#define RPM_ACTIVE_SET      0
+#define RPM_RES_IPA_CLK     0x00617069u     /* "ipa" */
+#define RPM_KEY_RATE        0x007A484Bu     /* "KHz" */
+#define IPA_CLK_KHZ         100000          /* ipa_data-v4.2.c core clock 100 MHz */
+
+typedef struct _FIFO {
+    ULONG Off, Size;                        /* {tail, head} at Off, data at Off + 8 */
+} FIFO;
+
 typedef struct _DEVICE_CONTEXT {
     volatile UCHAR *Ram;
+    volatile ULONG *Ipc;
+    FIFO    Tx, Rx;
+    BOOLEAN VersionDone, OpenAck, RemoteOpen;
+    USHORT  Rcid;
+    ULONG   MsgId;
+    LONG    LastAck;                        /* msg id of the last "msg#" from the RPM, -1 none */
+    BOOLEAN LastErr;
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)
@@ -39,6 +77,283 @@ static EVT_WDF_DEVICE_RELEASE_HARDWARE EvtReleaseHardware;
 static ULONG Rd(PDEVICE_CONTEXT Ctx, ULONG Off)
 {
     return READ_REGISTER_ULONG((volatile ULONG *)(Ctx->Ram + Off));
+}
+
+static VOID Wr(PDEVICE_CONTEXT Ctx, ULONG Off, ULONG Val)
+{
+    WRITE_REGISTER_ULONG((volatile ULONG *)(Ctx->Ram + Off), Val);
+}
+
+static VOID SleepMs(ULONG Ms)
+{
+    LARGE_INTEGER t;
+    t.QuadPart = -(LONGLONG)Ms * 10000;
+    KeDelayExecutionThread(KernelMode, FALSE, &t);
+}
+
+static BOOLEAN FileExists(PCWSTR Path)
+{
+    UNICODE_STRING name;
+    OBJECT_ATTRIBUTES oa;
+    FILE_BASIC_INFORMATION info;
+
+    RtlInitUnicodeString(&name, Path);
+    InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    return NT_SUCCESS(ZwQueryAttributesFile(&oa, &info));
+}
+
+/* ---- GLINK over the message RAM (word accesses only) ------------------------- */
+
+/* Msg = whole message, Len a multiple of 8 (glink pads every message to 8 bytes) */
+static BOOLEAN TxSend(PDEVICE_CONTEXT Ctx, const VOID *Msg, ULONG Len)
+{
+    ULONG tail = Rd(Ctx, Ctx->Tx.Off), head = Rd(Ctx, Ctx->Tx.Off + 4), avail, i;
+
+    avail = (tail <= head) ? Ctx->Tx.Size - head + tail : tail - head;
+    if ((Len & 7) != 0 || avail <= Len) {
+        LogPrint("tx: no room (%u bytes, head %x tail %x)\n", Len, head, tail);
+        return FALSE;
+    }
+    for (i = 0; i < Len; i += 4) {
+        Wr(Ctx, Ctx->Tx.Off + 8 + head, *(const ULONG *)((const UCHAR *)Msg + i));
+        head += 4;
+        if (head >= Ctx->Tx.Size) {
+            head -= Ctx->Tx.Size;
+        }
+    }
+    KeMemoryBarrier();
+    Wr(Ctx, Ctx->Tx.Off + 4, head);
+    KeMemoryBarrier();
+    WRITE_REGISTER_ULONG(Ctx->Ipc, 1u << 0);
+    return TRUE;
+}
+
+static VOID SendCmd(PDEVICE_CONTEXT Ctx, USHORT Cmd, USHORT P1, ULONG P2)
+{
+    ULONG m[2] = { (ULONG)Cmd | ((ULONG)P1 << 16), P2 };
+    TxSend(Ctx, m, sizeof(m));
+}
+
+static ULONG RxAvail(PDEVICE_CONTEXT Ctx)
+{
+    ULONG tail = Rd(Ctx, Ctx->Rx.Off), head = Rd(Ctx, Ctx->Rx.Off + 4);
+    return (head >= tail) ? head - tail : Ctx->Rx.Size - tail + head;
+}
+
+static VOID RxPeek(PDEVICE_CONTEXT Ctx, ULONG At, VOID *Dst, ULONG Len)
+{
+    ULONG tail = Rd(Ctx, Ctx->Rx.Off), i;
+
+    for (i = 0; i < Len; i += 4) {
+        ULONG pos = (tail + At + i) % Ctx->Rx.Size;
+        *(ULONG *)((UCHAR *)Dst + i) = Rd(Ctx, Ctx->Rx.Off + 8 + pos);
+    }
+}
+
+static VOID RxAdvance(PDEVICE_CONTEXT Ctx, ULONG Len)
+{
+    ULONG tail = Rd(Ctx, Ctx->Rx.Off) + Len;
+    if (tail >= Ctx->Rx.Size) {
+        tail -= Ctx->Rx.Size;
+    }
+    Wr(Ctx, Ctx->Rx.Off, tail);
+}
+
+/* RPM reply payload: {service_type, length} then messages {type, length, data} */
+static VOID RpmReply(PDEVICE_CONTEXT Ctx, const UCHAR *P, ULONG Len)
+{
+    ULONG o = 8;
+
+    if (Len < 8 || *(const ULONG *)P != RPM_SERVICE_REQ) {
+        LogHex("rpm: unexpected reply:", P, min(Len, 32));
+        return;
+    }
+    while (o + 8 <= Len) {
+        ULONG type = *(const ULONG *)(P + o), l = *(const ULONG *)(P + o + 4);
+        if (type == RPM_MSG_ID && l >= 4) {
+            Ctx->LastAck = (LONG)*(const ULONG *)(P + o + 8);
+            LogPrint("rpm: ack msg %u\n", Ctx->LastAck);
+        } else if (type == RPM_MSG_ERR) {
+            CHAR e[64];
+            ULONG n = min(l, (ULONG)sizeof(e) - 1);
+            RtlCopyMemory(e, P + o + 8, min(n, Len - o - 8));
+            e[n] = 0;
+            Ctx->LastErr = TRUE;
+            LogPrint("rpm: ERROR \"%s\"\n", e);
+        } else {
+            LogPrint("rpm: message type %08x len %u\n", type, l);
+        }
+        o += 8 + ((l + 3) & ~3u);
+    }
+}
+
+/* one message from r2ap; FALSE when nothing (complete) is waiting */
+static BOOLEAN RxOne(PDEVICE_CONTEXT Ctx)
+{
+    ULONG avail = RxAvail(Ctx), m[2], n;
+    USHORT cmd, p1;
+
+    if (avail < 8) {
+        return FALSE;
+    }
+    RxPeek(Ctx, 0, m, 8);
+    cmd = (USHORT)m[0];
+    p1  = (USHORT)(m[0] >> 16);
+    switch (cmd) {
+    case CMD_VERSION:
+        LogPrint("glink: VERSION %u features %x\n", p1, m[1]);
+        RxAdvance(Ctx, 8);
+        SendCmd(Ctx, CMD_VERSION_ACK, 1, 0);
+        Ctx->VersionDone = TRUE;
+        break;
+    case CMD_VERSION_ACK:
+        LogPrint("glink: VERSION_ACK %u features %x\n", p1, m[1]);
+        RxAdvance(Ctx, 8);
+        Ctx->VersionDone = TRUE;
+        break;
+    case CMD_OPEN: {
+        CHAR name[36];
+        n = (8 + m[1] + 7) & ~7u;
+        if (avail < n || m[1] > 32) {
+            return FALSE;
+        }
+        RtlZeroMemory(name, sizeof(name));
+        RxPeek(Ctx, 8, name, (m[1] + 3) & ~3u);
+        RxAdvance(Ctx, n);
+        LogPrint("glink: RPM OPEN \"%s\" rcid %u\n", name, p1);
+        if (strcmp(name, CHAN_NAME) == 0) {
+            Ctx->Rcid = p1;
+            Ctx->RemoteOpen = TRUE;
+            SendCmd(Ctx, CMD_OPEN_ACK, p1, 0);
+        }
+        break;
+    }
+    case CMD_OPEN_ACK:
+        LogPrint("glink: OPEN_ACK lcid %u\n", p1);
+        RxAdvance(Ctx, 8);
+        Ctx->OpenAck = (p1 == CHAN_LCID);
+        break;
+    case CMD_TX_DATA:
+    case CMD_TX_DATA_CONT: {
+        ULONG c[2];
+        UCHAR buf[256];
+        if (avail < 16) {
+            return FALSE;
+        }
+        RxPeek(Ctx, 8, c, 8);                       /* chunk_size, left_size */
+        n = (16 + c[0] + 7) & ~7u;
+        if (avail < n) {
+            return FALSE;
+        }
+        if (c[0] <= sizeof(buf)) {
+            RxPeek(Ctx, 16, buf, (c[0] + 3) & ~3u);
+            RpmReply(Ctx, buf, c[0]);
+        } else {
+            LogPrint("glink: data chunk %u too big\n", c[0]);
+        }
+        RxAdvance(Ctx, n);
+        break;
+    }
+    case CMD_CLOSE:
+        LogPrint("glink: RPM CLOSE rcid %u\n", p1);
+        RxAdvance(Ctx, 8);
+        SendCmd(Ctx, CMD_CLOSE_ACK, p1, 0);
+        Ctx->RemoteOpen = FALSE;
+        break;
+    case CMD_CLOSE_ACK:
+    case CMD_READ_NOTIF:
+    case CMD_SIGNALS:
+        LogPrint("glink: cmd %u p1 %u p2 %x\n", cmd, p1, m[1]);
+        RxAdvance(Ctx, 8);
+        break;
+    default:
+        LogPrint("glink: unknown cmd %u p1 %u p2 %x, dropping the FIFO\n", cmd, p1, m[1]);
+        RxAdvance(Ctx, avail);
+        break;
+    }
+    return TRUE;
+}
+
+/* poll r2ap until Done() or Ms elapse */
+static BOOLEAN Wait(PDEVICE_CONTEXT Ctx, BOOLEAN (*Done)(PDEVICE_CONTEXT), ULONG Ms)
+{
+    ULONG t;
+
+    for (t = 0; t <= Ms; t++) {
+        while (RxOne(Ctx)) {
+        }
+        if (Done(Ctx)) {
+            return TRUE;
+        }
+        SleepMs(1);
+    }
+    return FALSE;
+}
+
+static BOOLEAN IsVersion(PDEVICE_CONTEXT Ctx) { return Ctx->VersionDone; }
+static BOOLEAN IsOpen(PDEVICE_CONTEXT Ctx) { return Ctx->OpenAck && Ctx->RemoteOpen; }
+static BOOLEAN IsAnswered(PDEVICE_CONTEXT Ctx) { return Ctx->LastAck == (LONG)Ctx->MsgId || Ctx->LastErr; }
+
+/* one key/value request (qcom_rpm_smd_write) in the given set; TRUE if acked without error */
+static BOOLEAN RpmWrite(PDEVICE_CONTEXT Ctx, ULONG Set, ULONG Type, ULONG Id, ULONG Key, ULONG Value)
+{
+    struct {
+        USHORT Cmd, Lcid; ULONG Iid; ULONG Chunk, Left;     /* glink TX_DATA */
+        ULONG Service, Length;                              /* qcom_rpm_header */
+        ULONG MsgId, Flags, Type, Id, DataLen;              /* qcom_rpm_request */
+        ULONG Key, KeyLen, Value;                           /* data: 16 + 40 = 56 bytes, 8-aligned */
+    } m;
+
+    RtlZeroMemory(&m, sizeof(m));
+    Ctx->MsgId++;
+    Ctx->LastErr = FALSE;
+    m.Cmd = CMD_TX_DATA; m.Lcid = CHAN_LCID; m.Iid = 0;
+    m.Chunk = 8 + 20 + 12; m.Left = 0;
+    m.Service = RPM_SERVICE_REQ; m.Length = 20 + 12;
+    m.MsgId = Ctx->MsgId; m.Flags = Set; m.Type = Type; m.Id = Id; m.DataLen = 12;
+    m.Key = Key; m.KeyLen = 4; m.Value = Value;
+    C_ASSERT(sizeof(m) == 56);
+    if (!TxSend(Ctx, &m, sizeof(m))) {
+        return FALSE;
+    }
+    if (!Wait(Ctx, IsAnswered, 1000)) {
+        LogPrint("rpm: msg %u not answered in 1 s\n", Ctx->MsgId);
+        return FALSE;
+    }
+    return !Ctx->LastErr;
+}
+
+static VOID Link(PDEVICE_CONTEXT Ctx)
+{
+    PHYSICAL_ADDRESS pa;
+    struct { ULONG Hdr[2]; CHAR Name[16]; } open;
+    BOOLEAN ok;
+
+    pa.QuadPart = APCS_IPC_PA & ~0xFFFull;
+    Ctx->Ipc = (volatile ULONG *)((PUCHAR)MmMapIoSpaceEx(pa, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE) + (APCS_IPC_PA & 0xFFF));
+    if (Ctx->Ipc == (volatile ULONG *)(APCS_IPC_PA & 0xFFF)) {
+        LogPrint("apcs map failed\n");
+        Ctx->Ipc = NULL;
+        return;
+    }
+    Ctx->LastAck = -1;
+    SendCmd(Ctx, CMD_VERSION, 1, 0);
+    if (!Wait(Ctx, IsVersion, 1000)) {
+        LogPrint("glink: no VERSION answer in 1 s\n");
+        return;
+    }
+    RtlZeroMemory(&open, sizeof(open));
+    open.Hdr[0] = CMD_OPEN | ((ULONG)CHAN_LCID << 16);
+    open.Hdr[1] = sizeof(CHAN_NAME);
+    RtlCopyMemory(open.Name, CHAN_NAME, sizeof(CHAN_NAME));
+    TxSend(Ctx, &open, sizeof(open));
+    if (!Wait(Ctx, IsOpen, 1000)) {
+        LogPrint("glink: rpm_requests not open after 1 s (ack %u remote %u)\n", Ctx->OpenAck, Ctx->RemoteOpen);
+        return;
+    }
+    LogPrint("glink: rpm_requests open (rcid %u)\n", Ctx->Rcid);
+    ok = RpmWrite(Ctx, RPM_ACTIVE_SET, RPM_RES_IPA_CLK, 0, RPM_KEY_RATE, IPA_CLK_KHZ);
+    LogPrint("rpm: IPA clock %u kHz (active set): %s\n", IPA_CLK_KHZ, ok ? "OK" : "FAILED");
 }
 
 static PCSTR FifoName(ULONG Id)
@@ -89,6 +404,11 @@ static NTSTATUS Survey(PDEVICE_CONTEXT Ctx)
     for (i = 0; i < count; i++) {
         ULONG id = Rd(Ctx, toc + 8 + 12 * i), off = Rd(Ctx, toc + 12 + 12 * i), size = Rd(Ctx, toc + 16 + 12 * i);
         LogPrint("  [%u] id %08x %s off %x size %x\n", i, id, FifoName(id), off, size);
+        if (id == FIFO_AP2R) {
+            Ctx->Tx.Off = off; Ctx->Tx.Size = size;
+        } else if (id == FIFO_R2AP) {
+            Ctx->Rx.Off = off; Ctx->Rx.Size = size;
+        }
         if ((id == FIFO_AP2R || id == FIFO_R2AP) && off + 8 + size <= MSG_RAM_SIZE) {
             DumpFifo(Ctx, off, size);
         }
@@ -145,7 +465,18 @@ static NTSTATUS EvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESL
 {
     UNREFERENCED_PARAMETER(Raw);
     UNREFERENCED_PARAMETER(Translated);
-    LogPrint("survey: %08x\n", Survey(DeviceGetContext(Device)));
+    PDEVICE_CONTEXT ctx = DeviceGetContext(Device);
+    NTSTATUS status = Survey(ctx);
+
+    LogPrint("survey: %08x\n", status);
+    if (NT_SUCCESS(status) && ctx->Tx.Size != 0 && ctx->Rx.Size != 0) {
+        if (FileExists(L"\\??\\C:\\topaz\\rpm.on")) {
+            LogPrint("C:\\topaz\\rpm.on present: linking\n");
+            Link(ctx);
+        } else {
+            LogPrint("C:\\topaz\\rpm.on absent: read only\n");
+        }
+    }
     return STATUS_SUCCESS;
 }
 
@@ -157,6 +488,10 @@ static NTSTATUS EvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
     if (ctx->Ram != NULL) {
         MmUnmapIoSpace((PVOID)ctx->Ram, MSG_RAM_SIZE);
         ctx->Ram = NULL;
+    }
+    if (ctx->Ipc != NULL) {
+        MmUnmapIoSpace((PVOID)((ULONG_PTR)ctx->Ipc & ~(ULONG_PTR)0xFFF), PAGE_SIZE);
+        ctx->Ipc = NULL;
     }
     return STATUS_SUCCESS;
 }
