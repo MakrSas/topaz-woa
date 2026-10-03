@@ -987,3 +987,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   IDLE, which depends on the GPU-written userspace fence in the pipe control BO. Checking it: TIMING now also logs
   "FENCES control <GPU-written> last <emitted>". NOTE for the local tree: fd_wddm.c edits live in
   mesa-overlay/files only (local ~/work-mesa copy is the base version; do not diff it into 0003).
+- 22:50 FENCES: control == last (the GPU-written userspace fence is fine), ~27 submits per frame. GEM_NEW histogram:
+  all ~2300/s are 16-64 KiB CACHED_COHERENT = RING_FLAGS cmdstream/state-object suballoc BOs (fd_bo_new_ring,
+  SUBALLOC_SIZE 32K) that freedreno's ring cache does not reuse. Added BO-cache counters (hits, miss, busy-head
+  = find_in_bucket gave up because the oldest entry is busy, put, expired) to the TIMING log.

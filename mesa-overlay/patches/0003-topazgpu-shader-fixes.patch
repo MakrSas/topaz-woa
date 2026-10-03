@@ -1,3 +1,66 @@
+diff --git a/src/freedreno/drm/freedreno_bo_cache.c b/src/freedreno/drm/freedreno_bo_cache.c
+index 933e246..ef91d40 100644
+--- a/src/freedreno/drm/freedreno_bo_cache.c
++++ b/src/freedreno/drm/freedreno_bo_cache.c
+@@ -172,6 +172,7 @@ fd_bo_cache_cleanup(struct fd_bo_cache *cache, time_t time)
+          VG_BO_OBTAIN(bo);
+          bo_remove_from_bucket(bucket, bo);
+          bucket->expired++;
++         fd_dbg_cache_expire++;
+          list_addtail(&bo->node, &freelist);
+          fd_alloc_log(bo, FD_ALLOC_CACHE, FD_ALLOC_NONE);
+ 
+@@ -208,6 +209,19 @@ get_bucket(struct fd_bo_cache *cache, uint32_t size)
+    return NULL;
+ }
+ 
++/* TopazGpu debug counters (read by fd_bo_cache_debug_stats) */
++unsigned fd_dbg_cache_hits, fd_dbg_cache_miss, fd_dbg_cache_busy, fd_dbg_cache_put, fd_dbg_cache_expire,
++         fd_dbg_cache_nobucket;
++
++void
++fd_bo_cache_debug_stats(unsigned *v)
++{
++   v[0] = fd_dbg_cache_hits; v[1] = fd_dbg_cache_miss; v[2] = fd_dbg_cache_busy;
++   v[3] = fd_dbg_cache_put; v[4] = fd_dbg_cache_expire; v[5] = fd_dbg_cache_nobucket;
++   fd_dbg_cache_hits = fd_dbg_cache_miss = fd_dbg_cache_busy = fd_dbg_cache_put = fd_dbg_cache_expire = 0;
++   fd_dbg_cache_nobucket = 0;
++}
++
+ static struct fd_bo *
+ find_in_bucket(struct fd_bo_bucket *bucket, uint32_t flags)
+ {
+@@ -222,6 +236,7 @@ find_in_bucket(struct fd_bo_bucket *bucket, uint32_t flags)
+     */
+    foreach_bo (entry, &bucket->list) {
+       if (fd_bo_state(entry) != FD_BO_STATE_IDLE) {
++         fd_dbg_cache_busy++;
+          break;
+       }
+       if (entry->alloc_flags == flags) {
+@@ -266,10 +281,14 @@ retry:
+          p_atomic_set(&bo->refcnt, 1);
+          bo->reloc_flags = FD_RELOC_FLAGS_INIT;
+          bucket->hits++;
++         fd_dbg_cache_hits++;
+          fd_alloc_log(bo, FD_ALLOC_CACHE, FD_ALLOC_ACTIVE);
+          return bo;
+       }
+       bucket->misses++;
++      fd_dbg_cache_miss++;
++   } else {
++      fd_dbg_cache_nobucket++;
+    }
+ 
+    fd_bo_del_list_nocache(&freelist);
+@@ -303,6 +322,7 @@ fd_bo_cache_free(struct fd_bo_cache *cache, struct fd_bo *bo)
+       simple_mtx_lock(&cache->lock);
+       list_addtail(&bo->node, &bucket->list);
+       bucket->count++;
++      fd_dbg_cache_put++;
+       simple_mtx_unlock(&cache->lock);
+ 
+       fd_alloc_log(bo, FD_ALLOC_ACTIVE, FD_ALLOC_CACHE);
 diff --git a/src/freedreno/drm/freedreno_pipe.c b/src/freedreno/drm/freedreno_pipe.c
 index 362e696..8a70b4d 100644
 --- a/src/freedreno/drm/freedreno_pipe.c
@@ -1281,19 +1344,20 @@ index 2aecca7..b6a066a 100644
     D3D10_DDI_QUERY_DATA_PIPELINE_STATISTICS Statistics;
  };
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-index cd028ba..4bc0265 100644
+index cd028ba..b2f3758 100644
 --- a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -163,6 +163,8 @@ TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HAN
+@@ -163,6 +163,9 @@ TopazWddmOpen(Device *pDevice, const D3D10DDIARG_OPENRESOURCE *pOpen, D3DKMT_HAN
     return pDevice->screen->resource_from_handle(pDevice->screen, &templat, &wh, 0);
  }
  
++extern "C" void fd_bo_cache_debug_stats(unsigned *v);
 +extern "C" void fd_context_debug_fences(struct pipe_context *pctx, uint32_t *ctl, uint32_t *last);
 +
  /* DXGI Present: finish the GPU work on the source, then let the KMD blt/flip it */
  HRESULT
  TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGIContext)
-@@ -175,11 +177,52 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+@@ -175,11 +178,55 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
        TopazWddmLogf("topaz: Present of a resource without allocation\n");
        return S_OK;
     }
@@ -1334,7 +1398,10 @@ index cd028ba..4bc0265 100644
 +         {
 +            uint32_t ctl, last;
 +            fd_context_debug_fences(pipe, &ctl, &last);
-+            TopazWddmLogf("FENCES control %u last %u\n", ctl, last);
++            unsigned cs[6];
++            fd_bo_cache_debug_stats(cs);
++            TopazWddmLogf("FENCES control %u last %u | BO cache: hits %u miss %u busy-head %u put %u expired %u nobucket %u\n",
++                          ctl, last, cs[0], cs[1], cs[2], cs[3], cs[4], cs[5]);
 +         }
 +         TopazWddmLogf("TIMING 60 presents: frame %.1f ms, flush %.2f, gpu wait %.2f, present cb %.2f, NO_OVERWRITE flushes/frame %.1f (%.2f ms/frame), draws/frame %.0f in %.2f ms\n",
 +                       sumFrame / 59, sumFlush / 60, sumWait / 60, sumCb / 60, g_topazMapFlushes / 60.0,
@@ -1347,7 +1414,7 @@ index cd028ba..4bc0265 100644
     if (!pDevice->topazCtx) {
        /* own pfnCreateContextCb: gdikmt's leaves EngineAffinity 0 (invalid for a MultiEngineAware KMD) */
        struct gdikmt_context_d3dddi *c = (struct gdikmt_context_d3dddi *)calloc(1, sizeof(*c));
-@@ -209,7 +252,12 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+@@ -209,7 +256,12 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
        p.hDstAllocation = pDst ? pDst->hAllocation : 0;
        p.pDXGIContext = pDXGIContext;
        p.hContext = ((struct gdikmt_context_d3dddi *)pDevice->topazCtx)->hContext;
@@ -1360,7 +1427,7 @@ index cd028ba..4bc0265 100644
        if (FAILED(hr))
           TopazWddmLogf("topaz: PresentCb src 0x%x dst 0x%x ctx %p -> 0x%08lx\n", p.hSrcAllocation, p.hDstAllocation,
                         p.hContext, (unsigned long)hr);
-@@ -290,6 +338,21 @@ bool
+@@ -290,6 +342,21 @@ bool
  TopazWddmEnabled(void)
  {
     TopazWddmLogInit();
