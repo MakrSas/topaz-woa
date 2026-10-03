@@ -19,7 +19,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.36"
+#define TGPU_VERSION        "v0.37"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
@@ -147,6 +147,7 @@ VOID     EngKickScanout(VOID);
 #define TGPU_FB_PITCH       (TGPU_FB_WIDTH * 4)
 
 NTSTATUS DispStart(PDXGKRNL_INTERFACE Dxgk);
+VOID     DispSurveyMdp(VOID);
 VOID     DispStop(VOID);
 VOID     DispGetPostInfo(DXGK_DISPLAY_INFORMATION *Info);
 VOID     DispPresentRects(TGPU_ALLOCATION *Dst, const RECT *Rects, ULONG Count);   /* engine: Dst changed */

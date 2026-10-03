@@ -611,3 +611,17 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   RGBA primaries, Modern Standby (PDC watchdog 0x14F) untested/broken, preemption disabled
   system-wide (GraphicsDrivers\Scheduler EnablePreemption=0), UMD still opt-in by C:\topaz\umd.enable,
   only RAM-boot UEFI has GPU0.
+
+### After the milestone: user feedback + plan (09:40)
+- Photos: desktop, taskbar, Start menu with acrylic blur rendered by DWM on the GPU. Laggy. Artifacts:
+  Start icon disappears, search icon only partly drawn, Task Manager window partly drawn with a white
+  area (probably surfaces DWM opens from other processes / GDI surfaces the UMD cannot import yet).
+  Faint ghost icons on the right edge are most likely AMOLED burn-in from Android, not ours.
+  Rotation: only portrait (no path rotation support reported; auto-rotate needs an accelerometer driver
+  on the SSC/ADSP).
+- Next: direct scanout (MDP SSPP fetch from the flipped BO). Stock DT: MDP 0x5E00000 (sde-off 0x1000),
+  SSPP VIG0 +0x5000, DMA0 +0x25000 (only vig + dma on khaje), CTL0 +0x2000, LM0 +0x45000, INTF1
+  +0x6b800; MDP SMMU stream IDs 0x420 (mask 0x2, unsecure) and 0x421 (secure) on the apps SMMU
+  0x0C600000. v0.37 logs (read-only) the SSPP/CTL/LM/INTF registers and the apps SMMU SMR/S2CR/CB
+  entries of these SIDs at start, to see which pipe fetches the GOP buffer and whether MDP fetches are
+  translated.

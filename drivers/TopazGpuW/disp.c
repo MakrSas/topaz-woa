@@ -243,6 +243,7 @@ NTSTATUS DispStart(PDXGKRNL_INTERFACE Dxgk)
     }
     LogPrint("framebuffer mapped at %p\n", g_Fb);
     InitBrightness();
+    DispSurveyMdp();
 
     KeInitializeTimerEx(&g_VsyncTimer, NotificationTimer);
     KeInitializeDpc(&g_VsyncDpc, VsyncDpc, NULL);
@@ -854,4 +855,82 @@ NTSTATUS DispBrightnessQueryInterface(PQUERY_INTERFACE Qi)
     b->GetBrightness = BlGet;
     LogPrint("QueryInterface brightness v%u: provided\n", Qi->Version);
     return STATUS_SUCCESS;
+}
+
+/* ---------------------------------------------------------------- v0.37: MDP / SMMU survey (read-only)
+ * Goal: scan out the flipped BO directly (SSPP source address) instead of copying it. First learn what
+ * the bootloader left running: which SSPP fetches the GOP framebuffer, its stride/format, the CTL/LM
+ * routing, and whether the apps SMMU translates the MDP stream (SID 0x420/0x421, stock DT) or
+ * bypasses it. Offsets: stock DT sde-sspp-off VIG0 0x5000, DMA0 0x25000, ctl 0x2000, mixer 0x45000. */
+
+#define MDP_PA        0x05E00000ULL
+#define MDP_SIZE      0x90000
+#define APPS_SMMU_PA  0x0C600000ULL
+
+static ULONG MRd(volatile UCHAR *B, ULONG Off) { return READ_REGISTER_ULONG((volatile ULONG *)(B + Off)); }
+
+static VOID DumpSspp(volatile UCHAR *Mdp, PCSTR Name, ULONG Base)
+{
+    LogPrint("MDP %s @+%05x: src_size %08x img %08x xy %08x out_size %08x out_xy %08x addr0 %08x addr1 %08x "
+             "ystride0 %08x format %08x unpack %08x op %08x\n", Name, Base, MRd(Mdp, Base + 0x00), MRd(Mdp, Base + 0x04),
+             MRd(Mdp, Base + 0x08), MRd(Mdp, Base + 0x0C), MRd(Mdp, Base + 0x10), MRd(Mdp, Base + 0x14),
+             MRd(Mdp, Base + 0x18), MRd(Mdp, Base + 0x24), MRd(Mdp, Base + 0x30), MRd(Mdp, Base + 0x34),
+             MRd(Mdp, Base + 0x38));
+}
+
+VOID DispSurveyMdp(VOID)
+{
+    PHYSICAL_ADDRESS pa;
+    volatile UCHAR *mdp, *smmu;
+    ULONG idr0, idr1, nsmr, i, pagesz, numpage;
+
+    pa.QuadPart = (LONGLONG)MDP_PA;
+    mdp = (volatile UCHAR *)MmMapIoSpaceEx(pa, MDP_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if (mdp != NULL) {
+        LogPrint("MDP hw rev %08x (top +0x1000: %08x)\n", MRd(mdp, 0x0), MRd(mdp, 0x1000));
+        DumpSspp(mdp, "VIG0", 0x5000);
+        DumpSspp(mdp, "DMA0", 0x25000);
+        LogPrint("MDP CTL0 @+2000: layer0 %08x layer1 %08x top %08x flush %08x start %08x intf_active %08x\n",
+                 MRd(mdp, 0x2000), MRd(mdp, 0x2004), MRd(mdp, 0x2014), MRd(mdp, 0x2018), MRd(mdp, 0x201C),
+                 MRd(mdp, 0x20F4));
+        LogPrint("MDP LM0 @+45000: op %08x out_size %08x border %08x stage0 fg %08x\n", MRd(mdp, 0x45000),
+                 MRd(mdp, 0x45004), MRd(mdp, 0x45008), MRd(mdp, 0x45020));
+        LogPrint("MDP INTF1 @+6b800: timing_en %08x hsync %08x vsync0 %08x disp_hctl %08x\n", MRd(mdp, 0x6b800),
+                 MRd(mdp, 0x6b800 + 0x8), MRd(mdp, 0x6b800 + 0x10), MRd(mdp, 0x6b800 + 0x3C));
+        MmUnmapIoSpace((PVOID)mdp, MDP_SIZE);
+    }
+
+    pa.QuadPart = (LONGLONG)APPS_SMMU_PA;
+    smmu = (volatile UCHAR *)MmMapIoSpaceEx(pa, 0x2000, PAGE_READWRITE | PAGE_NOCACHE);
+    if (smmu == NULL) {
+        return;
+    }
+    idr0 = MRd(smmu, 0x20);
+    idr1 = MRd(smmu, 0x24);
+    nsmr = idr0 & 0xFF;
+    pagesz = (idr1 & 0x80000000) ? 0x10000 : 0x1000;
+    numpage = 1u << (((idr1 >> 28) & 7) + 1);
+    LogPrint("apps SMMU: sCR0 %08x IDR0 %08x IDR1 %08x (%u SMRs, %u CBs, page %x, numpage %u)\n", MRd(smmu, 0),
+             idr0, idr1, nsmr, idr1 & 0xFF, pagesz, numpage);
+    for (i = 0; i < nsmr && i < 128; i++) {
+        ULONG smr = MRd(smmu, 0x800 + 4 * i), s2cr = MRd(smmu, 0xC00 + 4 * i);
+        ULONG id = smr & 0xFFFF, mask = (smr >> 16) & 0x7FFF;
+        if ((smr & 0x80000000) && ((0x420 & ~mask) == (id & ~mask) || (0x421 & ~mask) == (id & ~mask))) {
+            ULONG type = (s2cr >> 16) & 3, cb = s2cr & 0xFF;
+            LogPrint("  SMR%u id %04x mask %04x -> S2CR %08x (type %u: %s, cb %u)\n", i, id, mask, s2cr, type,
+                     type == 0 ? "translate" : type == 1 ? "bypass" : "fault", cb);
+            if (type == 0) {
+                volatile UCHAR *cbm;
+                pa.QuadPart = (LONGLONG)(APPS_SMMU_PA + (ULONGLONG)numpage * pagesz + (ULONGLONG)cb * pagesz);
+                cbm = (volatile UCHAR *)MmMapIoSpaceEx(pa, 0x100, PAGE_READWRITE | PAGE_NOCACHE);
+                if (cbm != NULL) {
+                    LogPrint("    CB%u: SCTLR %08x TCR %08x TTBR0 %08x%08x CBAR %08x\n", cb, MRd(cbm, 0x0),
+                             MRd(cbm, 0x30), MRd(cbm, 0x24), MRd(cbm, 0x20),
+                             MRd(smmu, 0x1000 + 4 * cb) /* CBAR in GR1 */);
+                    MmUnmapIoSpace((PVOID)cbm, 0x100);
+                }
+            }
+        }
+    }
+    MmUnmapIoSpace((PVOID)smmu, 0x2000);
 }
