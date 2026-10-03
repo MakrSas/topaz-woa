@@ -1367,9 +1367,17 @@ DefinitionBlock ("", "DSDT", 2, "QCOMM ", "SM6225 ", 0x00000003)
                 Memory32Fixed (ReadWrite, 0x05900000, 0x00090000, )
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive, ,, ) { 0x000000D1 }  // GIC SPI 177
             })
+            // TopazOtgDxe "Windows (no GPU)" patches this OneOp to ZeroOp and the _HID string
+            // above to "TPZX0610" in the installed DSDT (TopazDisplay then keeps the panel).
+            Name (GPUE, One)
             Method (_STA, 0, NotSerialized)
             {
-                Return (0x0F)
+                If (GPUE)
+                {
+                    Return (0x0F)
+                }
+
+                Return (Zero)
             }
         }
     }

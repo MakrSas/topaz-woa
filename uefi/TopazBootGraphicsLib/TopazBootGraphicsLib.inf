@@ -1,0 +1,37 @@
+## @file
+#  tapas BootGraphicsLib: Xiaomi splash (saved by TopazOtgDxe) + Silicium logo at the bottom.
+#  Based on MsGraphicsPkg BootGraphicsLib.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = TopazBootGraphicsLib
+  FILE_GUID                      = 3d0e8a41-7c2b-4f6e-a5d9-1b84c0f27e93
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = BootGraphicsLib|DXE_DRIVER UEFI_APPLICATION
+
+[Sources]
+  TopazBootGraphicsLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  MsGraphicsPkg/MsGraphicsPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  UefiBootServicesTableLib
+  UefiLib
+  DebugLib
+  BootGraphicsProviderLib
+  BmpSupportLib
+  MemoryAllocationLib
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid                ## SOMETIMES_CONSUMES
+  gEdkiiBootLogo2ProtocolGuid                   ## SOMETIMES_CONSUMES
+
+[Guids]
+  gLogoDisplayedEventGroup                      ## CONSUMES

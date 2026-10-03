@@ -19,9 +19,12 @@
 #include <Library/UefiLib.h>
 #include <Library/PrintLib.h>
 #include <Guid/EventGroup.h>
+#include <Guid/Acpi.h>
+#include <IndustryStandard/Acpi.h>
+#include <Library/MemoryAllocationLib.h>
 #include <Protocol/EFIPmicPon.h>
 #include "AbSlot.h"
-#include "ModemPas.h"
+#include "TopazSplash.h"
 
 #define TAG "TopazOtg: "
 
@@ -425,8 +428,8 @@ STATIC VOID DumpLog(VOID)
  * SetActiveSlot (type GUID swap of every _a/_b pair), see docs/AGENT_BRIEF_drivers.md 2c.
  * Android is started from the PC with `fastboot set_active a`.
  */
-enum { MENU_WINDOWS, MENU_FASTBOOT, MENU_POWEROFF, MENU_MODEM, MENU_COUNT, MENU_ANDROID = 100, MENU_TWRP };
-STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Fastboot", "Power off", "Modem test (Wi-Fi P1)" };
+enum { MENU_WINDOWS, MENU_WINDOWS_NOGPU, MENU_FASTBOOT, MENU_POWEROFF, MENU_COUNT, MENU_ANDROID = 100, MENU_TWRP };
+STATIC CONST CHAR8 *mMenu[MENU_COUNT] = { "Windows", "Windows (no GPU, safe display)", "Fastboot", "Power off" };
 
 /*
  * Layout: slot b boot_b = this UEFI (active by default), slot a = Android + TWRP in
@@ -464,6 +467,80 @@ STATIC VOID RebootWithReason(UINT8 Reason)
   gRT->ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
 }
 
+/*
+ * "Windows (no GPU)": GPU0 in our DSDT has Name (GPUE, One) and _STA returns 0 when it is zero.
+ * Patch the installed DSDT in place: GPUE OneOp -> ZeroOp, and _HID "TPZG0610" -> "TPZX0610"
+ * because TopazDisplay yields the panel whenever HKLM\HARDWARE\ACPI\DSDT contains "TPZG0610".
+ * Both edits lower the byte sum, the checksum byte takes the difference.
+ */
+STATIC EFI_STATUS DisableGpu0(VOID)
+{
+  STATIC CONST UINT8 Gpue[] = { 0x08, 'G', 'P', 'U', 'E', 0x01 };
+  STATIC CONST UINT8 Hid[]  = { 'T', 'P', 'Z', 'G', '0', '6', '1', '0' };
+  EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER *rsdp = NULL;
+  EFI_ACPI_DESCRIPTION_HEADER *xsdt, *dsdt = NULL;
+  EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE *fadt;
+  UINT8 *p;
+  UINTN i, n, gpue = 0, hid = 0;
+
+  if (EFI_ERROR (EfiGetSystemConfigurationTable (&gEfiAcpi20TableGuid, (VOID **)&rsdp)) || rsdp == NULL) {
+    return EFI_NOT_FOUND;
+  }
+  xsdt = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)rsdp->XsdtAddress;
+  n = (xsdt->Length - sizeof (*xsdt)) / sizeof (UINT64);
+  for (i = 0; i < n && dsdt == NULL; i++) {
+    UINT64 a = ReadUnaligned64 ((UINT64 *)((UINT8 *)xsdt + sizeof (*xsdt) + i * sizeof (UINT64)));
+    fadt = (EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE *)(UINTN)a;
+    if (fadt->Header.Signature == EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE_SIGNATURE) {
+      dsdt = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)(fadt->XDsdt != 0 ? fadt->XDsdt : fadt->Dsdt);
+    }
+  }
+  if (dsdt == NULL) {
+    return EFI_NOT_FOUND;
+  }
+  p = (UINT8 *)dsdt;
+  for (i = sizeof (*dsdt); i + sizeof (Hid) <= dsdt->Length; i++) {
+    if (CompareMem (p + i, Gpue, sizeof (Gpue)) == 0) {
+      p[i + 5] = 0x00;
+      p[9] += 1;                                       /* OneOp -> ZeroOp: sum - 1 */
+      gpue++;
+    } else if (CompareMem (p + i, Hid, sizeof (Hid)) == 0) {
+      p[i + 3] = 'X';
+      p[9] += (UINT8)('G' - 'X');                      /* sum + ('X' - 'G') */
+      hid++;
+    }
+  }
+  LOG ("DSDT %p len %u: GPUE %u, HID %u, sum %02x\n", dsdt, dsdt->Length, (UINT32)gpue, (UINT32)hid,
+       CalculateCheckSum8 (p, dsdt->Length));
+  return gpue == 1 ? EFI_SUCCESS : EFI_NOT_FOUND;
+}
+
+/* Copy ABL's splash out of the framebuffer before BDS's console clears it (see TopazSplash.h). */
+STATIC TOPAZ_SPLASH mSplash;
+
+STATIC VOID SaveSplash(VOID)
+{
+  STATIC EFI_GUID Guid = TOPAZ_SPLASH_PROTOCOL_GUID;
+  EFI_HANDLE h = NULL;
+  UINT32 *fb = (UINT32 *)TOPAZ_FB_BASE;
+  UINTN i, count = (UINTN)TOPAZ_FB_WIDTH * TOPAZ_FB_HEIGHT;
+
+  mSplash.Pixels = AllocatePool (count * sizeof (UINT32));
+  if (mSplash.Pixels == NULL) {
+    return;
+  }
+  CopyMem (mSplash.Pixels, fb, count * sizeof (UINT32));
+  for (i = 0; i < count; i++) {
+    if ((((UINT32 *)mSplash.Pixels)[i] & 0x00E0E0E0) != 0) {
+      mSplash.Lit++;
+    }
+  }
+  mSplash.Width  = TOPAZ_FB_WIDTH;
+  mSplash.Height = TOPAZ_FB_HEIGHT;
+  LOG ("splash: %u lit pixels\n", mSplash.Lit);
+  gBS->InstallProtocolInterface (&h, &Guid, EFI_NATIVE_INTERFACE, &mSplash);
+}
+
 STATIC VOID MenuDraw(UINTN Sel, UINTN Left)
 {
   UINTN i;
@@ -490,13 +567,11 @@ STATIC UINTN BootMenu(UINTN TimeoutSec)
     gBS->Stall (100 * 1000);
     ticks++;
   }
-  gST->ConOut->ClearScreen (gST->ConOut);
+  /* no ClearScreen: the Xiaomi splash stays, the text cells only cover the top rows */
+  gST->ConOut->SetCursorPosition (gST->ConOut, 0, 0);
   ConPrint ("  ==== topaz: choose OS ====\r\n");
   MenuDraw (sel, left);
-  ConPrint ("\r\n  slots: %r  a=%016lx b=%016lx\r\n", mAbStatus, mAb.AttrA, mAb.AttrB);
-  ConPrint ("  a: prio=%u act=%u retry=%u ok=%u unboot=%u   b: prio=%u act=%u retry=%u ok=%u unboot=%u\r\n",
-            AB_PRIO (mAb.AttrA), AB_ACTIVE (mAb.AttrA), AB_RETRY (mAb.AttrA), AB_SUCCESS (mAb.AttrA), AB_UNBOOT (mAb.AttrA),
-            AB_PRIO (mAb.AttrB), AB_ACTIVE (mAb.AttrB), AB_RETRY (mAb.AttrB), AB_SUCCESS (mAb.AttrB), AB_UNBOOT (mAb.AttrB));
+  LOG ("slots: %r a=%016lx b=%016lx\n", mAbStatus, mAb.AttrA, mAb.AttrB);
   for (ticks = 0; touched || ticks < TimeoutSec * 10; ticks++) {
     if (KeyPressed (&key)) {
       touched = TRUE;
@@ -570,13 +645,16 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
     } else if (choice == MENU_FASTBOOT) {
       ConPrint ("\r\n  Rebooting to fastboot...\r\n");
       RebootWithReason (ABL_REASON_FASTBOOT);
-    } else if (choice == MENU_MODEM) {
-      gST->ConOut->ClearScreen (gST->ConOut);
-      ConPrint ("  result: %r\r\n  Any key: back to menu\r\n", ModemPasTest ());
-      while (!KeyPressed (&key)) {
-        gBS->Stall (100 * 1000);
+    } else if (choice == MENU_WINDOWS_NOGPU) {
+      EFI_STATUS st = DisableGpu0 ();
+      ConPrint ("\r\n  GPU0 off in DSDT: %r\r\n", st);
+      if (EFI_ERROR (st)) {
+        ConPrint ("  NOT patched. Any key: back to menu\r\n");
+        while (!KeyPressed (&key)) {
+          gBS->Stall (100 * 1000);
+        }
+        continue;
       }
-      continue;
     } else if (choice == MENU_POWEROFF) {
       {
         /*
@@ -625,6 +703,7 @@ TopazOtgEntry (
   UINT32 ctl;
   EFI_EVENT ev;
 
+  SaveSplash ();
   EfiCreateEventReadyToBootEx (TPL_CALLBACK, OnReadyToBoot, NULL, &ev);
 
   LOG ("start, gpio4 ctl=%08x gpio5 ctl=%08x usb_sw(gpio66) ctl=%08x io=%08x\n",

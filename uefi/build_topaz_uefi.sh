@@ -18,10 +18,15 @@ apply "$HERE/patches/mu-topazotg.diff" .                    # TopazOtgDxe in dsc
 
 mkdir -p Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe
 cp "$HERE"/TopazOtgDxe/*.{c,h,inf} Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe/
+# Xiaomi splash kept + Silicium logo at the bottom (TopazBootGraphicsLib, splash saved by TopazOtgDxe)
+mkdir -p Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib
+cp "$HERE"/TopazBootGraphicsLib/*.{c,inf} Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/
+grep -q TopazBootGraphicsLib Platforms/Xiaomi/tapasPkg/tapas.dsc ||
+    sed -i 's#^  ConfigurationMapLib|.*$#&\n  BootGraphicsLib|tapasPkg/Library/TopazBootGraphicsLib/TopazBootGraphicsLib.inf#' Platforms/Xiaomi/tapasPkg/tapas.dsc
 
 A=Silicium-ACPI/Platforms/Xiaomi/tapas
 [ -f $A/DSDT.aml.orig ] || cp $A/DSDT.aml $A/DSDT.aml.orig
-cp "$HERE/acpi/tapas-DSDT-xhci.aml" $A/DSDT.aml             # URS0 -> plain PNP0D10 XHCI
+cp "$HERE/acpi/tapas-DSDT-xhci.aml" $A/DSDT.aml             # URS0 -> plain PNP0D10 XHCI, GPU0 (GPUE switch)
 
 # DXE.inc / APRIORI.inc must have the Qualcomm USB DXEs enabled (upstream default; do NOT use mu-nousb.diff)
 if grep -q '^#NOUSB' Platforms/Xiaomi/tapasPkg/Include/DXE.inc; then

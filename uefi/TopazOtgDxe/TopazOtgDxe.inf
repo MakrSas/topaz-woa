@@ -10,13 +10,7 @@
   TopazOtgDxe.c
   AbSlot.c
   AbSlot.h
-  ModemPas.c
-  ModemPas.h
-  Modem.h
-  Smem.c
-  Glink.c
-  ModemSvc.c
-  Wlfw.c
+  TopazSplash.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -34,7 +28,6 @@
   UefiLib
   PrintLib
   MemoryAllocationLib
-  ArmSmcLib
   DxeServicesTableLib
   CacheMaintenanceLib
 
@@ -46,6 +39,7 @@
 
 [Guids]
   gEfiFileInfoGuid
+  gEfiAcpi20TableGuid
 
 [Depex]
   TRUE
