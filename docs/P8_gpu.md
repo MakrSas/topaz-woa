@@ -743,3 +743,16 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 4. KMD: ignore DXGK_OPERATION_FILL for BO-backed allocations.
 5. Later: async present (no fence wait), path rotation, Modern Standby, then flashing a GPU0 UEFI only
    with the user's consent.
+
+## C2 follow-up (2026-10-03, session 2): shader-translation fixes behind switches
+- Step 1 (zero-cost check, umd.tgsi on, fresh dwm pid 8916, 53 shaders, little UI activity): no "unknown TGSI
+  opcode", no SVIEWINFO, no KILL/KILL_IF, every SAMPLE has the default xyzw SVIEW swizzle (DDX/DDY present
+  next to SAMPLE in a few FS). So on this sample none of (a)/(b)/(c) triggers yet; more UI (text, popups
+  with shadows, blur) is needed to catch them - the fixes are implemented anyway.
+- Mesa local tree: ~/work-mesa/mesa (max8rr8/mesa viogpu_win + overlay + 0001 + 0002 committed as "base").
+  New patch mesa-overlay/patches/0003-topazgpu-shader-fixes.patch (= `git diff -- src/gallium` on top of
+  base; kept separate from 0002, applied in name order by mesa.yml). Switches (umd.env, `NAME=1`):
+  - TOPAZ_SVSWZ: ttn_sample applies Src[1] resource swizzle to the sampled vec4.
+  - TOPAZ_DEMOTE: KILL/KILL_IF -> nir_demote(_if) + info.fs.uses_demote (helper lanes stay alive).
+  - TOPAZ_SVINFO: SVIEWINFO -> nir_texop_txs (+ query_levels in .w) with texture_index = SVIEW index.
+  - TOPAZ_POISON: after fd_resource_rotate_storage the next back buffer hResources[1] is cleared magenta.
