@@ -103,3 +103,11 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   the IPA probe; after the reboot the store still had v0.2 (update never completed). Rule: TopazRpm
   is updated only by file swap + reboot. v0.4 refuses to handshake when the FIFO indices show
   earlier traffic.
+- **TopazRpm v0.5 result (fresh boot, one-shot ipa.probe): IPA is alive after the RPM vote.**
+  IPA COMP_CFG 0x5840000+0x3c = 000f0078, SHARED_MEM_SIZE +0x54 = 00000415 (0x415 x 8 B = 8360 B
+  SRAM, base 0), FLAVOR_0 +0x210 = 08090811 (8 consumer + 9 producer pipes, producers from 8),
+  GSI STATUS (EE0) 0x5823000 = 0 (not enabled: no GSI firmware yet), GSI HW_PARAM_2 0x5823040 =
+  e4046b59. Register layout confirmed (ipa-reg 0x5840000, gsi 0x5804000).
+- Next: ipa_fws PAS load (id 15, memory region 0x55b00000) before the modem boots -> GSI enabled;
+  then IPA/GSI init after Linux drivers/net/ipa (v4.2 data), the QMI INIT_DRIVER to the modem,
+  INIT_COMPLETE indication. Boot order: TopazRpm vote -> IPA init -> modem.
