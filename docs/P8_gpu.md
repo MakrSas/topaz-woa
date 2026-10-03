@@ -1048,3 +1048,10 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   before: a diagonal seam across the dragged (lifted) Chrome window; with TOPAZ_FULLQUAD=1 (both bits forced on)
   the user confirms it is fixed. Now default on (TOPAZ_FULLQUAD=0 = old). SCFIX/FS-scissor were workarounds for
   the same root cause; SCFIX stays for now (re-evaluate: may be removable).
+- 02:00 README rewritten (status table, GPU stack diagram, fixes table, known limits), pushed to display and main.
+  gpu.mhz lowered to 785 (NOM) until an RPM client can vote the GX/CX corner (advice from a review: 1260 = TURBO_L1
+  on an unvoted shared rail risks silent errors; bandwidth-bound anyway).
+- Rotation (user: manual rotation at least; it worked with TopazDisplay). TopazGpuW v0.46: cofunc modality
+  advertises Rotate90/180/270, CommitVidPn records the path rotation, QueryVidPnHWCapability DriverRotation=1;
+  rotated -> no direct scanout, the primary is copied into the framebuffer with a tiled CPU rotation (64x64 tiles:
+  sequential WC reads, rotated writes) at each flip (after the deferred GPU fence). Faster GPU rotation later.

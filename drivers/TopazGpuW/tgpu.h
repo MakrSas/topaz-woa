@@ -19,7 +19,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.45"
+#define TGPU_VERSION        "v0.46"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
@@ -67,6 +67,7 @@ ULONGLONG VaAlloc(SIZE_T Size);
 VOID      VaFree(ULONGLONG Va, SIZE_T Size);
 NTSTATUS  HwSubmit(const ULONGLONG *IbIova, const ULONG *IbDwords, ULONG Count, PULONG Fence);
 ULONG     HwCompletedFence(VOID);
+BOOLEAN   DispRotated(VOID);
 BOOLEAN   HwWaitFence(ULONG Fence, ULONG TimeoutMs);
 BOOLEAN   HwWedged(VOID);
 BOOLEAN   HwRecover(VOID);
