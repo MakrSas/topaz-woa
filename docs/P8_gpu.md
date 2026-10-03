@@ -688,3 +688,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - v0.40: flip completion for direct scanout only once CTL0_FLUSH's VIG0 bit cleared (MDP latched the
   new address at the panel vsync); CRTC_VSYNC reports the address really on screen (g_ShownPa). fps line
   also counts how often a flip had to wait for the latch.
+- Glitch test (10:40): FD_MESA_DEBUG=noubwc,notile does not remove the thin dashed lines/arcs; they appear
+  where DWM redraws small regions (touch-feedback circle) and were also on the user avatar of the
+  welcome screen -> not glyph/texture layout. d3d10umd scissor/copy-box conversions are correct.
+  Suspect the flip-completion timing (v0.39 reports flips done by the timer before the MDP latch, DWM
+  may start drawing into the buffer still being fetched). v0.40 staged; umd.env back to defaults.
