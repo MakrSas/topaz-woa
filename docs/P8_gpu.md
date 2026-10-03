@@ -872,3 +872,10 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   On a6xx scissored-out pixels apparently do not serve as helper lanes, so the derivatives at that column
   are garbage and the taps sample elsewhere -> 1-px wrong columns/rows left behind (DWM never repaints them).
   Fix: scissor rects aligned to even coordinates (whole quads), default on; TOPAZ_SCALIGN=0 = old.
+- 17:05 Quad-aligned hardware scissor alone moved the bad column to the added pixel (DWM clips strip GEOMETRY
+  too, the extra column got only some layers). Proper fix (default, TOPAZ_FSSCISSOR=0 disables): hardware
+  scissor widened to whole 2x2 quads + the exact D3D scissor applied in every pixel shader: ShaderTGSI injects
+  "KILL_IF pos outside CONST[15][0]" (pipe CB slot 15 is unused by D3D's 14 CBs; Rasterizer.cpp uploads
+  (minx, miny, 16384-maxx, 16384-maxy) via the stream uploader on scissor/RS changes, zeros = no clip), and
+  KILL/KILL_IF are now compiled as demote by default (TOPAZ_DEMOTE=0 = terminate), so the cut pixels stay
+  helper lanes and derivatives at the edge are right.

@@ -1,8 +1,8 @@
 diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
-index 78eac1c..7f96bd4 100644
+index 78eac1c..4930027 100644
 --- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
 +++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
-@@ -970,9 +970,23 @@ ttn_barrier(nir_builder *b)
+@@ -970,9 +970,30 @@ ttn_barrier(nir_builder *b)
     nir_barrier(b, .execution_scope = SCOPE_WORKGROUP);
  }
  
@@ -14,10 +14,17 @@ index 78eac1c..7f96bd4 100644
 +   return v && v[0] == '1';
 +}
 +
++static bool
++ttn_topaz_off(const char *name)
++{
++   const char *v = getenv(name);
++   return v && v[0] == '0';
++}
++
  static void
  ttn_kill(nir_builder *b)
  {
-+   if (ttn_topaz_flag("TOPAZ_DEMOTE")) {
++   if (!ttn_topaz_off("TOPAZ_DEMOTE")) {
 +      /* D3D discard keeps the pixel as a helper lane (derivatives of its quad stay valid) */
 +      nir_demote(b);
 +      b->shader->info.fs.uses_discard = true;
@@ -26,11 +33,11 @@ index 78eac1c..7f96bd4 100644
     nir_discard(b);
     b->shader->info.fs.uses_discard = true;
  }
-@@ -985,6 +999,11 @@ ttn_kill_if(nir_builder *b, nir_def **src)
+@@ -985,6 +1006,11 @@ ttn_kill_if(nir_builder *b, nir_def **src)
     nir_def *cmp = nir_bany(b, nir_flt_imm(b, src[0], 0.0));
     b->exact = false;
  
-+   if (ttn_topaz_flag("TOPAZ_DEMOTE")) {
++   if (!ttn_topaz_off("TOPAZ_DEMOTE")) {
 +      nir_demote_if(b, cmp);
 +      b->shader->info.fs.uses_discard = true;
 +      return;
@@ -38,7 +45,7 @@ index 78eac1c..7f96bd4 100644
     nir_discard_if(b, cmp);
     b->shader->info.fs.uses_discard = true;
  }
-@@ -1538,7 +1557,57 @@ ttn_sample(struct ttn_compile *c, nir_def **src)
+@@ -1538,7 +1564,57 @@ ttn_sample(struct ttn_compile *c, nir_def **src)
  
     nir_def_init(&instr->instr, &instr->def, nir_tex_instr_dest_size(instr), 32);
     nir_builder_instr_insert(b, &instr->instr);
@@ -97,7 +104,7 @@ index 78eac1c..7f96bd4 100644
  }
  
  /* TGSI_OPCODE_TXQ is actually two distinct operations:
-@@ -2107,6 +2176,15 @@ ttn_emit_instruction(struct ttn_compile *c)
+@@ -2107,6 +2183,15 @@ ttn_emit_instruction(struct ttn_compile *c)
        dst = ttn_txq(c, src);
        break;
  
@@ -344,10 +351,10 @@ index e7c2a1c..35d10d0 100644
        ret = pipe->get_query_result(pipe, state, wait, &result);
     } else {
 diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-index a0262da..4578590 100644
+index a0262da..5b5e340 100644
 --- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 +++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-@@ -31,12 +31,242 @@
+@@ -31,12 +31,272 @@
   */
  
  
@@ -358,6 +365,7 @@ index a0262da..4578590 100644
 +#include "pipe/p_defines.h"
 +#include "util/u_inlines.h"
 +#include "pipe/p_screen.h"
++#include "util/u_upload_mgr.h"
  #include "Rasterizer.h"
  #include "State.h"
  
@@ -370,6 +378,35 @@ index a0262da..4578590 100644
 +static bool g_topazRsScissor;
 +static bool g_topazDrawLog;
 +static bool g_topazDrawLogInit;
++static float g_topazFsSc[4];
++
++static bool
++topaz_fs_scissor_on(void)
++{
++   static int on = -1;
++   if (on < 0) {
++      const char *e = getenv("TOPAZ_FSSCISSOR");
++      on = !(e && e[0] == '0');
++   }
++   return on;
++}
++
++/* CONST[15][0] of every PS = D3D scissor (see ShaderTGSI.c); zeros when the RS scissor is off */
++static void
++topaz_upload_fs_scissor(struct pipe_context *pipe)
++{
++   if (!topaz_fs_scissor_on())
++      return;
++   float data[4] = { 0, 0, 0, 0 };
++   if (g_topazRsScissor)
++      memcpy(data, g_topazFsSc, sizeof(data));
++   struct pipe_constant_buffer cb;
++   memset(&cb, 0, sizeof(cb));
++   cb.buffer_size = sizeof(data);
++   u_upload_data(pipe->stream_uploader, 0, sizeof(data), 16, data, &cb.buffer_offset, &cb.buffer);
++   u_upload_unmap(pipe->stream_uploader);
++   pipe->set_constant_buffer(pipe, PIPE_SHADER_FRAGMENT, 15, true, &cb);
++}
 +
 +/* TopazGpu: TOPAZ_DRAWLOG=1 + file C:\ProgramData\topaz\umd.dump -> at the next Present dump the presented
 + * frame and the large textures sampled recently as 32-bit BMPs (umd-dump-<pid>-<n>-<tag>.bmp) */
@@ -590,7 +627,7 @@ index a0262da..4578590 100644
  /*
   * ----------------------------------------------------------------------
   *
-@@ -80,6 +310,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
+@@ -80,6 +340,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
        states[i].translate[1] = half_height + y;
        states[i].translate[2] = z;
     }
@@ -601,18 +638,21 @@ index a0262da..4578590 100644
     if (ClearViewports) {
        memset(states + NumViewports, 0,
               sizeof(struct pipe_viewport_state) * ClearViewports);
-@@ -122,6 +356,32 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -122,6 +386,35 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
        states[i].miny = pRect->top    < 0 ? 0 : pRect->top;
        states[i].maxx = pRect->right  < 0 ? 0 : pRect->right;
        states[i].maxy = pRect->bottom < 0 ? 0 : pRect->bottom;
 +      /* TopazGpu experiment TOPAZ_SCPAD=1: right/bottom +1 px, =2: every edge 1 px wider (dashed strokes
 +       * along damage edges = edge pixels DWM thinks it painted?) */
-+      /* TopazGpu: align scissors to 2x2 pixel quads. On a6xx, pixels removed by the scissor do not act as
-+       * helper lanes of their quad, so DDX/DDY at a scissor edge use garbage: DWM's downscale shader
-+       * (4 taps offset by derivatives) produced wrong edge columns -> 1-px strokes where damage rects
-+       * started/ended on an odd pixel. TOPAZ_SCALIGN=0 = old behaviour. */
-+      const char *al = getenv("TOPAZ_SCALIGN");
-+      if (!(al && al[0] == '0')) {
++      if (i == 0) {
++         g_topazFsSc[0] = (float)states[0].minx;
++         g_topazFsSc[1] = (float)states[0].miny;
++         g_topazFsSc[2] = 16384.0f - (float)states[0].maxx;
++         g_topazFsSc[3] = 16384.0f - (float)states[0].maxy;
++      }
++      /* TopazGpu: hardware scissor widened to whole 2x2 quads; the exact D3D scissor is applied in the PS
++       * (ShaderTGSI.c, demote) so the edge pixels' quad partners stay helper lanes. */
++      if (topaz_fs_scissor_on()) {
 +         states[i].minx &= ~1u;
 +         states[i].miny &= ~1u;
 +         states[i].maxx = (states[i].maxx + 1) & ~1u;
@@ -634,7 +674,15 @@ index a0262da..4578590 100644
     }
     if (ClearScissorRects) {
        memset(states + NumScissorRects, 0,
-@@ -236,6 +496,7 @@ CreateRasterizerState(
+@@ -129,6 +422,7 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+    }
+    pipe->set_scissor_states(pipe, 0, NumScissorRects + ClearScissorRects,
+                             states);
++   topaz_upload_fs_scissor(pipe);
+ }
+ 
+ 
+@@ -236,6 +530,7 @@ CreateRasterizerState(
     state.line_rectangular = 0;
  
     pRasterizerState->handle = pipe->create_rasterizer_state(pipe, &state);
@@ -642,12 +690,13 @@ index a0262da..4578590 100644
  }
  
  
-@@ -283,5 +544,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+@@ -283,5 +578,7 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
     struct pipe_context *pipe = CastPipeContext(hDevice);
     void *state = CastPipeRasterizerState(hRasterizerState);
  
 +   g_topazRsScissor = CastRasterizerState(hRasterizerState) ? CastRasterizerState(hRasterizerState)->scissor : false;
     pipe->bind_rasterizer_state(pipe, state);
++   topaz_upload_fs_scissor(pipe);
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
 index 84b7ccf..0d5fb58 100644
@@ -800,6 +849,45 @@ index 3243fc3..625ff86 100644
     if (!state) {
        state = pDevice->empty_fs;
     }
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index d80905d..f6d976f 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -1,3 +1,4 @@
++#include <stdlib.h>
+ /**************************************************************************
+  *
+  * Copyright 2012-2021 VMware, Inc.
+@@ -1305,6 +1306,29 @@ Shader_tgsi_translate(const unsigned *code,
+    }
+    sx.addr_cur = 0;
+ 
++   /* TopazGpu: D3D scissor in the pixel shader. The hardware scissor is widened to whole 2x2 quads
++    * (Rasterizer.cpp) because on a6xx scissored-out pixels are no helper lanes and DDX/DDY at scissor edges
++    * were garbage (DWM's downscale shader left 1-px strokes). Pixels outside the real D3D scissor are
++    * demoted here: no write, but still helpers. CONST[15][0] = (minx, miny, 16384-maxx, 16384-maxy); all zero
++    * = no clipping. TOPAZ_FSSCISSOR=0 disables. */
++   if (parser.header.type == D3D10_SB_PIXEL_SHADER &&
++       !(getenv("TOPAZ_FSSCISSOR") && getenv("TOPAZ_FSSCISSOR")[0] == '0')) {
++      struct ureg_src pos = ureg_DECL_fs_input(ureg, TGSI_SEMANTIC_POSITION, 0, TGSI_INTERPOLATE_LINEAR);
++      struct ureg_src sc;
++      struct ureg_dst t = ureg_DECL_temporary(ureg);
++      struct ureg_dst m = ureg_DECL_temporary(ureg);
++
++      ureg_DECL_constant2D(ureg, 0, 0, 15);
++      sc = ureg_src_dimension(ureg_src_register(TGSI_FILE_CONSTANT, 0), 15);
++      ureg_ADD(ureg, ureg_writemask(m, TGSI_WRITEMASK_ZW), ureg_imm1f(ureg, 16384.0f), ureg_negate(sc));
++      ureg_SLT(ureg, ureg_writemask(t, TGSI_WRITEMASK_XY), pos, sc);
++      ureg_SGE(ureg, ureg_writemask(t, TGSI_WRITEMASK_ZW), ureg_swizzle(pos, TGSI_SWIZZLE_X, TGSI_SWIZZLE_Y,
++               TGSI_SWIZZLE_X, TGSI_SWIZZLE_Y), ureg_src(m));
++      ureg_KILL_IF(ureg, ureg_negate(ureg_src(t)));
++      ureg_release_temporary(ureg, t);
++      ureg_release_temporary(ureg, m);
++   }
++
+    while (Shader_parse_opcode(&parser, &opcode)) {
+       const struct dx10_opcode_xlate *ox;
+ 
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
 index 2aecca7..bff4848 100644
 --- a/src/gallium/frontends/d3d10umd/State.h
