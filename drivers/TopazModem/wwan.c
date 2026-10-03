@@ -251,12 +251,31 @@ STATIC VOID Dump(CONST CHAR8 *Tag, CONST UINT8 *V, UINT16 L)
  * emergency calls. UIM CHANGE_PROVISIONING_SESSION: TLV 0x01 {session type 0 = primary GW,
  * activate 1}, TLV 0x10 {logical slot (1-based), aid_len, aid[]}.
  */
+/*
+ * Opt-in while it crashes the modem (and so Wi-Fi) ~20 s later with "Task starvation: modem_cfg":
+ * only with C:\topaz\fw\sim.on present.
+ */
+STATIC BOOLEAN SimOn(VOID)
+{
+  STATIC INT8 on = -1;
+  EFI_FILE_PROTOCOL *root = SvcRoot (), *f = NULL;
+
+  if (on < 0) {
+    on = (root != NULL && !EFI_ERROR (root->Open (root, &f, L"\\sim.on", EFI_FILE_MODE_READ, 0))) ? 1 : 0;
+    if (f != NULL) {
+      f->Close (f);
+    }
+    Out ("  wwan: C:\\topaz\\fw\\sim.on %a: SIM provisioning %a\r\n", on ? "present" : "missing", on ? "ON" : "off");
+  }
+  return on == 1;
+}
+
 STATIC VOID Provision(UINT8 Slot, CONST UINT8 *Aid, UINT8 AidLen)
 {
   UINT8 t[3 + 2 + 3 + 2 + 32];
   UINT16 n = 0;
 
-  if (AidLen > 32 || mProvSent >= 3) {
+  if (AidLen > 32 || mProvSent >= 3 || !SimOn ()) {
     return;
   }
   mProvSent++;

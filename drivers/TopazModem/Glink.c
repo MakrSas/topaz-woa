@@ -375,6 +375,9 @@ STATIC VOID QrtrRx(CONST UINT8 *P, UINT32 Len)
       mSrv[mSrvCount].Port = c->D;
       mSrvCount++;
     }
+    if (mNowMs >= 2000) {                       /* late arrivals (e.g. after the SIM appears) */
+      Out ("  t=%u.%03u qrtr NEW_SERVER svc %x inst %x node %u port %x\r\n", T, c->A, c->B, c->C, c->D);
+    }
     if (c->A == QMI_SVC_WLFW) {
       Out ("  t=%u.%03u *** WLFW service 0x45 up: inst %x node %u port %x ***\r\n", T, c->B, c->C, c->D);
       WlfwArrive (c->C, c->D);
@@ -390,7 +393,7 @@ STATIC VOID QrtrRx(CONST UINT8 *P, UINT32 Len)
     }
     if (hlen + size > Len || !SvcRx (srcNode, srcPort, dstPort, P + hlen, size)) {
       mOther++;
-      if (mOther <= 40) {
+      if (mOther <= 200) {
         Out ("  t=%u.%03u qrtr DATA %u:%x -> %u:%x %u B qmi %02x txn %04x msg %04x\r\n", T, srcNode, srcPort,
              dstNode, dstPort, size, P[hlen], *(CONST UINT16 *)(P + hlen + 1), *(CONST UINT16 *)(P + hlen + 3));
       }
@@ -399,9 +402,11 @@ STATIC VOID QrtrRx(CONST UINT8 *P, UINT32 Len)
   case QRTR_TYPE_RESUME_TX:
     mResumes++;
     break;
+  case QRTR_TYPE_DEL_CLIENT:
+    break;                                      /* every closed modem client port: too noisy */
   default:
     mOther++;
-    if (mOther <= 40) {
+    if (mOther <= 200) {
       Out ("  t=%u.%03u qrtr type %u from %u:%x: %x %x %x %x\r\n", T, type, srcNode, srcPort, c->A, c->B, c->C, c->D);
     }
     break;

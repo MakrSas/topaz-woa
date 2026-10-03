@@ -32,3 +32,11 @@ IPA v4.2 / GSI) → stage 3 Windows network adapter (raw-IP NetAdapter, later MB
   Modem down = Wi-Fi down (same modem).
 - v0.8: /readwrite/* files kept in RAM (WRQ stores, RRQ serves, like tqftpserv on disk), rmtfs
   writes logged with time, up to 40 unhandled QRTR packets logged.
+- v0.8 result: /readwrite in RAM works (mcfg.tmp / lctoem.tmp written and read back; the second
+  "WRQ ... w 1" per file sends no data and closes the client = probably a truncate), but the
+  crash is identical: USIM READY ~20 s, NAS goes "not registered, radio none" (modem_cfg
+  switching the carrier config), 47 services instead of 45, FATAL modem_cfg starvation at 31.9 s.
+  No TFTP / rmtfs / intent traffic between 10.7 s and the crash; GLINK intents fine. The
+  "unhandled QRTR" log budget had been eaten by DEL_CLIENT packets.
+- v0.9: provisioning only with C:\topaz\fw\sim.on (Wi-Fi stays usable by default); logs late
+  NEW_SERVERs, all QRTR control packets except DEL_CLIENT and up to 200 unhandled DATA packets.
