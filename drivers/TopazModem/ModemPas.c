@@ -466,6 +466,7 @@ STATIC VOID IpaCanaries(VOID)
   MemoryFence ();
   Out ("  ipa: SRAM canaries written (%u regions + end marker), word@0x290-4 = %08x\r\n",
        (UINT32)ARRAY_SIZE (two), sram[0x290 / 4 - 1]);
+  LogHardFlush ();
   UnmapPhys (sram, 0x2000);
 }
 
@@ -519,7 +520,7 @@ STATIC BOOLEAN FlagTake(EFI_FILE_PROTOCOL *Root, CONST CHAR16 *Name)
   return TRUE;
 }
 
-#define GSTEP(...)  Out ("  ipa: gsi step " __VA_ARGS__)
+#define GSTEP(...)  do { Out ("  ipa: gsi step " __VA_ARGS__); LogHardFlush (); KeStallExecutionProcessor (50000); } while (0)
 
 STATIC VOID GsiAllocModemChannels(EFI_FILE_PROTOCOL *Root)
 {
@@ -705,6 +706,7 @@ STATIC VOID IpaFwLoad(EFI_FILE_PROTOCOL *Root)
       Out ("  ipa: GSI_STATUS = %08x%a\r\n", gs[(GSI_STATUS_PA & 0xFFF) / 4],
            (gs[(GSI_STATUS_PA & 0xFFF) / 4] & 1) ? " (ENABLED: GSI firmware running)" : "");
       gIpaFwRunning = (gs[(GSI_STATUS_PA & 0xFFF) / 4] & 1) != 0;
+      LogHardFlush ();
       UnmapPhys (gs, SIZE_4KB);
     }
     if (gIpaFwRunning) {

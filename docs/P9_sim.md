@@ -147,3 +147,7 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   is deleted). Lesson: after any hang check/delete gpuw.guard and wifi.boot.
 - v0.16: GSI allocation behind a one-shot flag C:\topaz\fw\gsi.alloc (deleted before the first
   access), a log line before every GSI register access.
+- v0.16 result: the **whole SoC reset** (not a hang) during the gsi.alloc boot; the log ends at
+  "GSI_STATUS = 1" (even the canary line of v0.14/v0.15 is missing) - the last lines were probably
+  lost in the UFS write cache. v0.17: LogHardFlush() (ZwFlushBuffersFile) + 50 ms pause on every
+  GSI step and after GSI enable / canaries.

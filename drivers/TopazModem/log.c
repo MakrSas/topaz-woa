@@ -65,6 +65,19 @@ VOID LogFlush(VOID)
     }
 }
 
+NTSYSAPI NTSTATUS NTAPI ZwFlushBuffersFile(_In_ HANDLE FileHandle, _Out_ PIO_STATUS_BLOCK IoStatusBlock);
+
+/* Push the log through the disk's own write cache too: a SoC reset otherwise loses the last lines. */
+VOID LogHardFlush(VOID)
+{
+    IO_STATUS_BLOCK iosb;
+
+    FlushNow();
+    if (g_LogFile != NULL && KeGetCurrentIrql() == PASSIVE_LEVEL) {
+        ZwFlushBuffersFile(g_LogFile, &iosb);
+    }
+}
+
 VOID LogSetLazy(BOOLEAN Lazy)
 {
     g_Lazy = Lazy;

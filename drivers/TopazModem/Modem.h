@@ -71,6 +71,7 @@ VOID           UnmapPhys(VOID *Va, UINTN Size);
 VOID           ModemIdle(BOOLEAN Busy);           /* 1 ms sleep when idle, short stall when busy */
 VOID           LogSetLazy(BOOLEAN Lazy);          /* lazy: buffer lines, flush from ModemIdle() */
 VOID           LogFlush(VOID);
+VOID           LogHardFlush(VOID);                /* + the disk cache (before risky hardware steps) */
 extern volatile BOOLEAN gModemStop;
 
 /* P4 probes (wlanprobe.c), read-only */
