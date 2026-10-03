@@ -95,11 +95,18 @@ static BOOLEAN FileExists(PCWSTR Path)
 {
     UNICODE_STRING name;
     OBJECT_ATTRIBUTES oa;
-    FILE_BASIC_INFORMATION info;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
 
     RtlInitUnicodeString(&name, Path);
     InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    return NT_SUCCESS(ZwQueryAttributesFile(&oa, &info));
+    if (!NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+        return FALSE;
+    }
+    ZwClose(h);
+    return TRUE;
 }
 
 /* ---- GLINK over the message RAM (word accesses only) ------------------------- */
