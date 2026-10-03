@@ -151,3 +151,17 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   "GSI_STATUS = 1" (even the canary line of v0.14/v0.15 is missing) - the last lines were probably
   lost in the UFS write cache. v0.17: LogHardFlush() (ZwFlushBuffersFile) + 50 ms pause on every
   GSI step and after GSI enable / canaries.
+
+### STATE AT STOP (2026-10-04 ~00:50)
+
+- Phone: TopazWifi v0.17 + TopazRpm v0.6 (both via System32\drivers ImagePath), C:\topaz\rpm.on,
+  C:\topaz\fw\ipa.on and the one-shot C:\topaz\fw\gsi.alloc set, rebooted at ~00:45 for the
+  v0.17 GSI step-log run - result not read yet. sim.on is off.
+- To read it: if Wi-Fi is dead, delete C:\topaz\fw\ipa.on, C:\topaz\wifi.boot, C:\topaz\gpuw.guard
+  (admin), reboot, then read the "==== TopazWifi v0.17" block of C:\TopazWifi.log ("ipa: gsi step"
+  lines show the last GSI access before the reset).
+- Working so far: RPM link + IPA clock vote, IPA registers, ipa_fws (GSI fw) PAS 15 running,
+  modem talks to our AP IPA QMI service, INIT_DRIVER accepted. Open: modem GSI channel
+  allocation (v4.2 quirk) resets/hangs the SoC; after that: AP ipa_hardware_config /
+  resource config / table init (Linux ipa_setup), then SIM provisioning (modem_cfg) retest,
+  then the data path.
