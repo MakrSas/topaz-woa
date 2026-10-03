@@ -820,7 +820,19 @@ static NTSTATUS APIENTRY TgPresent(const HANDLE hContext, DXGKARG_PRESENT *A)
     static ULONG count;
 
     UNREFERENCED_PARAMETER(hContext);
+    /* v0.36: flips need no command (the MMIO flip is SetVidPnSourceAddress, as viogpu3d). Before, Dxgkrnl
+       handed flips a DMA buffer without private data and we answered STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER
+       (0xC01E0001) forever: every DWM flip failed in pfnPresentCb with E_FAIL. */
+    if (A->Flags.Flip) {
+        if (++count <= 400) {
+            LogPrint("Present: flip src %p dma %u priv %u\n", src->hDeviceSpecificAllocation, A->DmaSize,
+                     A->DmaBufferPrivateDataSize);
+        }
+        return STATUS_SUCCESS;
+    }
     if (A->DmaSize < 4 || A->DmaBufferPrivateDataSize < sizeof(TG_CMD)) {
+        LogPrint("Present: flags %x dma %u priv %u -> insufficient\n", A->Flags.Value, A->DmaSize,
+                 A->DmaBufferPrivateDataSize);
         return STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER;
     }
     RtlZeroMemory(c, sizeof(*c));
@@ -1213,7 +1225,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, viogpu3d caps) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, flip presents) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;

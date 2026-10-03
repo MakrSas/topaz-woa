@@ -529,7 +529,7 @@ index 83bc243..b48f556 100644
    cpp_args : _c_args_d3d10umd,
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 new file mode 100644
-index 0000000..37eac24
+index 0000000..64193a3
 --- /dev/null
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 @@ -0,0 +1,278 @@
@@ -657,10 +657,10 @@ index 0000000..37eac24
 +void
 +TopazWddmDestroyAllocation(Device *pDevice, Resource *pResource)
 +{
-+   if (pResource->hAllocation) {
-+      pDevice->device.base.destroyAllocation(&pDevice->device.base, NULL, pResource->hAllocation);
-+      pResource->hAllocation = 0;
-+   }
++   /* allocations made with hRTResource belong to the runtime resource: the runtime frees them
++      (pfnDeallocateCb here returned STATUS_INVALID_PARAMETER, D3D11 journal) */
++   (void)pDevice;
++   pResource->hAllocation = 0;
 +}
 +
 +/* OpenResource of a resource created by another process / the kernel: import its BO by name */

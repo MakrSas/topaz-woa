@@ -585,3 +585,14 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - viogpu3d (WDDM 1.3, same UMD model) runs DWM on 22621. Differences in our KMD: allocation priority 0,
   no SupportDirectFlip / segment DirectFlip, PreemptionAware 0, EvictionSegmentSet 0. v0.35 copies
   viogpu3d (and the phone has GraphicsDrivers\Scheduler EnablePreemption=0 like their setup).
+
+### Flip failure SOLVED in theory (09:20): our own STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER
+- Dwm-Core/DXGI/Direct3D11 ETW (C:\topaz\tr5.ps1): the D3D11 runtime journal (event 1820) says
+  "Present -1071775743" = 0xC01E0001 = STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER (not ..._NOT_EXCLUSIVE_
+  MODE_OWNER, that one is 0xC01E0000 - checked in the dxgkrnl disassembly on s8build ~/work/dxgre), and
+  DxgKrnl ETW Present/win:Info carries the same status. TgPresent returned it for flips because Dxgkrnl
+  gives flip presents no DMA private data; the check ran before the log line, so the KMD log never
+  showed a flip. v0.36: Flags.Flip -> STATUS_SUCCESS without touching the buffers (viogpu3d does the same;
+  the flip itself is SetVidPnSourceAddress at the next vsync).
+- Also from the journal: UMD pfnDeallocateCb of resource-bound allocations -> STATUS_INVALID_PARAMETER;
+  the runtime frees those itself (UMD no longer deallocates).
