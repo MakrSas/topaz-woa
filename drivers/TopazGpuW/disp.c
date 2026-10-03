@@ -64,7 +64,7 @@ static VOID MdpScanFrom(ULONG Pa, ULONG Stride)
 /* point VIG0 at Al when it is a BO-backed full-screen primary; TRUE = no CPU copy needed. Any IRQL. */
 static BOOLEAN DirectSelect(TGPU_ALLOCATION *Al)
 {
-    if (g_DirectOk && g_Rot == D3DKMDT_VPPR_IDENTITY && Al != NULL && Al->Bo != NULL && Al->Desc.width == g_Post.Width &&
+    if (g_DirectOk && Al != NULL && Al->Bo != NULL && Al->Desc.width == g_Post.Width &&
         Al->Desc.height == g_Post.Height && Al->Bo->Iova + Al->Desc.bo_offset < 0x100000000ULL) {
         MdpScanFrom((ULONG)(Al->Bo->Iova + Al->Desc.bo_offset), Al->Desc.pitch);
         InterlockedExchange(&g_DirectActive, 1);
@@ -289,8 +289,10 @@ VOID DispScanoutWork(VOID)
         all.left = all.top = 0;
         all.right = al->Desc.width;
         all.bottom = al->Desc.height;
-        if (g_Rot != D3DKMDT_VPPR_IDENTITY && g_Rot != D3DKMDT_VPPR_UNINITIALIZED) {
-            /* v0.47: never read past the CPU view (v0.46 BSOD 0x50 in memcpy here) */
+        if (g_Rot != D3DKMDT_VPPR_IDENTITY && g_Rot != D3DKMDT_VPPR_UNINITIALIZED &&
+            al->Desc.width > al->Desc.height) {
+            /* v0.48: only a landscape (unrotated) primary needs rotating; Dxgkrnl/DWM primaries keep the physical
+               portrait orientation (content already rotated). v0.47: never read past the CPU view (v0.46 BSOD 0x50 in memcpy here) */
             SIZE_T avail = al->Bo != NULL ? (al->Bo->Size > al->Desc.bo_offset ? al->Bo->Size - al->Desc.bo_offset : 0)
                                           : (al->ApBytes != 0 ? al->ApBytes : al->Size);
             ULONG w = al->Desc.width, h = al->Desc.height, pitch = al->Desc.pitch;
@@ -327,10 +329,7 @@ VOID DispPresentRects(TGPU_ALLOCATION *Dst, const RECT *Rects, ULONG Count)
     if (Dst != g_ScanCur || g_DirectActive || g_Fb == NULL || !g_Visible) {
         return;
     }
-    if (g_Rot != D3DKMDT_VPPR_IDENTITY) {
-        InterlockedExchange(&g_ScanDirty, 1);            /* rotated: full rotated copy at the next vsync */
-        return;
-    }
+
     KeWaitForSingleObject(&g_ScanLock, Executive, KernelMode, FALSE, NULL);
     if (Dst == g_ScanCur && (px = AllocPixels(Dst)) != NULL) {
         for (i = 0; i < Count; i++) {
@@ -1204,4 +1203,9 @@ VOID DispSurveyMdp(VOID)
 BOOLEAN DispRotated(VOID)
 {
     return g_Rot != D3DKMDT_VPPR_IDENTITY;
+}
+
+LONG DispRotation(VOID)
+{
+    return g_Rot;
 }

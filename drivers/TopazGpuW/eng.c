@@ -52,6 +52,44 @@ static VOID Blt(const TG_CMD *C)
         GartUnmapVa(d, md);
         return;
     }
+    if (C->Rotation == D3DKMDT_VPPR_ROTATE90 || C->Rotation == D3DKMDT_VPPR_ROTATE180 ||
+        C->Rotation == D3DKMDT_VPPR_ROTATE270) {
+        /* v0.48: Present with Flags.Rotate - rects are in source (unrotated) coordinates; every source pixel
+           (x,y) of the W x H source goes to its rotated position in the physical-orientation destination */
+        LONG W = (LONG)C->Src->Desc.width, H = (LONG)C->Src->Desc.height;
+        LONG DW = (LONG)C->Dst->Desc.width, DH = (LONG)C->Dst->Desc.height;
+        for (i = 0; i < n; i++) {
+            RECT r = C->NumRects ? C->Rects[i] : C->SrcRect;
+            LONG x, y;
+            if (r.left < 0) r.left = 0;
+            if (r.top < 0) r.top = 0;
+            if (r.right > W) r.right = W;
+            if (r.bottom > H) r.bottom = H;
+            for (y = r.top; y < r.bottom; y++) {
+                const ULONG *srow = (const ULONG *)(s + (SIZE_T)y * C->Src->Desc.pitch);
+                for (x = r.left; x < r.right; x++) {
+                    LONG ox, oy;
+                    if (C->Rotation == D3DKMDT_VPPR_ROTATE90) {
+                        ox = H - 1 - y; oy = x;
+                    } else if (C->Rotation == D3DKMDT_VPPR_ROTATE270) {
+                        ox = y; oy = W - 1 - x;
+                    } else {
+                        ox = W - 1 - x; oy = H - 1 - y;
+                    }
+                    if (ox >= 0 && oy >= 0 && ox < DW && oy < DH) {
+                        *(ULONG *)(d + (SIZE_T)oy * C->Dst->Desc.pitch + (SIZE_T)ox * 4) = srow[x];
+                    }
+                }
+            }
+        }
+        GartUnmapVa(s, ms);
+        GartUnmapVa(d, md);
+        {
+            RECT all = { 0, 0, DW, DH };
+            DispPresentRects(C->Dst, &all, 1);
+        }
+        return;
+    }
     for (i = 0; i < n; i++) {
         RECT r = C->NumRects ? C->Rects[i] : C->DstRect;
         LONG y, w;

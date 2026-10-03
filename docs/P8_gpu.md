@@ -1062,3 +1062,10 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   Phone rolled back to v0.45 (v0.46 kept as TopazGpuW.sys.v046-bsod). v0.47: rotated copy clamped to the
   BO/aperture size, logs the real primary dims.
 - 02:35 v0.47 first boot: logo only - TopazGpuW refused to start because C:	opaz\gpuw.guard (its own boot guard) survived the v0.46 BSOD. LESSON: after a KMD crash delete C:	opaz\gpuw.guard (and C:	opaz\wifi.boot). Deleted; reboot needed.
+- 02:50 v0.47 second boot also crashed (no minidump this time, Event 41 only). Its log explains the model: with
+  path rotation 2 (ROTATE90) Dxgkrnl keeps the primary in PHYSICAL orientation (1080x2400) and only the CDD shadow
+  is landscape (kind 2, 2400x1080 pitch 9600); Present blts from it carry Flags 0x81 = Blt|Rotate with rects in
+  source coordinates. DWM's flip primaries are 1080x2400 too (pre-rotated by DWM). So the scanout must NOT rotate;
+  the Present blt must. v0.48: TG_CMD.Rotation from Flags.Rotate, rotated per-pixel Blt with clipping on both
+  surfaces, direct scanout allowed again when rotated, scanout rotation only for landscape primaries.
+  Phone is on v0.45 (no rotation) until v0.48 is tested.

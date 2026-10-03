@@ -844,6 +844,7 @@ static NTSTATUS APIENTRY TgPresent(const HANDLE hContext, DXGKARG_PRESENT *A)
         c->SrcRect = A->SrcRect;
         c->DstRect = A->DstRect;
         c->Color = A->Color;
+        c->Rotation = A->Flags.Rotate ? DispRotation() : D3DKMDT_VPPR_IDENTITY;
         if (A->SubRectCnt > 0 && A->SubRectCnt <= TG_CMD_MAX_RECTS) {
             c->NumRects = A->SubRectCnt;
             for (i = 0; i < A->SubRectCnt; i++) {
