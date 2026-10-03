@@ -758,3 +758,12 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   - TOPAZ_POISON: after fd_resource_rotate_storage the next back buffer hResources[1] is cleared magenta.
 - 12:00 UMD from CI run 37108930901 (0001+0002+0003) installed without reboot (old DLL kept as
   System32\topazgpu_d3d10.dll.old-<hhmmss>). Phase 1 experiment: umd.env = `TOPAZ_POISON=1` only (fixes off).
+- 12:10 POISON result (photos): everything magenta except the regions DWM redrew/copied that frame (explorer
+  window body, a status-bar strip) - same picture as TOPAZ_NOROTATE with black. The log shows why the test is
+  INVALID: DWM does NOT copy the whole undamaged area each frame (Presents #3->#4, #4->#5 have no
+  ResourceCopyRegion at all; others have 4-6 small copies). It relies on every back buffer retaining its
+  content and only syncs/redraws damage. Poisoning destroys that, so magenta says nothing about unwritten
+  pixels. Replaced by TOPAZ_FULLCOPY=1 (new back buffer [1] := full copy of [0] after rotation): outside DWM's
+  damage the content is then exactly the previous frame, so remaining artifacts are inside the damage rect
+  (draw-side) and stale regions caused by diverged buffers must vanish.
+- umd.env now = TOPAZ_SVSWZ=1, TOPAZ_DEMOTE=1, TOPAZ_SVINFO=1 (fixes on) for the user's visual check.

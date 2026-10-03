@@ -114,14 +114,33 @@ index 78eac1c..7f96bd4 100644
     case TGSI_OPCODE_STORE:
        dst = ttn_mem(c, src);
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-index d6dd16d..668fa5f 100644
+index d6dd16d..52fd9d7 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 +++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-@@ -250,6 +250,25 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -48,6 +48,7 @@ extern "C" void fd_resource_rotate_storage(struct pipe_context *pctx, struct pip
+ #include "pipe/p_defines.h"
+ #include "pipe/p_state.h"
+ #include "util/format/u_format.h"
++#include "util/u_box.h"
+ 
+ /*
+  * ----------------------------------------------------------------------
+@@ -250,6 +251,36 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
                            n > 2 ? CastResource(hResources[2])->resource : NULL, n > 2 ? CastResource(hResources[2])->hAllocation : 0);
        }
        fd_resource_rotate_storage(device->pipe, prscs, n);
-+      /* TOPAZ_POISON=1: the next back buffer ([1]) becomes magenta, so pixels DWM does not write in
++      /* TOPAZ_FULLCOPY=1: the new back buffer [1] starts as a full copy of the frame just presented
++       * ([0]). DWM then only has to be right inside its damage rect; stale content outside it that
++       * came from diverged buffers can no longer exist. Cross-check experiment. */
++      if (!rev && n > 1 && getenv("TOPAZ_FULLCOPY") && getenv("TOPAZ_FULLCOPY")[0] == '1') {
++         struct pipe_context *pipe = device->pipe;
++         struct pipe_resource *src = prscs[0], *dst = prscs[1];
++         struct pipe_box box;
++         u_box_2d(0, 0, src->width0, src->height0, &box);
++         pipe->resource_copy_region(pipe, dst, 0, 0, 0, 0, src, 0, &box);
++      }
++      /* TOPAZ_POISON=1 (INVALID as a test: DWM relies on the back buffers keeping their content, it
++       * only copies/redraws the damage - poisoning makes everything outside the damage magenta): the next back buffer ([1]) becomes magenta, so pixels DWM does not write in
 +       * a frame show up as magenta (draw-side bug) instead of stale content */
 +      if (!rev && n > 1 && getenv("TOPAZ_POISON") && getenv("TOPAZ_POISON")[0] == '1') {
 +         struct pipe_context *pipe = device->pipe;
