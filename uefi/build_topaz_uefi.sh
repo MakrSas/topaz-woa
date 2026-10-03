@@ -18,11 +18,11 @@ apply "$HERE/patches/mu-topazotg.diff" .                    # TopazOtgDxe in dsc
 
 mkdir -p Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe
 cp "$HERE"/TopazOtgDxe/*.{c,h,inf} Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe/
-# Mi logo centered + original Silicium logo at the bottom (TopazBootGraphicsLib, MiLogo.bmp in FvMain)
+# upstream boot picture + full-screen text mode (TopazBootGraphicsLib)
 mkdir -p Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib
-cp "$HERE"/TopazBootGraphicsLib/*.{c,inf,bmp} Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/
-grep -q MiLogo.bmp Platforms/Xiaomi/tapasPkg/tapas.fdf ||
-    sed -i 's#^  !include QcomPkg/Extra.fdf.inc#&\n\n  FILE FREEFORM = 9A4C2E17-5B3D-4F81-A60E-7D12C9483B5F {\n    SECTION RAW = tapasPkg/Library/TopazBootGraphicsLib/MiLogo.bmp\n  }#' Platforms/Xiaomi/tapasPkg/tapas.fdf
+rm -f Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/*.bmp
+cp "$HERE"/TopazBootGraphicsLib/*.{c,inf} Platforms/Xiaomi/tapasPkg/Library/TopazBootGraphicsLib/
+sed -i '/FILE FREEFORM = 9A4C2E17-5B3D-4F81-A60E-7D12C9483B5F/,/^  }/d' Platforms/Xiaomi/tapasPkg/tapas.fdf   # old MiLogo.bmp
 # WinRE-look touch menu bitmaps (uefi/winre/mkwinre.py, needs python3-pil), one FREEFORM file, RAW section order = WinRe.c
 W=Platforms/Xiaomi/tapasPkg/Drivers/TopazOtgDxe/winre
 rm -rf $W

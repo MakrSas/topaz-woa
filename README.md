@@ -40,9 +40,9 @@ How to boot and install drivers: [docs/WINDOWS_USB_AND_INSTALL.md](docs/WINDOWS_
 
 ## Boot menu (UEFI)
 
-`uefi/` builds the Mu-Silicium UEFI for boot_b: Mi logo + "Project Silicium" boot screen, a
-3 s text menu (Windows, Windows without GPU, Fastboot, Power off) and a touch
-**WinRE-look "Choose an option" page**. The WinRE look, its icons and its fonts come from
+`uefi/` builds the Mu-Silicium UEFI for boot_b: the stock Silicium boot screen, then a touch
+**WinRE-look "Choose an option" page** (5 s countdown to Windows; Windows without GPU,
+Fastboot, Power off; the back arrow opens the old text menu). The WinRE look, its icons and its fonts come from
 **NTDEV's [exynos9810-woa](https://github.com/ntdevlabs/exynos9810-woa)** (`tools/twrp-winre`,
 BSD-2-Clause-Patent; fonts SIL OFL 1.1, Selawik-based) — see [NOTICE.md](NOTICE.md).
 

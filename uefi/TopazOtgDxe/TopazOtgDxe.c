@@ -29,9 +29,8 @@
 #define TAG "TopazOtg: "
 
 /*
- * Everything logged also goes into a buffer that is printed on the screen at
- * ReadyToBoot (and held for a few seconds), so results are visible in RELEASE
- * builds where DEBUG output goes nowhere.
+ * Everything logged also goes into a buffer (RELEASE builds drop DEBUG output). It used to be
+ * shown when USB 5V failed; that wait is gone, the buffer stays for a future log dump.
  */
 STATIC CHAR16 mLog[4096];
 STATIC UINTN  mLogLen;
@@ -352,83 +351,6 @@ STATIC BOOLEAN KeyPressed(EFI_INPUT_KEY *Key)
   return gST->ConIn != NULL && !EFI_ERROR (gST->ConIn->ReadKeyStroke (gST->ConIn, Key));
 }
 
-/* Try to put CHG_CONFIG back to 1 while boosting, so the phone still charges later. */
-STATIC VOID RestoreCharging(VOID)
-{
-  UINT8 r03 = 0, r0b = 0;
-
-  RegRead (BQ_ADDR, 0x03, &r03);
-  if (r03 & 0x10) {
-    return;
-  }
-  RegWrite (BQ_ADDR, 0x03, r03 | 0x10);
-  gBS->Stall (100 * 1000);
-  RegRead (BQ_ADDR, 0x0B, &r0b);
-  if ((r0b >> 5) != 7) {
-    RegWrite (BQ_ADDR, 0x03, r03);           /* boost dropped: this chip needs CHG_CONFIG=0 */
-    LOG ("CHG_CONFIG=1 kills boost on this chip, left at 0 (no charging until Android)\n");
-  } else {
-    LOG ("CHG_CONFIG restored to 1 with boost on\n");
-  }
-}
-
-/*
- * The boost only starts when VBUS has no external supply, and the chip drops
- * OTG_CONFIG while a PC/charger cable is plugged in. Wait until VBUS is free
- * (or a key is pressed), then enable OTG and check VBUS_STAT == 7.
- */
-STATIC BOOLEAN WaitAndEnableOtg(UINTN Seconds)
-{
-  UINTN  t;
-  UINT8  r03 = 0, r0b = 0, r0c = 0, try = 0;
-  EFI_INPUT_KEY key;
-
-  for (t = 0; t < Seconds * 4; t++) {
-    RegRead (BQ_ADDR, 0x0B, &r0b);
-    RegRead (BQ_ADDR, 0x03, &r03);
-    if ((r0b >> 5) == 7) {
-      LOG ("OTG ON: reg03=%02x reg0b=%02x after %u ms (try %u)\n", r03, r0b, (UINT32)(t * 250), try);
-      RestoreCharging ();
-      return TRUE;
-    }
-    if ((r0b >> 5) == 0) {
-      /* no input source: request boost; every 2nd attempt also clears CHG_CONFIG */
-      try++;
-      RegWrite (BQ_ADDR, 0x03, (try & 1) ? (r03 | 0x20) : ((r03 | 0x20) & ~0x10));
-    }
-    if ((t % 4) == 0) {
-      RegRead (BQ_ADDR, 0x0C, &r0c);
-      ConPrint ("\r  USB 5V: vbus_stat=%u reg03=%02x reg0c=%02x (%us, any key = skip)   ",
-                r0b >> 5, r03, r0c, (UINT32)(Seconds - t / 4));
-    }
-    if (KeyPressed (&key)) {
-      LOG ("OTG skipped by key: reg03=%02x reg0b=%02x\n", r03, r0b);
-      return FALSE;
-    }
-    gBS->Stall (250 * 1000);
-  }
-  RegRead (BQ_ADDR, 0x0C, &r0c);
-  RegRead (BQ_ADDR, 0x0C, &r0c);
-  LOG ("OTG FAILED: reg03=%02x reg0b=%02x reg0c=%02x tries=%u\n", r03, r0b, r0c, try);
-  return FALSE;
-}
-
-STATIC VOID DumpLog(VOID)
-{
-  UINTN i;
-
-  for (i = 0; i < mLogLen; i++) {
-    CHAR16 c[3] = { mLog[i], 0, 0 };
-    if (c[0] == L'\n') {
-      c[0] = L'\r';
-      c[1] = L'\n';
-    }
-    if (gST->ConOut != NULL) {
-      gST->ConOut->OutputString (gST->ConOut, c);
-    }
-  }
-}
-
 /* ---- Boot menu: Vol+/Vol- move, Power (any other key) selects ---------------- */
 
 /*
@@ -680,18 +602,11 @@ STATIC VOID EFIAPI OnReadyToBoot(IN EFI_EVENT Event, IN VOID *Context)
     break;                                              /* Windows */
   }
 
-  ConPrint ("\r\n  Windows. Unplug PC/charger cable, plug the hub.\r\n");
-  if (WaitAndEnableOtg (60)) {
-    ConPrint ("\r\n  USB 5V ON\r\n");
-    gBS->Stall (1 * 1000 * 1000);
-  } else {
-    ConPrint ("\r\n  USB 5V not enabled. Log:\r\n");
-    DumpLog ();
-    ConPrint ("\r\n  Any key: continue\r\n");
-    while (!KeyPressed (&key)) {
-      gBS->Stall (100 * 1000);
-    }
-  }
+  /*
+   * No USB 5V wait here any more: TopazBattery in Windows runs the Type-C roles itself
+   * (rt1711h DRP toggling: hub -> OTG boost, charger -> sink), so hub/charger hot-swap there.
+   */
+  LOG ("boot: Windows%a\n", choice == MENU_WINDOWS_NOGPU ? " (no GPU)" : "");
   gBS->RaiseTPL (TPL_CALLBACK);
 }
 

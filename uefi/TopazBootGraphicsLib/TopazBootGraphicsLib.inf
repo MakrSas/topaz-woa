@@ -1,5 +1,5 @@
 ## @file
-#  tapas BootGraphicsLib: Mi logo centered + Silicium logo at the bottom.
+#  tapas BootGraphicsLib: upstream picture (Silicium logo centered) + full-screen text mode.
 #  Based on MsGraphicsPkg BootGraphicsLib.
 #  SPDX-License-Identifier: BSD-2-Clause-Patent
 ##
@@ -27,7 +27,6 @@
   DebugLib
   BootGraphicsProviderLib
   BmpSupportLib
-  DxeServicesLib
   MemoryAllocationLib
 
 [Protocols]

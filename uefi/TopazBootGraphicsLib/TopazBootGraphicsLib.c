@@ -2,10 +2,10 @@
   tapas BootGraphicsLib (replaces MsGraphicsPkg BootGraphicsLib, which clears the screen and
   centers the Silicium logo).
 
-  BG_SYSTEM_LOGO: black screen, the Mi logo (MiLogo.bmp, a FREEFORM file in FvMain) centered
-  like the Xiaomi splash, and the Silicium logo (PcdLogoFile) at the bottom where the splash
-  says "Powered by Android". The Mi logo is also the BGRT image, so Windows Boot Manager shows it.
-  Other graphics (no OS, battery, ...) keep the upstream black + centered behaviour.
+  Same picture as upstream (black screen, logo centered, logo = BGRT image), plus one change:
+  the console is switched to its largest text mode first, so the fallback text boot menu of
+  TopazOtgDxe sits at the top of the screen instead of on the logo (GraphicsConsole centers
+  the default 80x25 area).
 
   Copyright (c) 2011 - 2018, Intel Corporation. All rights reserved.<BR>
   Copyright (C) Microsoft Corporation. All rights reserved.<BR>
@@ -23,29 +23,18 @@
 #include <Library/BootGraphicsProviderLib.h>
 #include <Library/BmpSupportLib.h>
 #include <Library/UefiLib.h>
-#include <Library/DxeServicesLib.h>
 
-/* MiLogo.bmp, added to FvMain by uefi/build_topaz_uefi.sh */
-#define TOPAZ_MI_LOGO_GUID \
-  { 0x9a4c2e17, 0x5b3d, 0x4f81, { 0xa6, 0x0e, 0x7d, 0x12, 0xc9, 0x48, 0x3b, 0x5f } }
-
-#define LOGO_BOTTOM_GAP  100   /* pixels between the Silicium logo and the bottom edge */
-
-STATIC EFI_GUID  mMiLogoGuid = TOPAZ_MI_LOGO_GUID;
-
-/* Decode a BMP and Blt it horizontally centered; BottomGap < 0 = vertically centered, else
-   the image ends BottomGap pixels above the bottom edge. */
+/* Decode a BMP and Blt it centered on the screen. */
 STATIC EFI_STATUS
 DrawBmp (
   IN  EFI_GRAPHICS_OUTPUT_PROTOCOL   *Gop,
   IN  UINT8                          *Bmp,
   IN  UINTN                          BmpSize,
-  IN  INTN                           BottomGap,
-  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **BltOut OPTIONAL,
-  OUT UINTN                          *DestX OPTIONAL,
-  OUT UINTN                          *DestY OPTIONAL,
-  OUT UINTN                          *W OPTIONAL,
-  OUT UINTN                          *H OPTIONAL
+  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **BltOut,
+  OUT UINTN                          *DestX,
+  OUT UINTN                          *DestY,
+  OUT UINTN                          *W,
+  OUT UINTN                          *H
   )
 {
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Blt = NULL;
@@ -59,24 +48,20 @@ DrawBmp (
 
   SizeOfX = Gop->Mode->Info->HorizontalResolution;
   SizeOfY = Gop->Mode->Info->VerticalResolution;
-  if ((Width > SizeOfX) || (Height + MAX (BottomGap, 0) > SizeOfY)) {
+  if ((Width > SizeOfX) || (Height > SizeOfY)) {
     FreePool (Blt);
     return EFI_BAD_BUFFER_SIZE;
   }
 
   Dx = (SizeOfX - Width) / 2;
-  Dy = (BottomGap < 0) ? (SizeOfY - Height) / 2 : SizeOfY - Height - (UINTN)BottomGap;
+  Dy = (SizeOfY - Height) / 2;
   Status = Gop->Blt (Gop, Blt, EfiBltBufferToVideo, 0, 0, Dx, Dy, Width, Height, Width * sizeof (*Blt));
 
-  if (BltOut != NULL) {
-    *BltOut = Blt;
-    *DestX  = Dx;
-    *DestY  = Dy;
-    *W      = Width;
-    *H      = Height;
-  } else {
-    FreePool (Blt);
-  }
+  *BltOut = Blt;
+  *DestX  = Dx;
+  *DestY  = Dy;
+  *W      = Width;
+  *H      = Height;
 
   return Status;
 }
@@ -88,10 +73,9 @@ DisplayBootGraphic (
   )
 {
   EFI_STATUS                     Status;
-  UINTN                          ImageSize, MiSize, SizeOfY, Dx, Dy, W, H;
+  UINTN                          ImageSize, Dx, Dy, W, H;
   UINT8                          *ImageData = NULL;
-  UINT8                          *MiData    = NULL;
-  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *MiBlt     = NULL;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Blt       = NULL;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Black;
   EFI_GRAPHICS_OUTPUT_PROTOCOL   *Gop;
   EDKII_BOOT_LOGO2_PROTOCOL      *BootLogo2 = NULL;
@@ -110,11 +94,7 @@ DisplayBootGraphic (
   }
 
   if (gST->ConOut != NULL) {
-    /*
-     * GraphicsConsole centers the default 80x25 text area, so the boot menu landed on the Mi
-     * logo. Switch to the largest text mode (full screen, menu at the top) before drawing:
-     * SetMode clears the screen.
-     */
+    /* largest text mode = full screen, so the text menu starts at the top (SetMode clears) */
     UINTN  Mode, Cols, Rows, Best = (UINTN)gST->ConOut->Mode->Mode, BestCells = 0;
 
     for (Mode = 0; Mode < (UINTN)gST->ConOut->Mode->MaxMode; Mode++) {
@@ -131,40 +111,25 @@ DisplayBootGraphic (
     gST->ConOut->EnableCursor (gST->ConOut, FALSE);
   }
 
-  SizeOfY = Gop->Mode->Info->VerticalResolution;
   ZeroMem (&Black, sizeof (Black));
-  Gop->Blt (Gop, &Black, EfiBltVideoFill, 0, 0, 0, 0, Gop->Mode->Info->HorizontalResolution, SizeOfY, 0);
+  Gop->Blt (Gop, &Black, EfiBltVideoFill, 0, 0, 0, 0, Gop->Mode->Info->HorizontalResolution,
+            Gop->Mode->Info->VerticalResolution, 0);
 
   Status = GetBootGraphic (Graphic, &ImageSize, &ImageData);
-  if (EFI_ERROR (Status)) {
-    goto CleanUp;
+  if (!EFI_ERROR (Status)) {
+    Status = DrawBmp (Gop, ImageData, ImageSize, &Blt, &Dx, &Dy, &W, &H);
   }
 
-  if (Graphic != BG_SYSTEM_LOGO) {
-    Status = DrawBmp (Gop, ImageData, ImageSize, -1, NULL, NULL, NULL, NULL, NULL);
-    goto CleanUp;
-  }
-
-  /* Silicium logo (PcdLogoFile) at the bottom, where the Xiaomi splash says "Powered by Android" */
-  DrawBmp (Gop, ImageData, ImageSize, LOGO_BOTTOM_GAP, NULL, NULL, NULL, NULL, NULL);
-
-  if (!EFI_ERROR (GetSectionFromAnyFv (&mMiLogoGuid, EFI_SECTION_RAW, 0, (VOID **)&MiData, &MiSize))) {
-    Status = DrawBmp (Gop, MiData, MiSize, -1, &MiBlt, &Dx, &Dy, &W, &H);
-    if (!EFI_ERROR (Status) && (BootLogo2 != NULL)) {
-      BootLogo2->SetBootLogo (BootLogo2, MiBlt, (INTN)Dx, (INTN)Dy, W, H);   /* BGRT */
+  if (!EFI_ERROR (Status)) {
+    if ((Graphic == BG_SYSTEM_LOGO) && (BootLogo2 != NULL)) {
+      BootLogo2->SetBootLogo (BootLogo2, Blt, (INTN)Dx, (INTN)Dy, W, H);   /* BGRT */
     }
+
+    EfiEventGroupSignal (&gLogoDisplayedEventGroup);
   }
 
-  EfiEventGroupSignal (&gLogoDisplayedEventGroup);
-  Status = EFI_SUCCESS;
-
-CleanUp:
-  if (MiBlt != NULL) {
-    FreePool (MiBlt);
-  }
-
-  if (MiData != NULL) {
-    FreePool (MiData);
+  if (Blt != NULL) {
+    FreePool (Blt);
   }
 
   if (ImageData != NULL) {
