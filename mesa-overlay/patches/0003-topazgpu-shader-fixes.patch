@@ -916,7 +916,7 @@ index a0262da..fa3706d 100644
 +   topaz_upload_fs_scissor(pipe);
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 84b7ccf..de442b6 100644
+index 84b7ccf..f80970c 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
 @@ -32,6 +32,9 @@
@@ -954,7 +954,7 @@ index 84b7ccf..de442b6 100644
 +       * shadows; root cause still open, docs/P8_gpu.md). TOPAZ_SYNCMAP=0 disables it. */
 +      {
 +         const char *sm = getenv("TOPAZ_SYNCMAP");
-+         char m = sm ? sm[0] : '2';
++         char m = sm ? sm[0] : '0';   /* default off since the real cause (CB UpdateSubresourceUP) is handled */
 +         /* 3 = only vertex-buffer maps, 4 = only index-buffer maps (narrowing experiments) */
 +         if ((m == '2' || m == '1') ||
 +             (m == '3' && (resource->bind & PIPE_BIND_VERTEX_BUFFER)) ||
@@ -1065,7 +1065,7 @@ index 84b7ccf..de442b6 100644
  }
  
  
-@@ -1007,6 +1072,22 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1007,6 +1072,24 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
  
     struct pipe_transfer *transfer;
     void *map;
@@ -1075,8 +1075,10 @@ index 84b7ccf..de442b6 100644
 +   /* TopazGpu experiment TOPAZ_UPDFLUSH: 1 = flush before UpdateSubresourceUP of constant buffers,
 +    * 2 = of any buffer, 3 = of anything */
 +   {
++      /* default 1: freedreno does not see that pending draws read a constant buffer that DWM rewrites with
++       * UpdateSubresourceUP and wrote it in place (stale/zoomed windows, clipped shadows). ~1 flush/frame. */
 +      const char *uf = getenv("TOPAZ_UPDFLUSH");
-+      char m = uf ? uf[0] : '0';
++      char m = uf ? uf[0] : '1';
 +      if ((m == '1' && (dst_resource->bind & PIPE_BIND_CONSTANT_BUFFER)) ||
 +          (m == '2' && pDstResource->buffer) || m == '3') {
 +         pipe->flush(pipe, NULL, 0);
@@ -1088,7 +1090,7 @@ index 84b7ccf..de442b6 100644
     if (pDstResource->buffer) {
        map = pipe->buffer_map(pipe,
                                dst_resource,
-@@ -1018,7 +1099,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1018,7 +1101,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
        map = pipe->texture_map(pipe,
                                dst_resource,
                                level,

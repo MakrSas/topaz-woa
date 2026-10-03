@@ -958,3 +958,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   monotonic -> DWM's ring usage is clean. The VB-map flush happens before almost every draw, so it masks any
   CPU write between draws. Next suspect: constant buffers updated with UpdateSubresourceUP (Map DISCARD on CBs is
   rare). Experiment TOPAZ_UPDFLUSH=1 (CB) / 2 (any buffer) / 3 (any) with TOPAZ_SYNCMAP=0.
+- 21:05 ROOT CAUSE of stale/zoomed windows + clipped shadows FOUND: TOPAZ_SYNCMAP=0 + TOPAZ_UPDFLUSH=1 (flush
+  only before UpdateSubresourceUP of CONSTANT buffers, 0-1.5 per frame) is clean (user) and 37 FPS. DWM rewrites a
+  constant buffer with UpdateSubresourceUP between draws; freedreno does not see the pending draws' read of that
+  CB (batch_mask 0 for CBs in MAPLOG) and writes in place, so earlier draws of the batch get the new constants.
+  New defaults: TOPAZ_UPDFLUSH=1 (on), TOPAZ_SYNCMAP=0 (the per-NO_OVERWRITE flush is gone).
+  Proper fix later: make freedreno track CB reads (or shadow/rename CBs on UpdateSubresourceUP) instead of the flush.
