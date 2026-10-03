@@ -937,3 +937,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   ~550 BOs / 296 MB peak. UMD logs show nothing fatal. Cause not identified yet.
 - Installed for the next GPU0 boot: UMD with C:\topaz\umd.dwmonly (present) -> only dwm.exe uses the Adreno UMD,
   explorer & apps fall back to the Microsoft renderer. umd.env = defaults.
+- 19:55 GPU0 boot with umd.dwmonly: stable, dwm on Adreno, fpsbench 26. BUT explorer's XAML part (tabs, address
+  bar, command bar) is blank: apps get E_FAIL from OpenAdapter on adapter 0 and XAML does not fall back to WARP.
+  Screenshot tool: C:\topaz\shot.ps1 via a /IT scheduled task (GDI CopyFromScreen; not DPI-aware yet).
+  Added TOPAZ_TIMING=1 (per 60 presents: frame time, flush, GPU wait in Present, NO_OVERWRITE flushes/frame) and
+  TOPAZ_NOPRESENTWAIT=1 (skip the CPU fence wait in Present; experiment).

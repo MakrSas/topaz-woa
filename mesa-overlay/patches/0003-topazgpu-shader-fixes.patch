@@ -859,18 +859,19 @@ index a0262da..9b030e5 100644
 +   topaz_upload_fs_scissor(pipe);
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 84b7ccf..2647b10 100644
+index 84b7ccf..ed759f6 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
-@@ -32,6 +32,7 @@
+@@ -32,6 +32,8 @@
  
  
  #include "Resource.h"
++unsigned g_topazMapFlushes;   /* TopazGpu: TIMING stats */
 +extern "C" void fd_resource_debug_state(struct pipe_resource *prsc, void **bo, unsigned *batch_mask, int *write_batch, int *busy);
  #include "Format.h"
  #include "State.h"
  #include "Query.h"
-@@ -604,6 +605,21 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -604,6 +606,24 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
        break;
     case D3D10_DDI_MAP_WRITE_NOOVERWRITE:
        usage = PIPE_MAP_WRITE | PIPE_MAP_UNSYNCHRONIZED;
@@ -887,12 +888,15 @@ index 84b7ccf..2647b10 100644
 +         if ((m == '2' || m == '1') ||
 +             (m == '3' && (resource->bind & PIPE_BIND_VERTEX_BUFFER)) ||
 +             (m == '4' && (resource->bind & PIPE_BIND_INDEX_BUFFER)))
++         {
 +            pipe->flush(pipe, NULL, 0);
++            g_topazMapFlushes++;
++         }
 +      }
        break;
     default:
        assert(0);
-@@ -612,6 +628,20 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -612,6 +632,20 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
  
     assert(SubResource < pResource->NumSubResources);
  
@@ -913,7 +917,7 @@ index 84b7ccf..2647b10 100644
     unsigned level;
     struct pipe_box box;
     subResourceBox(resource, SubResource, &level, &box);
-@@ -640,6 +670,12 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -640,6 +674,12 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
        return;
     }
  
@@ -926,7 +930,7 @@ index 84b7ccf..2647b10 100644
     pMappedSubResource->pData = map;
     pMappedSubResource->RowPitch = pResource->transfers[SubResource]->stride;
     pMappedSubResource->DepthPitch = pResource->transfers[SubResource]->layer_stride;
-@@ -753,6 +789,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+@@ -753,6 +793,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -934,7 +938,7 @@ index 84b7ccf..2647b10 100644
     if (!CheckPredicate(pDevice)) {
        return;
     }
-@@ -762,7 +799,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+@@ -762,7 +803,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
     Resource *pSrcResource = CastResource(hSrcResource);
     if (pDstResource->hAllocation || pSrcResource->hAllocation) {   /* TopazGpu: swapchain copies */
        static unsigned topazCopies;
@@ -943,7 +947,7 @@ index 84b7ccf..2647b10 100644
           TopazWddmLogf("%s dst %p(alloc 0x%x) <- src %p(alloc 0x%x)\n", __func__, pDstResource->resource,
                         pDstResource->hAllocation, pSrcResource->resource, pSrcResource->hAllocation);
     }
-@@ -833,6 +870,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -833,6 +874,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -951,7 +955,7 @@ index 84b7ccf..2647b10 100644
     if (!CheckPredicate(pDevice)) {
        return;
     }
-@@ -842,7 +880,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -842,7 +884,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
     Resource *pSrcResource = CastResource(hSrcResource);
     if (pDstResource->hAllocation || pSrcResource->hAllocation) {   /* TopazGpu: swapchain copies */
        static unsigned topazCopies;
@@ -960,7 +964,7 @@ index 84b7ccf..2647b10 100644
           TopazWddmLogf("%s dst %p(alloc 0x%x) <- src %p(alloc 0x%x)\n", __func__, pDstResource->resource,
                         pDstResource->hAllocation, pSrcResource->resource, pSrcResource->hAllocation);
     }
-@@ -871,6 +909,17 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -871,6 +913,17 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
        src_box.depth  = u_minify(src_resource->depth0,  src_level);
     }
  
@@ -978,7 +982,7 @@ index 84b7ccf..2647b10 100644
     if (areResourcesCompatible(src_resource, dst_resource)) {
        pipe->resource_copy_region(pipe,
                                   dst_resource, dst_level,
-@@ -884,6 +933,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -884,6 +937,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
                                  src_resource, src_level,
                                  &src_box);
     }
@@ -986,7 +990,7 @@ index 84b7ccf..2647b10 100644
  }
  
  
-@@ -1007,6 +1057,11 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1007,6 +1061,11 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
  
     struct pipe_transfer *transfer;
     void *map;
@@ -998,7 +1002,7 @@ index 84b7ccf..2647b10 100644
     if (pDstResource->buffer) {
        map = pipe->buffer_map(pipe,
                                dst_resource,
-@@ -1018,7 +1073,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1018,7 +1077,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
        map = pipe->texture_map(pipe,
                                dst_resource,
                                level,
@@ -1135,10 +1139,53 @@ index 2aecca7..cd57664 100644
     D3D10_DDI_QUERY_DATA_PIPELINE_STATISTICS Statistics;
  };
 diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-index cd028ba..26eb433 100644
+index cd028ba..77a7e40 100644
 --- a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
 +++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
-@@ -290,6 +290,21 @@ bool
+@@ -175,11 +175,41 @@ TopazWddmPresent(Device *pDevice, Resource *pSrc, Resource *pDst, void *pDXGICon
+       TopazWddmLogf("topaz: Present of a resource without allocation\n");
+       return S_OK;
+    }
++   /* TopazGpu: TOPAZ_TIMING=1 logs every 60 presents: frame time, flush, fence wait, present callback;
++    * TOPAZ_NOPRESENTWAIT=1 skips the CPU wait for the GPU (experiment) */
++   static LARGE_INTEGER qf, tPrev;
++   static double sumFrame, sumFlush, sumWait, sumCb;
++   static unsigned nFrames;
++   static int timing = -1, nowait = -1;
++   LARGE_INTEGER t0, t1, t2;
++   if (timing < 0) {
++      timing = getenv("TOPAZ_TIMING") && getenv("TOPAZ_TIMING")[0] == '1';
++      nowait = getenv("TOPAZ_NOPRESENTWAIT") && getenv("TOPAZ_NOPRESENTWAIT")[0] == '1';
++      QueryPerformanceFrequency(&qf);
++   }
++   QueryPerformanceCounter(&t0);
+    pipe->flush(pipe, &fence, 0);
++   QueryPerformanceCounter(&t1);
+    if (fence) {
+-      screen->fence_finish(screen, NULL, fence, OS_TIMEOUT_INFINITE);
++      if (!nowait)
++         screen->fence_finish(screen, NULL, fence, OS_TIMEOUT_INFINITE);
+       screen->fence_reference(screen, &fence, NULL);
+    }
++   QueryPerformanceCounter(&t2);
++   if (timing) {
++      double ms = 1000.0 / (double)qf.QuadPart;
++      if (tPrev.QuadPart)
++         sumFrame += (t0.QuadPart - tPrev.QuadPart) * ms;
++      sumFlush += (t1.QuadPart - t0.QuadPart) * ms;
++      sumWait += (t2.QuadPart - t1.QuadPart) * ms;
++      tPrev = t0;
++      if (++nFrames == 60) {
++         extern unsigned g_topazMapFlushes;
++         TopazWddmLogf("TIMING 60 presents: frame %.1f ms, flush %.2f, gpu wait %.2f, present cb %.2f, NO_OVERWRITE flushes/frame %.1f\n",
++                       sumFrame / 59, sumFlush / 60, sumWait / 60, sumCb / 60, g_topazMapFlushes / 60.0);
++         nFrames = 0; sumFrame = sumFlush = sumWait = sumCb = 0; g_topazMapFlushes = 0; tPrev.QuadPart = 0;
++      }
++   }
+    if (!pDevice->topazCtx) {
+       /* own pfnCreateContextCb: gdikmt's leaves EngineAffinity 0 (invalid for a MultiEngineAware KMD) */
+       struct gdikmt_context_d3dddi *c = (struct gdikmt_context_d3dddi *)calloc(1, sizeof(*c));
+@@ -290,6 +320,21 @@ bool
  TopazWddmEnabled(void)
  {
     TopazWddmLogInit();
