@@ -1027,3 +1027,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   level with every GPU OPP (qcom,bus-freq 0..7 per pwrlevel) over RPM, we do not -> DDR likely at the bootloader's
   level. Remaining big levers: RPM bus/DDR vote (needs an RPM SMD/GLINK client in Windows), async present,
   transparency effects off (user setting). gpu.mhz = 1260 kept (stable, no hang in two boots).
+- 00:55 Async present. TopazGpuW v0.45: DispSetSourceAddress defers a direct flip whose BO's LastFence has not
+  completed (g_Deferred), the 1 ms timer programs the MDP once the fence completed, the flip-done check waits
+  until then; destroyed allocations cancel a deferred flip. The UMD side is TOPAZ_NOPRESENTWAIT=1 (no fence_finish
+  in Present) - to be made default after testing.

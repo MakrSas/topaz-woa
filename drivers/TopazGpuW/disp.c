@@ -73,6 +73,12 @@ static BOOLEAN DirectSelect(TGPU_ALLOCATION *Al)
     return FALSE;
 }
 static PHYSICAL_ADDRESS g_ScanPa;               /* its address as Dxgkrnl knows it (last flip) */
+/* v0.45 async present: the UMD no longer waits for the GPU before presenting; a direct flip to a BO whose last
+   submit is still running is programmed into the MDP only when that fence completed (1 ms timer) */
+static TGPU_ALLOCATION *volatile g_DeferAl;
+static volatile ULONG g_DeferFence;
+static volatile LONG g_Deferred;
+static ULONG g_DeferCount;
 static PHYSICAL_ADDRESS g_ShownPa;              /* v0.40: address reported in CRTC_VSYNC = really on screen */
 static ULONG g_FlipWaits;
 static volatile LONG g_ScanDirty;
@@ -127,7 +133,15 @@ static VOID VsyncWork(BOOLEAN periodicTick)
     LONG64 now = (LONG64)KeQueryInterruptTime();
     BOOLEAN flip = FALSE, tick = FALSE;
 
-    if (g_FlipPending) {
+    if (g_Deferred) {
+        if ((LONG)(HwCompletedFence() - g_DeferFence) >= 0 && g_DeferAl == g_ScanCur) {
+            InterlockedExchange(&g_Deferred, 0);
+            if (!DirectSelect(g_DeferAl)) {
+                InterlockedExchange(&g_ScanDirty, 1);
+            }
+        }
+    }
+    if (g_FlipPending && !g_Deferred) {
         if (g_DirectActive && g_Mdp != NULL &&
             (READ_REGISTER_ULONG((volatile ULONG *)(g_Mdp + MDP_CTL0 + CTL_FLUSH)) & CTL_FLUSH_VIG0)) {
             if (periodicTick || now >= g_NextVsync) {
@@ -155,8 +169,8 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             LONG f = InterlockedExchange(&g_FlipCount, 0);
             g_FpsTicks = 0;
             if (f != 0) {
-                LogPrint("fps: %ld flips/s (%s, %u waits for the MDP latch)\n", f, g_DirectActive ? "direct" : "copy",
-                         g_FlipWaits);
+                LogPrint("fps: %ld flips/s (%s, %u waits for the MDP latch, %u deferred to the GPU fence)\n", f,
+                         g_DirectActive ? "direct" : "copy", g_FlipWaits, g_DeferCount);
             }
         }
         if (InterlockedExchange(&g_ScanDirty, 0)) {
@@ -269,6 +283,10 @@ VOID DispPresentRects(TGPU_ALLOCATION *Dst, const RECT *Rects, ULONG Count)
 VOID DispAllocDestroyed(TGPU_ALLOCATION *Al)
 {
     KeWaitForSingleObject(&g_ScanLock, Executive, KernelMode, FALSE, NULL);
+    if (g_DeferAl == Al) {                               /* never flip to a freed BO later */
+        InterlockedExchange(&g_Deferred, 0);
+        g_DeferAl = NULL;
+    }
     if (g_ScanCur == Al) {
         DirectSelect(NULL);                              /* never fetch from a freed BO */
         g_ScanCur = NULL;
@@ -287,6 +305,16 @@ NTSTATUS DispSetSourceAddress(const DXGKARG_SETVIDPNSOURCEADDRESS *A)
     g_ScanCur = (TGPU_ALLOCATION *)A->hAllocation;
     g_ScanPa = A->PrimaryAddress;
     InterlockedIncrement(&g_FlipCount);
+    if (g_DirectOk && g_ScanCur != NULL && g_ScanCur->Bo != NULL &&
+        (LONG)(HwCompletedFence() - g_ScanCur->Bo->LastFence) < 0) {
+        g_DeferAl = g_ScanCur;                           /* GPU still rendering it: flip at fence completion */
+        g_DeferFence = g_ScanCur->Bo->LastFence;
+        InterlockedExchange(&g_Deferred, 1);
+        InterlockedExchange(&g_FlipPending, 1);
+        g_DeferCount++;
+        return STATUS_SUCCESS;
+    }
+    InterlockedExchange(&g_Deferred, 0);
     direct = DirectSelect(g_ScanCur);
     if (!direct) {
         InterlockedExchange(&g_ScanDirty, 1);
