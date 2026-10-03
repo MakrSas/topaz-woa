@@ -1034,3 +1034,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - 01:05 Async present result (v0.45 KMD + TOPAZ_NOPRESENTWAIT=1): gpu wait 0, Chrome move 67-77 flips/s (was 45-55),
   ~1650 flips deferred to the GPU fence; user: looks OK (no garbage). Now the UMD default is no wait
   (TOPAZ_PRESENTWAIT=1 restores it; required if an older KMD than v0.45 is installed).
+- 01:20 User: text-like fragments (a clear "Д") in the strokes. DPI-aware GDI screenshot during a touch "lift"
+  (C:\topaz\shot.ps1 now SetProcessDpiAwarenessContext(-4), 1080x2400): while a window is held for moving, DWM draws
+  it slightly scaled (lifted) with the derivative-based downscale PS; fragments of OTHER text rows appear along the
+  window's top and bottom primitive edges (e.g. next to "Элементов: 20"), gone after release (window back to 1:1,
+  no downscale shader). Same root cause as the parked bottom-edge strokes: wrong derivatives at primitive edges ->
+  the 4 taps land on neighbouring texture rows.
