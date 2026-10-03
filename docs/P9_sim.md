@@ -47,3 +47,15 @@ IPA v4.2 / GSI) → stage 3 Windows network adapter (raw-IP NetAdapter, later MB
 - v0.10: outbound SMP2P entry "ipa" (bit0 valid, bit1 power) created before the modem boots;
   the GLINK loop watches the modem's "ipa" entry (bit0 query, bit1 GSI setup ready), logs it and
   answers queries with "valid, power off".
+- v0.10 result: the modem never creates an "ipa" SMP2P entry (its item 435 has only "smp2p" and
+  "slave-kernel"), so no power query; crash identical. During the crash run Wi-Fi had already
+  dropped ("WLFW: disconnected" at 30 s).
+- **Android reference (s8build ~/work/topaz/gsi_dmesg_full.txt, GSI on this phone):** the AP
+  loads the IPA GSI firmware `ipa_fws.mdt/.b01-.b04` (PAS) and finishes IPA init at 10.7 s
+  ("IPA driver is now in ready state", rmnet_ipa3), and only then boots the modem (19.4 s);
+  ipa-wan handles MPSS SSR notifications (BEFORE_POWERUP ...). Linux mainline ipa_qmi.c: the AP
+  hosts its own IPA QMI service (svc 0x31, inst 0x101) and is a client of the modem's (svc 0x31
+  inst 0x201 - present in our service list); INIT_DRIVER / DRIVER_INIT_COMPLETE handshake.
+  Working theory: once the SIM is provisioned the modem's data services start, need the AP-side
+  IPA (firmware + QMI handshake) and spin -> modem_cfg starvation. So stage 2 (IPA bring-up) is
+  needed even for a stable registered SIM, not only for data.
