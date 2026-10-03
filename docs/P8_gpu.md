@@ -756,3 +756,5 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   - TOPAZ_DEMOTE: KILL/KILL_IF -> nir_demote(_if) (helper lanes stay alive; this Mesa has no info.fs.uses_demote, uses_discard is set).
   - TOPAZ_SVINFO: SVIEWINFO -> nir_texop_txs (+ query_levels in .w) with texture_index = SVIEW index.
   - TOPAZ_POISON: after fd_resource_rotate_storage the next back buffer hResources[1] is cleared magenta.
+- 12:00 UMD from CI run 37108930901 (0001+0002+0003) installed without reboot (old DLL kept as
+  System32\topazgpu_d3d10.dll.old-<hhmmss>). Phase 1 experiment: umd.env = `TOPAZ_POISON=1` only (fixes off).
