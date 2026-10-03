@@ -147,18 +147,30 @@ index d3abf54..bafe1bc 100644
 +   *busy = fd_bo_cpu_prep(rsc->bo, NULL, FD_BO_PREP_WRITE | FD_BO_PREP_NOSYNC) != 0;
 +}
 diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
-index 56c10b1..c1995b9 100644
+index 56c10b1..c3cf655 100644
 --- a/src/gallium/frontends/d3d10umd/Draw.cpp
 +++ b/src/gallium/frontends/d3d10umd/Draw.cpp
-@@ -159,6 +159,7 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
+@@ -40,6 +40,8 @@
+ #include "util/u_draw.h"
+ #include "util/u_memory.h"
+ 
++static int g_topazMapLog = -1;   /* TopazGpu: TOPAZ_MAPLOG ring tracing */
++
+ static unsigned
+ ClampedUAdd(unsigned a,
+             unsigned b)
+@@ -159,6 +161,10 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
++   if (g_topazMapLog < 0) g_topazMapLog = getenv("TOPAZ_MAPLOG") && getenv("TOPAZ_MAPLOG")[0] == '1';
++   if (g_topazMapLog)
++      TopazWddmLogf("RING Draw vb %p start %u count %u\n", (void *)pDevice->vertex_buffers[0].buffer.resource, StartVertexLocation, VertexCount);
 +   TopazLogDraw("Draw", VertexCount, pDevice, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
  
     ResolveState(pDevice);
  
-@@ -167,6 +168,7 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
+@@ -167,6 +173,7 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
                      pDevice->primitive,
                      StartVertexLocation,
                      VertexCount);
@@ -166,15 +178,19 @@ index 56c10b1..c1995b9 100644
  }
  
  
-@@ -189,6 +191,7 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+@@ -189,6 +196,11 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
++   if (g_topazMapLog < 0) g_topazMapLog = getenv("TOPAZ_MAPLOG") && getenv("TOPAZ_MAPLOG")[0] == '1';
++   if (g_topazMapLog)
++      TopazWddmLogf("RING DrawIndexed vb %p ib %p start %u count %u base %d\n", (void *)pDevice->vertex_buffers[0].buffer.resource,
++                    (void *)pDevice->index_buffer, StartIndexLocation, IndexCount, BaseVertexLocation);
 +   TopazLogDraw("DrawIndexed", IndexCount, pDevice, pDevice->fb.cbufs[0] ? (void *)pDevice->fb.cbufs[0]->texture : NULL, pDevice->fb.width, pDevice->fb.height);
     struct pipe_draw_info info;
     struct pipe_draw_start_count_bias draw;
     struct pipe_resource *null_ib = NULL;
-@@ -219,6 +222,7 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+@@ -219,6 +231,7 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
     info.restart_index = restart_index;
  
     pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
@@ -182,7 +198,7 @@ index 56c10b1..c1995b9 100644
  
     if (null_ib) {
        pipe_resource_reference(&null_ib, NULL);
-@@ -247,6 +251,7 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
+@@ -247,6 +260,7 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -190,7 +206,7 @@ index 56c10b1..c1995b9 100644
  
     if (!InstanceCount) {
        return;
-@@ -261,6 +266,7 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
+@@ -261,6 +275,7 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
                                VertexCountPerInstance,
                                StartInstanceLocation,
                                InstanceCount);
@@ -198,7 +214,7 @@ index 56c10b1..c1995b9 100644
  }
  
  
-@@ -286,6 +292,7 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
+@@ -286,6 +301,7 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
     LOG_ENTRYPOINT();
  
     Device *pDevice = CastDevice(hDevice);
@@ -206,7 +222,7 @@ index 56c10b1..c1995b9 100644
     struct pipe_draw_info info;
     struct pipe_draw_start_count_bias draw;
     struct pipe_resource *null_ib = NULL;
-@@ -322,6 +329,7 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
+@@ -322,6 +338,7 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
     info.restart_index = restart_index;
  
     pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
@@ -273,7 +289,7 @@ index d6dd16d..3c9ae68 100644
           for (UINT i = 0; i + 1 < n; ++i)
              CastResource(hResources[i])->hAllocation = CastResource(hResources[i + 1])->hAllocation;
 diff --git a/src/gallium/frontends/d3d10umd/InputAssembly.cpp b/src/gallium/frontends/d3d10umd/InputAssembly.cpp
-index ca071b6..9cc7f8a 100644
+index ca071b6..80f0540 100644
 --- a/src/gallium/frontends/d3d10umd/InputAssembly.cpp
 +++ b/src/gallium/frontends/d3d10umd/InputAssembly.cpp
 @@ -175,6 +175,12 @@ IaSetVertexBuffers(D3D10DDI_HDEVICE hDevice,
@@ -282,7 +298,7 @@ index ca071b6..9cc7f8a 100644
  
 +   if (getenv("TOPAZ_MAPLOG") && getenv("TOPAZ_MAPLOG")[0] == '1' && NumBuffers > 0) {
 +      static unsigned topazVb;
-+      if (++topazVb <= 6000)
++      if (++topazVb <= 40000)
 +         TopazWddmLogf("VB%u res %p off %u stride %u\n", StartBuffer, (void *)CastPipeResource(phBuffers[0]),
 +                       pOffsets[0], pStrides[0]);
 +   }
@@ -859,7 +875,7 @@ index a0262da..9b030e5 100644
 +   topaz_upload_fs_scissor(pipe);
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 84b7ccf..16585a2 100644
+index 84b7ccf..a0d4125 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
 @@ -32,6 +32,9 @@
@@ -908,7 +924,7 @@ index 84b7ccf..16585a2 100644
 +   /* TopazGpu: TOPAZ_MAPLOG=1 logs buffer maps (type, busy state as freedreno sees it) */
 +   if (pResource->buffer && getenv("TOPAZ_MAPLOG") && getenv("TOPAZ_MAPLOG")[0] == '1') {
 +      static unsigned topazMaps;
-+      if (++topazMaps <= 6000)
++      if (++topazMaps <= 40000)
 +      {
 +         void *bo; unsigned bm; int wb, busy;
 +         fd_resource_debug_state(resource, &bo, &bm, &wb, &busy);
