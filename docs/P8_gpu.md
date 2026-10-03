@@ -945,3 +945,11 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - 20:05 TIMING (dwm, base): frame 33-38 ms, GPU wait in Present 0.03 ms (GPU already idle), flush 0.15 ms, 31-37 NO_OVERWRITE flushes per frame; fpsbench clusters at exactly 30 -> vsync-quantised (flip waits for the MDP latch), frame work slightly > 16.7 ms. Measuring time spent in the NO_OVERWRITE flushes and in pfnPresentCb next.
 - 20:15 TIMING: the NO_OVERWRITE flushes cost 7.8-10.7 ms per frame (~0.28 ms each, 27-37/frame), pfnPresentCb 0.08 ms; frame 32-39 ms. Checked freedreno rebind after DISCARD rename (fd_set_vertex_buffers sets rsc->dirty, rebind marks VTXBUF) - looks right. Next: RING trace (TOPAZ_MAPLOG: start vertex/index per draw) to see whether DWM reuses ring regions without DISCARD.
 - 20:25 RING trace (SYNCMAP=0): 15 VB-ring epochs, no draw range overlaps within an epoch, base vertices monotonic -> DWM never reuses ring space without DISCARD; the ring is not the culprit (the VB-map flush only masks something else). New suspect: constant buffers (2080/96/80/64/32 B) are DISCARD-mapped with batches 0x0 (freedreno thinks no pending draw reads them) -> written in place under pending draws. Experiment TOPAZ_CBFLUSH=1 (flush before CB DISCARD maps) with TOPAZ_SYNCMAP=0.
+- 20:40 TOPAZ_CBFLUSH=1 (+SYNCMAP=0): 35 FPS but shadows broken -> constant-buffer DISCARD is not it; base restored
+  (shadows OK again).
+- EXPLORER CRASHES FOUND: WER APPCRASH explorer.exe in topazgpu_d3d10.dll, c0000005 at +0x1639a4
+  (fd_resource_copy_region, freedreno_blitter.c:433) and +0x1f0d50 (check_append_bo / fd_submit_append_bo).
+  Cause: the SCFIX strip state (scratch texture, pending strips, RT ref) and the RS-scissor flag were process
+  globals; explorer has several D3D devices/screens, so a scratch texture of one screen was used on another.
+  Fix: state moved into Device (Device::topazScFix, Device::topazRsScissor), freed in DestroyDevice (it also
+  leaked one full-RT texture per destroyed device before).
