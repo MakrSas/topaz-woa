@@ -15,10 +15,14 @@
  * v0.2: with C:\topaz\rpm.on - GLINK VERSION handshake, OPEN "rpm_requests", one request: IPA
  * clock 100 MHz (Linux clk-smd-rpm: resource "ipa" 0x617069 id 0, key "KHz"), active set; logs
  * the RPM's answer ("msg#" ack or "err" string). Message format = Linux qcom_smd-rpm.c.
+ * Result: VERSION/VERSION_ACK, RPM opens rpm_requests (rcid 3) + glink_ssr, IPA clock acked.
+ * v0.3: with C:\topaz\ipa.probe, after an acked vote, read a few IPA / GSI registers (first
+ * access to IPA). Layout as mainline sc7180 (IPA v4.2): ipa-reg = ipa-base + 0x40000 = 0x5840000,
+ * shared SRAM 0x5847000, gsi = 0x5804000 (DT gsi-base); registers from drivers/net/ipa/reg.
  */
 #include "driver.h"
 
-#define TOPAZ_RPM_VERSION   "v0.2"
+#define TOPAZ_RPM_VERSION   "v0.3"
 
 #define MSG_RAM_PA          0x045F0000ULL
 #define MSG_RAM_SIZE        0x7000
@@ -361,6 +365,45 @@ static VOID Link(PDEVICE_CONTEXT Ctx)
     LogPrint("glink: rpm_requests open (rcid %u)\n", Ctx->Rcid);
     ok = RpmWrite(Ctx, RPM_ACTIVE_SET, RPM_RES_IPA_CLK, 0, RPM_KEY_RATE, IPA_CLK_KHZ);
     LogPrint("rpm: IPA clock %u kHz (active set): %s\n", IPA_CLK_KHZ, ok ? "OK" : "FAILED");
+    if (ok && FileExists(L"\\??\\C:\\topaz\\ipa.probe")) {
+        LogPrint("C:\\topaz\\ipa.probe present: reading IPA / GSI registers\n");
+        IpaProbe();
+    }
+}
+
+#define IPA_REG_PA          0x05840000ULL
+#define GSI_REG_PA          0x05804000ULL
+
+static ULONG ReadPa(ULONGLONG Pa)
+{
+    PHYSICAL_ADDRESS pa;
+    volatile ULONG *va;
+    ULONG v;
+
+    pa.QuadPart = Pa & ~0xFFFull;
+    va = (volatile ULONG *)MmMapIoSpaceEx(pa, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if (va == NULL) {
+        return 0xDEADDEAD;
+    }
+    v = READ_REGISTER_ULONG((volatile ULONG *)((PUCHAR)va + (Pa & 0xFFF)));
+    MmUnmapIoSpace((PVOID)va, PAGE_SIZE);
+    return v;
+}
+
+static VOID IpaProbe(VOID)
+{
+    static const struct { ULONGLONG Pa; PCSTR Name; } r[] = {
+        { IPA_REG_PA + 0x3C,    "IPA COMP_CFG" },
+        { IPA_REG_PA + 0x54,    "IPA SHARED_MEM_SIZE" },
+        { IPA_REG_PA + 0x210,   "IPA FLAVOR_0" },
+        { GSI_REG_PA + 0x1F000, "GSI STATUS (EE 0)" },
+        { GSI_REG_PA + 0x1F040, "GSI HW_PARAM_2 (EE 0)" },
+    };
+    ULONG i;
+
+    for (i = 0; i < RTL_NUMBER_OF(r); i++) {
+        LogPrint("ipa probe: %-22s %llx = %08x\n", r[i].Name, r[i].Pa, ReadPa(r[i].Pa));
+    }
 }
 
 static PCSTR FifoName(ULONG Id)

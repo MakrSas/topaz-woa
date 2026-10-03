@@ -94,3 +94,7 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   tz2r/r2tz); ap2r at 0x200, r2ap at 0x900, both 0x6f8 bytes, tail = head = 0: unused, clean link.
 - TopazRpm v0.2 (C:\topaz\rpm.on): VERSION, OPEN rpm_requests, IPA clock 100 MHz active-set vote
   (resource "ipa" 0x617069 id 0, key "KHz"), logs the msg# ack / err string.
+- TopazRpm v0.2 result: VERSION 1 / VERSION_ACK 1 (features 0), RPM opens "rpm_requests" (rcid 3)
+  and "glink_ssr" (rcid 4), our OPEN acked, **IPA clock 100 MHz acked (msg# 1)**. Same channel can
+  carry the GPU rail votes later.
+- TopazRpm v0.3 (C:\topaz\ipa.probe): first read of IPA/GSI registers after the vote.
