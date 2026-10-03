@@ -86,6 +86,18 @@ static unsigned esc_count[256];
 static ULONGLONG esc_t0;
 static int esc_log = -1;
 
+static unsigned esc_new_sz[8][4];   /* GEM_NEW: size class x flags class */
+
+static void
+esc_stats_new(const void *data)
+{
+   const struct drm_msm_gem_new *r = (const struct drm_msm_gem_new *)data;
+   unsigned c = r->size <= 4096 ? 0 : r->size <= 16384 ? 1 : r->size <= 65536 ? 2 : r->size <= 262144 ? 3 :
+                r->size <= 1048576 ? 4 : r->size <= 4194304 ? 5 : r->size <= 16777216 ? 6 : 7;
+   unsigned f = (r->flags & MSM_BO_CACHED_COHERENT) ? 1 : (r->flags & MSM_BO_CACHED) ? 2 : (r->flags & MSM_BO_UNCACHED) ? 3 : 0;
+   esc_new_sz[c][f]++;
+}
+
 static void
 esc_stats(unsigned nr)
 {
@@ -106,6 +118,11 @@ esc_stats(unsigned nr)
          if (esc_count[i])
             n += snprintf(line + n, sizeof(line) - n, " %02x=%u", i, esc_count[i]);
       TopazWddmLogf("%s\n", line);
+      n = snprintf(line, sizeof(line), "GEM_NEW/s by size (<=4K,16K,64K,256K,1M,4M,16M,>) x flags(wc,cohe,cached,unc):");
+      for (unsigned c = 0; c < 8; c++)
+         n += snprintf(line + n, sizeof(line) - n, " [%u %u %u %u]", esc_new_sz[c][0], esc_new_sz[c][1], esc_new_sz[c][2], esc_new_sz[c][3]);
+      TopazWddmLogf("%s\n", line);
+      memset(esc_new_sz, 0, sizeof(esc_new_sz));
       memset(esc_count, 0, sizeof(esc_count));
       esc_t0 = now;
    }
@@ -116,6 +133,8 @@ esc(int fd, unsigned nr, void *data, unsigned size)
 {
    struct topazgpu_escape *e;
    esc_stats(nr);
+   if (esc_log > 0 && nr == DRM_COMMAND_BASE + DRM_MSM_GEM_NEW)
+      esc_stats_new(data);
    int i = slot(fd), ret;
    fd_wddm_escape_fn fn;
    void *ctx;
