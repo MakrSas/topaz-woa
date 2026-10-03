@@ -134,3 +134,10 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   INDICATION_REGISTER / DRIVER_INIT_COMPLETE acked; INIT_COMPLETE indication when all three are
   in. SRAM canaries (0xdeadbeef) written at 0x5847000 like ipa_mem_config(). Tables are NOT
   zero-initialised yet (Linux does that with IPA immediate commands over GSI).
+- v0.14 result (ipa.on, no sim.on): GSI up, canaries written, INIT_DRIVER sent at 0.313 s, then
+  at 0.661 s **modem FATAL: `ipa_hal.c:6166: IPA Assert ... Failed to initialize GSI channel:
+  CHID 1`** - the modem accepted INIT_DRIVER and set up its IPA side. Linux gsi.c: on IPA v4.2 the
+  AP must allocate the modem's GSI channels (GENERIC_CMD ALLOCATE_CHANNEL, EE 1) itself
+  ("hardware quirk on IPA v4.2"); modem channels in ipa_data-v4.2.c: 0..3.
+- v0.15: after GSI is up: ERROR_LOG = 0, ALLOCATE_CHANNEL for modem channels 0..3 (GP_INT1
+  polled, result from SCRATCH_0 bits 7:5); crash reason printed up to 256 chars.

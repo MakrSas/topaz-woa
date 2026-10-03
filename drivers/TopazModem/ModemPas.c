@@ -423,7 +423,7 @@ STATIC VOID ModemWatch(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
   }
   crash = (CHAR8 *)SmemGlobalGet (SMEM_ITEM_MSS_CRASH, &crashLen);
   if (crash != NULL && crashLen != 0 && crash[0] != 0) {
-    CHAR8 msg[120];
+    CHAR8 msg[256];
     AsciiStrnCpyS (msg, sizeof (msg), crash, MIN (crashLen, sizeof (msg) - 1));
     Out ("  crash reason (421): %a\r\n", msg);
   } else {
@@ -467,6 +467,56 @@ STATIC VOID IpaCanaries(VOID)
   Out ("  ipa: SRAM canaries written (%u regions + end marker), word@0x290-4 = %08x\r\n",
        (UINT32)ARRAY_SIZE (two), sram[0x290 / 4 - 1]);
   UnmapPhys (sram, 0x2000);
+}
+
+/*
+ * Linux gsi_setup() for IPA v4.2: zero ERROR_LOG, then gsi_channel_setup() allocates the modem's
+ * channels on its behalf ("hardware quirk on IPA v4.2"): GENERIC_CMD ALLOCATE_CHANNEL with EE 1
+ * for every modem endpoint channel of data/ipa_data-v4.2.c (0..3). Without it the modem asserts
+ * after INIT_DRIVER: "ipa_hal.c: Failed to initialize GSI channel: CHID 1" (TopazWifi v0.14).
+ * Completion = global IRQ GP_INT1 (polled here), result = SCRATCH_0 GENERIC_EE_RESULT (bits 7:5).
+ * Registers: reg/gsi_reg-v4.0.c, EE 0 page at gsi + 0x1f000 = 0x5823000.
+ */
+#define GSI_EE0_PA            0x05823000u
+#define GSI_GENERIC_CMD       0x018
+#define GSI_GLOB_IRQ_STTS     0x100
+#define GSI_GLOB_IRQ_EN       0x108
+#define GSI_GLOB_IRQ_CLR      0x110
+#define GSI_ERROR_LOG         0x200
+#define GSI_SCRATCH_0         0x400
+#define GSI_ERROR_INT         (1u << 0)
+#define GSI_GP_INT1           (1u << 1)
+#define GSI_ALLOCATE_CHANNEL  2
+#define GSI_EE_MODEM          1
+
+STATIC VOID GsiAllocModemChannels(VOID)
+{
+  volatile UINT32 *g = MapPhys (GSI_EE0_PA, SIZE_4KB, FALSE);
+  UINT32 ch, t, st, res;
+
+  if (g == NULL) {
+    return;
+  }
+  g[GSI_ERROR_LOG / 4] = 0;
+  for (ch = 0; ch < 4; ch++) {
+    g[GSI_GLOB_IRQ_CLR / 4] = GSI_GP_INT1;
+    g[GSI_GLOB_IRQ_EN / 4]  = GSI_ERROR_INT | GSI_GP_INT1;
+    g[GSI_SCRATCH_0 / 4]   &= ~(7u << 5);
+    MemoryFence ();
+    g[GSI_GENERIC_CMD / 4]  = GSI_ALLOCATE_CHANNEL | (ch << 5) | (GSI_EE_MODEM << 10);
+    st = 0;
+    for (t = 0; t < 500 && ((st = g[GSI_GLOB_IRQ_STTS / 4]) & GSI_GP_INT1) == 0; t++) {
+      gBS->Stall (100);
+    }
+    res = (g[GSI_SCRATCH_0 / 4] >> 5) & 7;
+    g[GSI_GLOB_IRQ_CLR / 4] = GSI_GP_INT1;
+    g[GSI_GLOB_IRQ_EN / 4]  = GSI_ERROR_INT;
+    Out ("  ipa: GSI allocate modem channel %u: %a, result %u%a (glob stts %08x, error log %08x)\r\n", ch,
+         (st & GSI_GP_INT1) ? "done" : "TIMEOUT", res,
+         res == 1 ? " SUCCESS" : res == 2 ? " (already: incorrect state)" : res == 7 ? " NO RESOURCES" : "",
+         st, g[GSI_ERROR_LOG / 4]);
+  }
+  UnmapPhys ((VOID *)g, SIZE_4KB);
 }
 
 STATIC UINT32 IpaClockKhz(VOID)
@@ -613,6 +663,7 @@ STATIC VOID IpaFwLoad(EFI_FILE_PROTOCOL *Root)
     }
     if (gIpaFwRunning) {
       IpaCanaries ();
+      GsiAllocModemChannels ();
     }
   }
 Out:
