@@ -390,7 +390,7 @@ STATIC VOID QrtrRx(CONST UINT8 *P, UINT32 Len)
     }
     if (hlen + size > Len || !SvcRx (srcNode, srcPort, dstPort, P + hlen, size)) {
       mOther++;
-      if (mOther <= 8) {
+      if (mOther <= 40) {
         Out ("  t=%u.%03u qrtr DATA %u:%x -> %u:%x %u B qmi %02x txn %04x msg %04x\r\n", T, srcNode, srcPort,
              dstNode, dstPort, size, P[hlen], *(CONST UINT16 *)(P + hlen + 1), *(CONST UINT16 *)(P + hlen + 3));
       }
@@ -401,7 +401,7 @@ STATIC VOID QrtrRx(CONST UINT8 *P, UINT32 Len)
     break;
   default:
     mOther++;
-    if (mOther <= 8) {
+    if (mOther <= 40) {
       Out ("  t=%u.%03u qrtr type %u from %u:%x: %x %x %x %x\r\n", T, type, srcNode, srcPort, c->A, c->B, c->C, c->D);
     }
     break;
