@@ -854,3 +854,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   damage area, never repainted. Suspect: border colour / AA fringe. d3d10umd never set
   pipe_sampler_state.border_color_format (freedreno uses it for the border colour layout): now
   R32G32B32A32_FLOAT by default (TOPAZ_BCFMT=0 = old).
+- 16:10 Correction: the outlines are transient (visible while the window moves, gone after it closes) and are
+  there with and without TOPAZ_BCFMT and TOPAZ_SCPAD=2 (dumps taken mid-movement with tools: strokes2.ps1). The
+  BCFMT change stays (correct API use) but is not the fix. Outline rows/columns equal the top/left edges
+  (miny/minx) of DWM's damage scissors, and they appear only over the DPI-scaled mmc window, not over the
+  wallpaper; colour = 50% grey. New tool: umd.probe (file with a row number) -> for one frame, row Y read back
+  after every draw/copy into the 1080-wide RT ("PROBE k ..." in the UMD log).
