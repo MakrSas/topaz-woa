@@ -1061,3 +1061,4 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   ran and read past the source's CPU view (no bound check, unlike CopyRectToFb which clips to the panel size).
   Phone rolled back to v0.45 (v0.46 kept as TopazGpuW.sys.v046-bsod). v0.47: rotated copy clamped to the
   BO/aperture size, logs the real primary dims.
+- 02:35 v0.47 first boot: logo only - TopazGpuW refused to start because C:	opaz\gpuw.guard (its own boot guard) survived the v0.46 BSOD. LESSON: after a KMD crash delete C:	opaz\gpuw.guard (and C:	opaz\wifi.boot). Deleted; reboot needed.
