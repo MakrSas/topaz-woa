@@ -827,3 +827,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   /IT scheduled task; baseline 43, SYNCMAP=2 31) but the stale zoomed blocks are STILL there -> DWM does not rely
   on event queries for this (fix kept, it is correct anyway). Next: TOPAZ_MAPLOG=1 (buffer maps DISCARD/NOOVERWRITE
   + IaSetVertexBuffers offsets) to see the ring pattern.
+- 14:45 MAPLOG (pid 6104): DWM's dynamic rings = one vertex buffer (160000 B, ~1590 NOOVERWRITE maps, 7 DISCARDs
+  = wraps) and one index buffer (16000 B, ~1585 NOOVERWRITE, 10 DISCARDs); VB offset always 0 (DWM uses
+  start/base vertex). User: "make it the normal base" -> the flush before every NO_OVERWRITE map (former
+  TOPAZ_SYNCMAP=2) is now the DEFAULT (TOPAZ_SYNCMAP=0 disables it). Cost: fpsbench 43 -> ~31 FPS.
+  Open: real root cause (why freedreno does not see the ring region as still in use / why DISCARD-renaming is
+  not enough) to win the FPS back.
