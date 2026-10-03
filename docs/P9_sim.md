@@ -80,3 +80,13 @@ pas-ids 0x0f, firmware ipa_fws, memory region ipa_fw_region 0x55b00000 (64 KiB) 
   answered ok, no INIT_DRIVER / INIT_COMPLETE from us (nothing to report), crash unchanged.
   Confirms the modem depends on the AP IPA driver. Next: RPM client (IPA clock vote; also the
   pending GPU voltage vote), ipa_fws PAS load (id 15), IPA v4.2 + GSI init, then INIT_DRIVER.
+
+### RPM client (drivers/TopazRpm)
+
+Needed for the IPA clock (DT: IPA `clocks = <rpmcc-khaje 0x44>`), later also the GPU rails.
+Stock DT: `rpm-glink` (qcom,glink-rpm) over `memory@045f0000` (rpm-msg-ram, 0x7000 B), RPM irq
+SPI 0xC2, doorbell APCS IPC bit 0, channel `rpm_requests` (qcom,rpm-smd). Linux
+qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap2r"/"r2ap" as
+{tail, head, data}; GLINK native, intentless.
+- TopazRpm v0.1: root KMDF driver, read only: TOC, FIFO indices and pending bytes -> C:\TopazRpm.log.
+  Question it answers: did UEFI leave the RPM GLINK link / rpm_requests channel open?

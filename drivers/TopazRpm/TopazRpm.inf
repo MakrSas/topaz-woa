@@ -1,0 +1,57 @@
+;
+; TopazRpm.inf - RPM requests (GLINK over RPM MSG RAM) of Redmi Note 12 4G (topaz/tapas, SM6225)
+; Root-enumerated KMDF driver: talks to the RPM (clock and regulator votes).
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = TopazRpm.cat
+DriverVer   = ; set by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TopazRpm.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = TopazRpm_Device, Root\TopazRpm
+
+[TopazRpm_Device.NT]
+CopyFiles = TopazRpm_CopyFiles
+
+[TopazRpm_CopyFiles]
+TopazRpm.sys
+
+[TopazRpm_Device.NT.Services]
+AddService = TopazRpm, 0x00000002, TopazRpm_Service
+
+[TopazRpm_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\TopazRpm.sys
+
+[TopazRpm_Device.NT.Wdf]
+KmdfService = TopazRpm, TopazRpm_WdfSection
+
+[TopazRpm_WdfSection]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName     = "topaz-woa"
+ManufacturerName = "topaz-woa"
+DiskName         = "TopazRpm Installation Disk"
+DeviceDesc       = "RPM Requests (Redmi Note 12 4G)"
+ServiceName      = "TopazRpm"
