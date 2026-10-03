@@ -897,3 +897,26 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   driven taps of the downscale PS differ per quad on the bottom edge row. Not solved yet; candidates: the bottom
   edge row's quads straddle two triangles / helper rows below the primitive, or the taps reach the black rows
   1804-1817 of the redirection surface. umd.env back to defaults.
+
+### OPEN ISSUE (parked 2026-10-03 18:30, user: "not very disturbing"): horizontal strokes at window bottom edges
+- Symptom: after something moved over a window (touch trail, another window), a faint dashed horizontal line stays
+  on the bottom edge of DPI-scaled windows (seen on mmc.exe "Computer Management", composed at ~0.86 scale).
+- What is known:
+  - The window texture (redirection surface, e.g. 1182x1818) is clean and fully opaque at the bottom rows
+    (TOPAZ_DUMPALPHA dump); rows 1804-1817 of it are dark (0/207/209 green), likely the resize border.
+  - The bad screen row is the LAST row covered by the window quad (1818 * 0.86 + top -> y 1871 in the test layout).
+  - Written by DWM's downscale PS (TGSI: 4x SAMPLE at IN[2].xy + DDX/DDY(IN[2]) * {0.375,-0.125,-0.375,0.125},
+    averaged *0.25, alpha forced 1, times IN[1]). Bad values come in horizontal PAIRS (per 2x2 quad):
+    e.g. row 1871 = 196 196 / 76 76 / 240 240 ... -> per-quad derivative-dependent taps.
+  - Not fixed by: TOPAZ_DERIV=1 (fddx_fine) / =2 (coarse); SCFIX (it is not a scissor edge); interpolateAtOffset is
+    not an escape (ir3 lowers load_barycentric_at_offset to dsx/dsy as well).
+- Related facts on this stack (a6xx gen1 / A610, Mesa viogpu_win 24.3 ir3):
+  - scissored-out pixels are not helper lanes (fixed by SCFIX: quad-aligned scissor + strip save/restore);
+  - ANY kill/demote in a PS breaks helper lanes along triangle seams (TOPAZ_FSSCISSOR=1 / TOPAZ_DEMOTE=1 show
+    strong dotted diagonals) -> helper-lane handling in ir3/a6xx is the common suspect.
+- Next steps when resumed: (1) probe the bottom row with the per-draw probe and identify the exact draw + its
+  vertex positions (log VB contents for that draw) to see whether the quad edge is fractional (e.g. 1871.x) and the
+  row's quad partner row lies outside the primitive; (2) compare ir3 disasm of the downscale PS (IR3_SHADER_DEBUG=
+  disasm into the UMD log) for how dsx/dsy and helper lanes are set up (lodpixmask/pixlodenable, (jp)/early-
+  exit); (3) test a6xx SP_FS_CTRL_REG0 / helper-related bits; (4) fallback: treat edge rows like SCFIX (expand the
+  drawn region by one row/column and restore), only for draws whose PS uses derivatives.
