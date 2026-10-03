@@ -118,3 +118,6 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   loads ipa_fws like Linux ipa_firmware_load(): init_image(15), mem_setup(15, 0x55B00000, size),
   relocated segments into ipa_fw_region (inside our "PIL Reserved"), auth_and_reset(15), logs
   GSI_STATUS (bit 0 = enabled).
+- v0.12 result: vote seen after 4.6 s, init_image(15) ok, **mem_setup(15, 0x55B00000, 0x41C0)
+  ret ffcfffba**. Linux mdt_loader.c aligns max_addr to 4 KiB (`ALIGN(p_paddr + p_memsz, SZ_4K)`),
+  so the size must be 0x5000. v0.13: aligned size, PAS shutdown(15) after a failure.

@@ -29,6 +29,7 @@ typedef struct {
 #define PIL_MEM_SETUP     0x02
 #define PIL_AUTH_RESET    0x05
 #define PIL_IS_SUPPORTED  0x07
+#define PIL_SHUTDOWN      0x06
 #define SCM_ARG_RW        2
 #define SCM_ARGS(n)       (n)
 
@@ -539,9 +540,16 @@ STATIC VOID IpaFwLoad(EFI_FILE_PROTOCOL *Root)
   if (st != 0 || res != 0) {
     goto Out;
   }
-  st = Scm (SCM_FN (SCM_SVC_PIL, PIL_MEM_SETUP), SCM_ARGS (3), PAS_ID_IPA, IPA_FW_PA, maxAddr - minAddr, &res);
-  Out ("  ipa: PAS mem_setup(15, %08x, %x): ret=%lx res=%lx\r\n", IPA_FW_PA, maxAddr - minAddr, (UINT64)st, (UINT64)res);
+  /*
+   * v0.12: mem_setup with the exact image size 0x41C0 -> ret ffcfffba. Downstream PIL rounds the
+   * region to 4 KiB pages; try that.
+   */
+  sz = ALIGN_VALUE (maxAddr - minAddr, SIZE_4KB);
+  st = Scm (SCM_FN (SCM_SVC_PIL, PIL_MEM_SETUP), SCM_ARGS (3), PAS_ID_IPA, IPA_FW_PA, sz, &res);
+  Out ("  ipa: PAS mem_setup(15, %08x, %lx): ret=%lx res=%lx\r\n", IPA_FW_PA, (UINT64)sz, (UINT64)st, (UINT64)res);
   if (st != 0 || res != 0) {
+    st = Scm (SCM_FN (SCM_SVC_PIL, PIL_SHUTDOWN), SCM_ARGS (1), PAS_ID_IPA, 0, 0, &res);
+    Out ("  ipa: PAS shutdown(15): ret=%lx res=%lx\r\n", (UINT64)st, (UINT64)res);
     goto Out;
   }
   region = MapPhys (IPA_FW_PA, IPA_FW_SIZE, TRUE);
