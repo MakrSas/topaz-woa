@@ -311,7 +311,7 @@ index 8bb09ba..fd61721 100644
     mtx_destroy(&pDevice->CreateResourceMtx);
  }
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-index 53ef690..6514315 100644
+index 53ef690..db23570 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 +++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 @@ -42,6 +42,8 @@
@@ -354,7 +354,7 @@ index 53ef690..6514315 100644
     if(!device->screen->resource_get_handle) {
        LOG_UNSUPPORTED_ENTRYPOINT();
        return S_OK;
-@@ -197,22 +216,30 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -197,22 +216,35 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  {
     LOG_ENTRYPOINT();
  
@@ -366,7 +366,11 @@ index 53ef690..6514315 100644
     const DXGI_DDI_HRESOURCE *hResources = RotateResourceIdentities->pResources;
  
 -   struct pipe_resource *firstResource = CastPipeResource(hResources[0]);
--
++   /* TopazGpu experiment (umd.env TOPAZ_NOROTATE=1): no rotation - DWM renders into and flips the same
++    * buffer, which then always holds the previous frame (DWM redraws only dirty regions) */
++   if (getenv("TOPAZ_NOROTATE"))
++      return S_OK;
+ 
 -   for (UINT i = 0; i < (NumResources - 1); ++i) {
 -      Resource* resource = CastResource(hResources[i]);
 -      resource->resource = CastPipeResource(hResources[i + 1]);
@@ -393,7 +397,7 @@ index 53ef690..6514315 100644
     return S_OK;
  }
  
-@@ -231,6 +258,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -231,6 +263,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  HRESULT APIENTRY
  _Blt(DXGI_DDI_ARG_BLT *Blt)
  {
