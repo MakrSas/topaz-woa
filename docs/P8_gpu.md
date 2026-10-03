@@ -625,3 +625,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   0x0C600000. v0.37 logs (read-only) the SSPP/CTL/LM/INTF registers and the apps SMMU SMR/S2CR/CB
   entries of these SIDs at start, to see which pipe fetches the GOP buffer and whether MDP fetches are
   translated.
+- Stale frames (09:38-09:39 photos: a zoomed "Управление компьютером" open-animation frame stays at the
+  bottom, disappears and comes back): d3d10umd's RotateResourceIdentities rotated the pipe_resource
+  pointers, but the render-target views keep their pipe_resource, so DWM drew into a different buffer
+  than the one it presented (viogpu3d has the same code and "rendering glitches"). Patch 0002 adds
+  fd_resource_rotate_storage() in freedreno_resource.c (rotates bo/valid/layout, invalidates batch
+  cache + rebinds like the shadow swap, new seqno) and calls it after a flush; hAllocation follows its BO.

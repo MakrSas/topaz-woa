@@ -183,6 +183,58 @@ index 2a97506..78eac1c 100644
  
     ttn_parse_tgsi(c, tgsi_tokens);
     ttn_add_output_stores(c);
+diff --git a/src/gallium/drivers/freedreno/freedreno_resource.c b/src/gallium/drivers/freedreno/freedreno_resource.c
+index 68735df..d3abf54 100644
+--- a/src/gallium/drivers/freedreno/freedreno_resource.c
++++ b/src/gallium/drivers/freedreno/freedreno_resource.c
+@@ -1799,3 +1799,47 @@ fd_resource_context_init(struct pipe_context *pctx)
+    pctx->invalidate_resource = fd_invalidate_resource;
+    pctx->get_sample_position = u_default_get_sample_position;
+ }
++
++/* TopazGpu (d3d10umd on Windows): DXGI RotateResourceIdentities. The swapchain buffers keep their
++ * pipe_resource objects (render target / shader resource views point at them) and only their storage
++ * rotates: prscs[i] takes the storage of prscs[i + 1], the last one takes prscs[0]'s. Rotating the
++ * pipe_resource pointers instead (as d3d10umd did) left DWM rendering into a buffer other than the one
++ * it presented: stale animation frames stayed on screen. Same steps as the shadow-buffer swap above;
++ * the caller flushed the context. */
++void
++fd_resource_rotate_storage(struct pipe_context *pctx, struct pipe_resource **prscs, unsigned n)
++{
++   struct fd_context *ctx = fd_context(pctx);
++   struct fd_resource *first;
++   struct fd_bo *bo0;
++   struct fdl_layout layout0;
++   bool valid0;
++
++   if (n < 2)
++      return;
++   for (unsigned i = 0; i < n; i++) {
++      fd_bc_invalidate_resource(fd_resource(prscs[i]), false);
++      rebind_resource(fd_resource(prscs[i]));
++   }
++
++   fd_screen_lock(ctx->screen);
++   first = fd_resource(prscs[0]);
++   bo0 = first->bo;
++   valid0 = first->valid;
++   layout0 = first->layout;
++   for (unsigned i = 0; i + 1 < n; i++) {
++      struct fd_resource *a = fd_resource(prscs[i]), *b = fd_resource(prscs[i + 1]);
++      a->bo = b->bo;
++      a->valid = b->valid;
++      a->layout = b->layout;
++      a->seqno = seqno_next_u16(&ctx->screen->rsc_seqno);
++   }
++   {
++      struct fd_resource *last = fd_resource(prscs[n - 1]);
++      last->bo = bo0;
++      last->valid = valid0;
++      last->layout = layout0;
++      last->seqno = seqno_next_u16(&ctx->screen->rsc_seqno);
++   }
++   fd_screen_unlock(ctx->screen);
++}
 diff --git a/src/gallium/frontends/d3d10umd/Adapter.cpp b/src/gallium/frontends/d3d10umd/Adapter.cpp
 index 837013e..2e6c5d7 100644
 --- a/src/gallium/frontends/d3d10umd/Adapter.cpp
@@ -259,10 +311,19 @@ index 8bb09ba..fd61721 100644
     mtx_destroy(&pDevice->CreateResourceMtx);
  }
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-index 53ef690..681d19f 100644
+index 53ef690..6514315 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 +++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-@@ -66,6 +66,16 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+@@ -42,6 +42,8 @@
+ 
+ #include "Debug.h"
+ 
++extern "C" void fd_resource_rotate_storage(struct pipe_context *pctx, struct pipe_resource **prscs, unsigned n);
++
+ #include "frontend/winsys_handle.h"
+ #include "pipe/p_defines.h"
+ #include "pipe/p_state.h"
+@@ -66,6 +68,16 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
     struct Device *device = CastDevice(pPresentData->hDevice);
     Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
  
@@ -279,7 +340,7 @@ index 53ef690..681d19f 100644
     device->pipe->screen->flush_frontbuffer(device->pipe->screen, device->pipe, 
        pSrcResource->resource, 0, 0, pPresentData->pDXGIContext, 0, NULL);
  
-@@ -123,6 +133,13 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
+@@ -123,6 +135,13 @@ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
     Device* device = CastDevice(SetDisplayMode->hDevice);
     Resource *res = CastResource(SetDisplayMode->hResource);
  
@@ -293,7 +354,7 @@ index 53ef690..681d19f 100644
     if(!device->screen->resource_get_handle) {
        LOG_UNSUPPORTED_ENTRYPOINT();
        return S_OK;
-@@ -197,6 +214,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -197,22 +216,30 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  {
     LOG_ENTRYPOINT();
  
@@ -301,25 +362,38 @@ index 53ef690..681d19f 100644
     if (RotateResourceIdentities->Resources <= 1) {
        return S_OK;
     }
-@@ -204,14 +222,17 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+    UINT NumResources = RotateResourceIdentities->Resources;
     const DXGI_DDI_HRESOURCE *hResources = RotateResourceIdentities->pResources;
  
-    struct pipe_resource *firstResource = CastPipeResource(hResources[0]);
-+   D3DKMT_HANDLE firstAllocation = CastResource(hResources[0])->hAllocation;
- 
-    for (UINT i = 0; i < (NumResources - 1); ++i) {
-       Resource* resource = CastResource(hResources[i]);
-       resource->resource = CastPipeResource(hResources[i + 1]);
-+      resource->hAllocation = CastResource(hResources[i + 1])->hAllocation;   /* TopazGpu C2 */
+-   struct pipe_resource *firstResource = CastPipeResource(hResources[0]);
+-
+-   for (UINT i = 0; i < (NumResources - 1); ++i) {
+-      Resource* resource = CastResource(hResources[i]);
+-      resource->resource = CastPipeResource(hResources[i + 1]);
++   /* TopazGpu: rotate the storage (freedreno BOs), not the pipe_resource objects: views keep pointing
++    * at the right buffer. The allocation handles follow their BOs. */
++   {
++      Device *device = CastDevice(RotateResourceIdentities->hDevice);
++      struct pipe_resource *prscs[16];
++      UINT n = NumResources < 16 ? NumResources : 16;
++      D3DKMT_HANDLE firstAllocation = CastResource(hResources[0])->hAllocation;
++
++      for (UINT i = 0; i < n; ++i)
++         prscs[i] = CastPipeResource(hResources[i]);
++      device->pipe->flush(device->pipe, NULL, 0);
++      fd_resource_rotate_storage(device->pipe, prscs, n);
++      for (UINT i = 0; i + 1 < n; ++i)
++         CastResource(hResources[i])->hAllocation = CastResource(hResources[i + 1])->hAllocation;
++      CastResource(hResources[n - 1])->hAllocation = firstAllocation;
     }
  
-    Resource *lastResource = CastResource(hResources[NumResources - 1]);
-    lastResource->resource = firstResource;
-+   lastResource->hAllocation = firstAllocation;
- 
+-   Resource *lastResource = CastResource(hResources[NumResources - 1]);
+-   lastResource->resource = firstResource;
+-
     return S_OK;
  }
-@@ -231,6 +252,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+ 
+@@ -231,6 +258,7 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
  HRESULT APIENTRY
  _Blt(DXGI_DDI_ARG_BLT *Blt)
  {
