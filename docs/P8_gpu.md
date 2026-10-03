@@ -804,3 +804,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   dynamic vertex/constant buffers (DWM uses Map NO_OVERWRITE/DISCARD and UpdateSubresourceUP between draws; the
   draws execute later from the batch). Experiments added: TOPAZ_FLUSHDRAW=1 (flush + fence wait after every
   draw: fully serialized) and TOPAZ_SYNCMAP=1 (NO_OVERWRITE maps become synchronized).
+- 14:00 TOPAZ_FLUSHDRAW=1 result (user): window contents no longer disappear, nothing stale at the bottom, popup
+  shadows correct. Only the thin dashed strokes remain. => artifacts (1) and (3) are a CPU/GPU sync hazard
+  (data the CPU changes before deferred draws execute). (2) dashed strokes is a separate issue. Next: narrow it
+  (TOPAZ_SYNCMAP=1 alone).
