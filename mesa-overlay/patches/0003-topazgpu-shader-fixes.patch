@@ -916,7 +916,7 @@ index a0262da..fa3706d 100644
 +   topaz_upload_fs_scissor(pipe);
  }
 diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
-index 84b7ccf..1df7000 100644
+index 84b7ccf..de442b6 100644
 --- a/src/gallium/frontends/d3d10umd/Resource.cpp
 +++ b/src/gallium/frontends/d3d10umd/Resource.cpp
 @@ -32,6 +32,9 @@
@@ -1065,19 +1065,30 @@ index 84b7ccf..1df7000 100644
  }
  
  
-@@ -1007,6 +1072,11 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1007,6 +1072,22 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
  
     struct pipe_transfer *transfer;
     void *map;
 +   /* TopazGpu experiment TOPAZ_UPDSYNC=1: texture updates without DISCARD_RANGE (no shadow/staging path in
 +    * freedreno, plain synchronized write) - dashed strokes inside window contents? */
 +   unsigned updFlags = PIPE_MAP_WRITE | PIPE_MAP_DISCARD_RANGE;
++   /* TopazGpu experiment TOPAZ_UPDFLUSH: 1 = flush before UpdateSubresourceUP of constant buffers,
++    * 2 = of any buffer, 3 = of anything */
++   {
++      const char *uf = getenv("TOPAZ_UPDFLUSH");
++      char m = uf ? uf[0] : '0';
++      if ((m == '1' && (dst_resource->bind & PIPE_BIND_CONSTANT_BUFFER)) ||
++          (m == '2' && pDstResource->buffer) || m == '3') {
++         pipe->flush(pipe, NULL, 0);
++         g_topazMapFlushes++;
++      }
++   }
 +   if (!pDstResource->buffer && getenv("TOPAZ_UPDSYNC") && getenv("TOPAZ_UPDSYNC")[0] == '1')
 +      updFlags = PIPE_MAP_WRITE;
     if (pDstResource->buffer) {
        map = pipe->buffer_map(pipe,
                                dst_resource,
-@@ -1018,7 +1088,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+@@ -1018,7 +1099,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
        map = pipe->texture_map(pipe,
                                dst_resource,
                                level,

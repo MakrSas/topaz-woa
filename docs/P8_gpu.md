@@ -953,3 +953,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   globals; explorer has several D3D devices/screens, so a scratch texture of one screen was used on another.
   Fix: state moved into Device (Device::topazScFix, Device::topazRsScissor), freed in DestroyDevice (it also
   leaked one full-RT texture per destroyed device before).
+- 20:55 Explorer stable with the per-device SCFIX (user). FPS work: RING trace corrected for indexed draws: all
+  3776 ring draws are DrawIndexed; IB ring (16000 B) 23 epochs, no overlapping index ranges, base vertices
+  monotonic -> DWM's ring usage is clean. The VB-map flush happens before almost every draw, so it masks any
+  CPU write between draws. Next suspect: constant buffers updated with UpdateSubresourceUP (Map DISCARD on CBs is
+  rare). Experiment TOPAZ_UPDFLUSH=1 (CB) / 2 (any buffer) / 3 (any) with TOPAZ_SYNCMAP=0.
