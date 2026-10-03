@@ -132,6 +132,12 @@ static int
 esc(int fd, unsigned nr, void *data, unsigned size)
 {
    struct topazgpu_escape *e;
+   /* TopazGpu: the KMD never purges BOs, so GEM_MADVISE (called on every BO-cache put/get, ~11000/s once the
+    * ring cache worked) is answered here: retained = 1 */
+   if (nr == DRM_COMMAND_BASE + DRM_MSM_GEM_MADVISE && size >= sizeof(struct drm_msm_gem_madvise)) {
+      ((struct drm_msm_gem_madvise *)data)->retained = 1;
+      return 0;
+   }
    esc_stats(nr);
    if (esc_log > 0 && nr == DRM_COMMAND_BASE + DRM_MSM_GEM_NEW)
       esc_stats_new(data);

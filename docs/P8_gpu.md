@@ -998,3 +998,6 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   BO (32 KiB RING_FLAGS) was freed through the KMD and reallocated (~2300 GEM_NEW + mmap + munmap + GEM_CLOSE
   per second, contiguous allocations in the KMD). Fix: bitfield widened to 3 bits (same class of bug as the
   earlier gl_tess_spacing / lrz_direction fixes in 0001).
+- 23:20 bo_reuse fix result: BO cache hits 11276 / miss 1 per 60 frames, GEM_NEW gone; Chrome move 45-49 FPS. Now
+  GEM_MADVISE escapes ~11000/s (every cache put/get) -> answered in fd_wddm.c without an escape (KMD never purges).
+  Also new: TIMING "gpu wait" 16.5 ms per present (to investigate).
