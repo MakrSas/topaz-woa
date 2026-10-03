@@ -430,6 +430,159 @@ STATIC VOID ModemWatch(UINTN Seconds, EFI_FILE_PROTOCOL *Root)
   }
 }
 
+/*
+ * GSI firmware for IPA (SIM / mobile data stage 2, docs/P9_sim.md). Like Linux ipa_main.c
+ * ipa_firmware_load(): qcom_mdt_load(ipa_fws, PAS id 15) into the DT memory region
+ * ipa_fw_region 0x55B00000 (64 KiB, inside our "PIL Reserved" 0x4AB00000..0x56300000), segments
+ * relocated (p_paddr - min) into it, then auth_and_reset. Android does this at 10.7 s, before the
+ * modem (19.4 s). Needs the IPA clock: only after TopazRpm published its acked vote for this boot
+ * (volatile key Services\TopazRpm\State IpaClockKhz). Opt-in: C:\topaz\fw\ipa.on.
+ */
+#define PAS_ID_IPA        15
+#define IPA_FW_PA         0x55B00000u
+#define IPA_FW_SIZE       0x00010000u
+#define GSI_STATUS_PA     (0x05804000u + 0x1F000u)   /* GSI_STATUS, EE 0: bit 0 ENABLED */
+
+STATIC UINT32 IpaClockKhz(VOID)
+{
+  UNICODE_STRING key = RTL_CONSTANT_STRING (L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\TopazRpm\\State");
+  UNICODE_STRING val = RTL_CONSTANT_STRING (L"IpaClockKhz");
+  OBJECT_ATTRIBUTES oa;
+  HANDLE h;
+  UCHAR buf[sizeof (KEY_VALUE_PARTIAL_INFORMATION) + 8];
+  ULONG len;
+  UINT32 khz = 0;
+
+  InitializeObjectAttributes (&oa, &key, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+  if (NT_SUCCESS (ZwOpenKey (&h, KEY_QUERY_VALUE, &oa))) {
+    if (NT_SUCCESS (ZwQueryValueKey (h, &val, KeyValuePartialInformation, buf, sizeof (buf), &len)) &&
+        ((KEY_VALUE_PARTIAL_INFORMATION *)buf)->DataLength == 4) {
+      khz = *(UINT32 *)((KEY_VALUE_PARTIAL_INFORMATION *)buf)->Data;
+    }
+    ZwClose (h);
+  }
+  return khz;
+}
+
+STATIC VOID IpaFwLoad(EFI_FILE_PROTOCOL *Root)
+{
+  UINT8 *mdt = NULL, *meta, *region;
+  UINTN mdtSize = 0, metaSize, res = 0, st, i, sz, t;
+  Elf32_Ehdr *eh;
+  Elf32_Phdr *ph;
+  UINT32 minAddr = MAX_UINT32, maxAddr = 0, hashIdx = MAX_UINT32, khz = 0;
+  UINT64 metaPa = 0;
+  CHAR16 name[32];
+  EFI_FILE_PROTOCOL *f = NULL;
+  EFI_STATUS s;
+
+  if (EFI_ERROR (Root->Open (Root, &f, L"\\ipa.on", EFI_FILE_MODE_READ, 0))) {
+    Out ("  ipa: C:\\topaz\\fw\\ipa.on absent, GSI firmware not loaded\r\n");
+    return;
+  }
+  f->Close (f);
+  for (t = 0; t < 150 && (khz = IpaClockKhz ()) == 0; t++) {
+    gBS->Stall (100 * 1000);
+  }
+  Out ("  ipa: RPM IPA clock vote %u kHz after %u ms\r\n", khz, (UINT32)(t * 100));
+  if (khz == 0) {
+    Out ("  ipa: no IPA clock vote this boot (TopazRpm, C:\\topaz\\rpm.on?): not touching IPA\r\n");
+    return;
+  }
+  s = ReadFile (Root, L"\\image\\ipa_fws.mdt", (VOID **)&mdt, &mdtSize, NULL, 0);
+  if (EFI_ERROR (s) || mdtSize < sizeof (Elf32_Ehdr)) {
+    Out ("  ipa: ipa_fws.mdt %r\r\n", s);
+    return;
+  }
+  eh = (Elf32_Ehdr *)mdt;
+  ph = (Elf32_Phdr *)(mdt + eh->e_phoff);
+  if (eh->e_phoff + (UINTN)eh->e_phnum * sizeof (Elf32_Phdr) > mdtSize) {
+    Out ("  ipa: bad ELF\r\n");
+    FreePool (mdt);
+    return;
+  }
+  for (i = 0; i < eh->e_phnum; i++) {
+    if ((ph[i].p_flags & MDT_TYPE_MASK) == MDT_TYPE_HASH) {
+      hashIdx = (UINT32)i;
+    }
+    if (PhdrLoadable (&ph[i])) {
+      minAddr = MIN (minAddr, ph[i].p_paddr);
+      maxAddr = MAX (maxAddr, ph[i].p_paddr + ph[i].p_memsz);
+    }
+  }
+  Out ("  ipa: ipa_fws.mdt %u phdrs, hash %u, image %08x..%08x\r\n", eh->e_phnum, hashIdx, minAddr, maxAddr);
+  if (hashIdx == MAX_UINT32 || maxAddr <= minAddr || maxAddr - minAddr > IPA_FW_SIZE) {
+    FreePool (mdt);
+    return;
+  }
+  sz = eh->e_phoff + eh->e_phnum * sizeof (Elf32_Phdr);
+  metaSize = sz + ph[hashIdx].p_filesz;
+  meta = PhysAlloc (metaSize, &metaPa);
+  if (meta == NULL) {
+    FreePool (mdt);
+    return;
+  }
+  CopyMem (meta, mdt, sz);
+  if (ph[hashIdx].p_offset + ph[hashIdx].p_filesz <= mdtSize) {
+    CopyMem (meta + sz, mdt + ph[hashIdx].p_offset, ph[hashIdx].p_filesz);
+  } else {
+    UINTN got = 0;
+    UnicodeSPrint (name, sizeof (name), L"\\image\\ipa_fws.b%02u", hashIdx);
+    s = ReadFile (Root, name, NULL, &got, meta + sz, ph[hashIdx].p_filesz);
+    if (EFI_ERROR (s) || got != ph[hashIdx].p_filesz) {
+      Out ("  ipa: hash segment ipa_fws.b%02u: %r\r\n", hashIdx, s);
+      goto Out;
+    }
+  }
+  st = Scm (SCM_FN (SCM_SVC_PIL, PIL_INIT_IMAGE), SCM_ARGS (2) | (SCM_ARG_RW << 6), PAS_ID_IPA, (UINTN)metaPa, 0, &res);
+  Out ("  ipa: PAS init_image(15): ret=%lx res=%lx\r\n", (UINT64)st, (UINT64)res);
+  if (st != 0 || res != 0) {
+    goto Out;
+  }
+  st = Scm (SCM_FN (SCM_SVC_PIL, PIL_MEM_SETUP), SCM_ARGS (3), PAS_ID_IPA, IPA_FW_PA, maxAddr - minAddr, &res);
+  Out ("  ipa: PAS mem_setup(15, %08x, %x): ret=%lx res=%lx\r\n", IPA_FW_PA, maxAddr - minAddr, (UINT64)st, (UINT64)res);
+  if (st != 0 || res != 0) {
+    goto Out;
+  }
+  region = MapPhys (IPA_FW_PA, IPA_FW_SIZE, TRUE);
+  if (region == NULL) {
+    goto Out;
+  }
+  ZeroMem (region, maxAddr - minAddr);
+  for (i = 0; i < eh->e_phnum; i++) {
+    UINT8 *dst;
+    if (!PhdrLoadable (&ph[i])) {
+      continue;
+    }
+    dst = region + (ph[i].p_paddr - minAddr);
+    sz = 0;
+    if (ph[i].p_filesz != 0) {
+      UnicodeSPrint (name, sizeof (name), L"\\image\\ipa_fws.b%02u", (UINT32)i);
+      s = ReadFile (Root, name, NULL, &sz, dst, ph[i].p_memsz);
+      if (EFI_ERROR (s) || sz != ph[i].p_filesz) {
+        Out ("  ipa: ipa_fws.b%02u: %r (%lu of %u)\r\n", (UINT32)i, s, (UINT64)sz, ph[i].p_filesz);
+        UnmapPhys (region, IPA_FW_SIZE);
+        goto Out;
+      }
+    }
+  }
+  MemoryFence ();
+  UnmapPhys (region, IPA_FW_SIZE);
+  st = Scm (SCM_FN (SCM_SVC_PIL, PIL_AUTH_RESET), SCM_ARGS (1), PAS_ID_IPA, 0, 0, &res);
+  Out ("  ipa: PAS auth_and_reset(15): ret=%lx res=%lx\r\n", (UINT64)st, (UINT64)res);
+  if (st == 0 && res == 0) {
+    UINT32 *gs = MapPhys (GSI_STATUS_PA & ~0xFFFu, SIZE_4KB, FALSE);
+    if (gs != NULL) {
+      Out ("  ipa: GSI_STATUS = %08x%a\r\n", gs[(GSI_STATUS_PA & 0xFFF) / 4],
+           (gs[(GSI_STATUS_PA & 0xFFF) / 4] & 1) ? " (ENABLED: GSI firmware running)" : "");
+      UnmapPhys (gs, SIZE_4KB);
+    }
+  }
+Out:
+  PhysFree (meta);
+  FreePool (mdt);
+}
+
 EFI_STATUS ModemPasTest(VOID)
 {
   EFI_FILE_PROTOCOL *root;
@@ -483,6 +636,7 @@ EFI_STATUS ModemPasTest(VOID)
   if (root == NULL) {
     return EFI_NOT_FOUND;
   }
+  IpaFwLoad (root);                            /* GSI firmware first, like Android (C:\topaz\fw\ipa.on) */
   s = ReadFile (root, L"\\image\\modem.mdt", (VOID **)&mdt, &mdtSize, NULL, 0);
   Out ("  modem.mdt: %r, %lu bytes\r\n", s, (UINT64)mdtSize);
   if (EFI_ERROR (s)) {

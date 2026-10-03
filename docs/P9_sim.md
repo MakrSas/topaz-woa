@@ -111,3 +111,10 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
 - Next: ipa_fws PAS load (id 15, memory region 0x55b00000) before the modem boots -> GSI enabled;
   then IPA/GSI init after Linux drivers/net/ipa (v4.2 data), the QMI INIT_DRIVER to the modem,
   INIT_COMPLETE indication. Boot order: TopazRpm vote -> IPA init -> modem.
+- TopazRpm v0.6: after the acked IPA vote writes `IpaClockKhz` to the volatile key
+  `HKLM\SYSTEM\CurrentControlSet\Services\TopazRpm\State` (gone after reboot; a named event
+  would be created signaled by whichever driver comes first).
+- TopazWifi v0.12 (C:\topaz\fw\ipa.on): before the modem, waits up to 15 s for that value, then
+  loads ipa_fws like Linux ipa_firmware_load(): init_image(15), mem_setup(15, 0x55B00000, size),
+  relocated segments into ipa_fw_region (inside our "PIL Reserved"), auth_and_reset(15), logs
+  GSI_STATUS (bit 0 = enabled).

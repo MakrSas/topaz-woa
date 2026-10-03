@@ -15,7 +15,7 @@
 #include "TlvGeneratorParser.hpp"
 #include "wlanif.h"
 
-#define TOPAZ_WIFI_VERSION  "v0.11"
+#define TOPAZ_WIFI_VERSION  "v0.12"
 #define TOPAZ_WIFI_TAG      'iWzT'
 
 #define WLOG(...)           LogPrint (__VA_ARGS__)

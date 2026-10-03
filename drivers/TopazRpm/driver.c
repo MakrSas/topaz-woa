@@ -24,10 +24,13 @@
  * v0.4: never re-handshake - if the FIFO indices are not both 0 the link was used since boot,
  * so the driver only logs. TopazRpm must be updated by file swap + reboot, never restarted.
  * v0.5: C:\topaz\ipa.probe is one-shot (deleted before the probe), so a hang costs one reboot.
+ * v0.6: after an acked IPA vote, publish it for this boot in a volatile registry key
+ * (HKLM\SYSTEM\CurrentControlSet\Services\TopazRpm\State, IpaClockKhz): TopazWifi waits for it
+ * before it touches IPA/GSI (ipa_fws load ahead of the modem). Volatile = gone after a reboot.
  */
 #include "driver.h"
 
-#define TOPAZ_RPM_VERSION   "v0.5"
+#define TOPAZ_RPM_VERSION   "v0.6"
 
 #define MSG_RAM_PA          0x045F0000ULL
 #define MSG_RAM_SIZE        0x7000
@@ -359,6 +362,23 @@ static BOOLEAN RpmWrite(PDEVICE_CONTEXT Ctx, ULONG Set, ULONG Type, ULONG Id, UL
 
 static VOID IpaProbe(VOID);
 
+static VOID PublishIpaClock(ULONG Khz)
+{
+    UNICODE_STRING key = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\TopazRpm\\State");
+    UNICODE_STRING val = RTL_CONSTANT_STRING(L"IpaClockKhz");
+    OBJECT_ATTRIBUTES oa;
+    HANDLE h;
+    NTSTATUS st;
+
+    InitializeObjectAttributes(&oa, &key, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    st = ZwCreateKey(&h, KEY_SET_VALUE, &oa, 0, NULL, REG_OPTION_VOLATILE, NULL);
+    if (NT_SUCCESS(st)) {
+        st = ZwSetValueKey(h, &val, 0, REG_DWORD, &Khz, sizeof(Khz));
+        ZwClose(h);
+    }
+    LogPrint("published IpaClockKhz=%u (volatile State key): %08x\n", Khz, st);
+}
+
 static VOID Link(PDEVICE_CONTEXT Ctx)
 {
     PHYSICAL_ADDRESS pa;
@@ -390,6 +410,9 @@ static VOID Link(PDEVICE_CONTEXT Ctx)
     LogPrint("glink: rpm_requests open (rcid %u)\n", Ctx->Rcid);
     ok = RpmWrite(Ctx, RPM_ACTIVE_SET, RPM_RES_IPA_CLK, 0, RPM_KEY_RATE, IPA_CLK_KHZ);
     LogPrint("rpm: IPA clock %u kHz (active set): %s\n", IPA_CLK_KHZ, ok ? "OK" : "FAILED");
+    if (ok) {
+        PublishIpaClock(IPA_CLK_KHZ);
+    }
     if (ok && FileExists(L"\\??\\C:\\topaz\\ipa.probe")) {
         LogPrint("C:\\topaz\\ipa.probe present (deleted: %u): reading IPA / GSI registers\n",
                  DeleteFile(L"\\??\\C:\\topaz\\ipa.probe"));
