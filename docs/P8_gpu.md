@@ -924,3 +924,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
 - 18:55 MAPLOG with tracking state: ring DISCARDs DO rename (VB 160000 / IB 16000: batches 0x1/0x3 -> new BO); small CB DISCARDs have batches 0 (no rename needed). FPS with TOPAZ_SYNCMAP=0+MAPLOG 23 (logging cost). Next: TOPAZ_SYNCMAP=3 (flush only before VB maps) / =4 (only IB maps).
 - 19:05 TOPAZ_SYNCMAP=3 (flush only before vertex-buffer NO_OVERWRITE maps): user sees no stale copies/shadow problems, only the bottom (and top) edge strokes -> the hazard is on the VERTEX ring. User: Chrome windows show no strokes, Explorer/mmc windows do (GDI/DirectComposition content composed by DWM).
 - 19:15 Frame dump with Explorer open: tab titles, address bar, file list TEXT missing. explorer.exe (pid 5192) had loaded the UMD at 10:45 = an old build without the day's fixes (each process keeps the DLL it loaded) -> explorer restarted; NOTE: after a UMD swap, restart explorer and other GPU apps too, not only dwm.
+- 19:25 After explorer was restarted on the current UMD it hung, then the phone switched off. RAM-booted GPU0 again:
+  explorer keeps crashing, FPS very low, and TopazWifi died (no SSH). Plan: normal boot (no GPU0, no UMD) to get
+  SSH back and collect explorer crash dumps / UMD logs. Safety switch added: C:\topaz\umd.dwmonly -> only dwm.exe
+  opens the Adreno UMD, every other process fails OpenAdapter (D3D falls back).

@@ -1134,3 +1134,31 @@ index 2aecca7..cd57664 100644
  
     D3D10_DDI_QUERY_DATA_PIPELINE_STATISTICS Statistics;
  };
+diff --git a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
+index cd028ba..26eb433 100644
+--- a/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
++++ b/src/gallium/frontends/d3d10umd/topaz_wddm.cpp
+@@ -290,6 +290,21 @@ bool
+ TopazWddmEnabled(void)
+ {
+    TopazWddmLogInit();
+-   return GetEnvironmentVariableA("TOPAZGPU_ENABLE", NULL, 0) != 0 ||
+-          GetFileAttributesA("C:\\topaz\\umd.enable") != INVALID_FILE_ATTRIBUTES;
++   bool on = GetEnvironmentVariableA("TOPAZGPU_ENABLE", NULL, 0) != 0 ||
++             GetFileAttributesA("C:\\topaz\\umd.enable") != INVALID_FILE_ATTRIBUTES;
++   /* C:\topaz\umd.dwmonly: only dwm.exe uses the Adreno UMD; other processes fail OpenAdapter and the D3D
++    * runtime falls back (WARP) - safety switch while app processes crash/hang on our UMD */
++   if (on && GetFileAttributesA("C:\\topaz\\umd.dwmonly") != INVALID_FILE_ATTRIBUTES) {
++      char path[MAX_PATH];
++      DWORD n = GetModuleFileNameA(NULL, path, sizeof(path));
++      const char *base = path;
++      for (DWORD i = 0; i < n; i++)
++         if (path[i] == '\\' || path[i] == '/')
++            base = path + i + 1;
++      if (_stricmp(base, "dwm.exe") != 0) {
++         TopazWddmLogf("topaz: umd.dwmonly - %s does not use the Adreno UMD\n", base);
++         on = false;
++      }
++   }
++   return on;
+ }
