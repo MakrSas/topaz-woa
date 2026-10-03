@@ -150,11 +150,14 @@ index 56c10b1..6d5abbb 100644
     struct pipe_draw_start_count_bias draw;
     struct pipe_resource *null_ib = NULL;
 diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-index d6dd16d..1368d12 100644
+index d6dd16d..a956c4c 100644
 --- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
 +++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
-@@ -72,7 +72,7 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+@@ -70,9 +70,10 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+ 
+    if (pSrcResource->hAllocation) {
        Resource *pDst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource) : NULL;
++      TopazMaybeDump(device->pipe, pSrcResource->resource);
        HRESULT hr = TopazWddmPresent(device, pSrcResource, pDst, pPresentData->pDXGIContext);
        static unsigned n;
 -      if (++n <= 60 || FAILED(hr))
@@ -162,7 +165,7 @@ index d6dd16d..1368d12 100644
           TopazWddmLogf("DXGI Present #%u res %p alloc 0x%x dst %p flags 0x%x -> 0x%08lx\n", n, pSrcResource->resource,
                         pSrcResource->hAllocation, pPresentData->hDstResource, pPresentData->Flags.Value, (unsigned long)hr);
        return hr;
-@@ -250,6 +250,39 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
+@@ -250,6 +251,39 @@ _RotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResourc
                            n > 2 ? CastResource(hResources[2])->resource : NULL, n > 2 ? CastResource(hResources[2])->hAllocation : 0);
        }
        fd_resource_rotate_storage(device->pipe, prscs, n);
@@ -216,10 +219,22 @@ index dbca5d0..7c3c4de 100644
      * DX10 always uses float clear color but gallium does not.
      * Conversion should just be ordinary conversion. Actual clamping will
 diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-index a0262da..7cdd4b1 100644
+index a0262da..419352f 100644
 --- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
 +++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
-@@ -37,6 +37,40 @@
+@@ -31,12 +31,145 @@
+  */
+ 
+ 
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <windows.h>
++#include "pipe/p_defines.h"
++#include "util/u_inlines.h"
+ #include "Rasterizer.h"
+ #include "State.h"
+ 
  #include "Debug.h"
  
  
@@ -229,6 +244,97 @@ index a0262da..7cdd4b1 100644
 +static bool g_topazRsScissor;
 +static bool g_topazDrawLog;
 +static bool g_topazDrawLogInit;
++
++/* TopazGpu: TOPAZ_DRAWLOG=1 + file C:\ProgramData\topaz\umd.dump -> at the next Present dump the presented
++ * frame and the large textures sampled recently as 32-bit BMPs (umd-dump-<pid>-<n>-<tag>.bmp) */
++static struct pipe_resource *g_topazBig[12];
++static unsigned g_topazBigNext;
++
++static void
++topaz_remember_big(struct pipe_resource *t)
++{
++   if (!t || t->target != PIPE_TEXTURE_2D || t->width0 < 400 || t->height0 < 400)
++      return;
++   for (unsigned i = 0; i < 12; i++)
++      if (g_topazBig[i] == t)
++         return;
++   struct pipe_resource **slot = &g_topazBig[g_topazBigNext++ % 12];
++   pipe_resource_reference(slot, NULL);
++   pipe_resource_reference(slot, t);
++}
++
++static void
++topaz_dump_one(struct pipe_context *pipe, struct pipe_resource *res, unsigned seq, const char *tag, unsigned idx)
++{
++   if (!res || res->target != PIPE_TEXTURE_2D)
++      return;
++   enum pipe_format f = res->format;
++   bool swap;
++   if (f == PIPE_FORMAT_B8G8R8A8_UNORM || f == PIPE_FORMAT_B8G8R8X8_UNORM || f == PIPE_FORMAT_B8G8R8A8_SRGB)
++      swap = false;
++   else if (f == PIPE_FORMAT_R8G8B8A8_UNORM || f == PIPE_FORMAT_R8G8B8X8_UNORM || f == PIPE_FORMAT_R8G8B8A8_SRGB)
++      swap = true;
++   else {
++      TopazWddmLogf("DUMP %s%u %p %ux%u fmt %d skipped\n", tag, idx, (void *)res, res->width0, res->height0, (int)f);
++      return;
++   }
++   struct pipe_box box;
++   memset(&box, 0, sizeof(box));
++   box.width = res->width0;
++   box.height = res->height0;
++   box.depth = 1;
++   struct pipe_transfer *xfer = NULL;
++   uint8_t *map = (uint8_t *)pipe->texture_map(pipe, res, 0, PIPE_MAP_READ, &box, &xfer);
++   if (!map) {
++      TopazWddmLogf("DUMP %s%u map failed\n", tag, idx);
++      return;
++   }
++   char path[160];
++   snprintf(path, sizeof(path), "C:\\ProgramData\\topaz\\umd-dump-%lu-%u-%s%u.bmp", (unsigned long)GetCurrentProcessId(), seq, tag, idx);
++   FILE *fp = fopen(path, "wb");
++   if (fp) {
++      uint32_t w = res->width0, h = res->height0, sz = w * h * 4;
++      uint8_t hdr[54] = { 'B', 'M' };
++      uint32_t off = 54, tot = 54 + sz, dib = 40, planes_bpp = (32u << 16) | 1u, comp = 0;
++      int32_t nh = -(int32_t)h;
++      memcpy(hdr + 2, &tot, 4); memcpy(hdr + 10, &off, 4); memcpy(hdr + 14, &dib, 4);
++      memcpy(hdr + 18, &w, 4); memcpy(hdr + 22, &nh, 4); memcpy(hdr + 26, &planes_bpp, 4);
++      memcpy(hdr + 30, &comp, 4); memcpy(hdr + 34, &sz, 4);
++      fwrite(hdr, 1, 54, fp);
++      uint8_t *row = (uint8_t *)malloc(w * 4);
++      for (uint32_t y = 0; y < h; y++) {
++         const uint8_t *s = map + (size_t)y * xfer->stride;
++         for (uint32_t x = 0; x < w; x++) {
++            row[x * 4 + 0] = swap ? s[x * 4 + 2] : s[x * 4 + 0];
++            row[x * 4 + 1] = s[x * 4 + 1];
++            row[x * 4 + 2] = swap ? s[x * 4 + 0] : s[x * 4 + 2];
++            row[x * 4 + 3] = 255;
++         }
++         fwrite(row, 1, w * 4, fp);
++      }
++      free(row);
++      fclose(fp);
++   }
++   pipe->texture_unmap(pipe, xfer);
++   TopazWddmLogf("DUMP %s%u %p %ux%u fmt %d -> %s\n", tag, idx, (void *)res, res->width0, res->height0, (int)f, path);
++}
++
++extern "C" void
++TopazMaybeDump(void *pipe_, void *presented)
++{
++   if (!g_topazDrawLog)
++      return;
++   if (GetFileAttributesA("C:\\ProgramData\\topaz\\umd.dump") == INVALID_FILE_ATTRIBUTES)
++      return;
++   DeleteFileA("C:\\ProgramData\\topaz\\umd.dump");
++   static unsigned seq;
++   struct pipe_context *pipe = (struct pipe_context *)pipe_;
++   seq++;
++   pipe->flush(pipe, NULL, 0);
++   topaz_dump_one(pipe, (struct pipe_resource *)presented, seq, "frame", 0);
++   for (unsigned i = 0; i < 12; i++)
++      topaz_dump_one(pipe, g_topazBig[i], seq, "tex", i);
++}
 +
 +extern "C" void
 +TopazLogDraw(const char *kind, unsigned count, void *device, void *rt, unsigned rtw, unsigned rth)
@@ -247,6 +353,8 @@ index a0262da..7cdd4b1 100644
 +      Device *d = (Device *)device;
 +      for (int i = 0; i < 3; i++) {
 +         struct pipe_sampler_view *sv = d->sampler_views[PIPE_SHADER_FRAGMENT][i];
++         if (sv && sv->texture)
++            topaz_remember_big(sv->texture);
 +         if (sv && sv->texture && n < 120)
 +            n += snprintf(srv + n, sizeof(srv) - n, " t%d=%p/%ux%u/f%d", i, (void *)sv->texture,
 +                          sv->texture->width0, sv->texture->height0, (int)sv->format);
@@ -260,7 +368,7 @@ index a0262da..7cdd4b1 100644
  /*
   * ----------------------------------------------------------------------
   *
-@@ -80,6 +114,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
+@@ -80,6 +213,10 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
        states[i].translate[1] = half_height + y;
        states[i].translate[2] = z;
     }
@@ -271,7 +379,7 @@ index a0262da..7cdd4b1 100644
     if (ClearViewports) {
        memset(states + NumViewports, 0,
               sizeof(struct pipe_viewport_state) * ClearViewports);
-@@ -123,6 +161,10 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+@@ -123,6 +260,10 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
        states[i].maxx = pRect->right  < 0 ? 0 : pRect->right;
        states[i].maxy = pRect->bottom < 0 ? 0 : pRect->bottom;
     }
@@ -282,7 +390,7 @@ index a0262da..7cdd4b1 100644
     if (ClearScissorRects) {
        memset(states + NumScissorRects, 0,
               sizeof(struct pipe_scissor_state) * ClearScissorRects);
-@@ -236,6 +278,7 @@ CreateRasterizerState(
+@@ -236,6 +377,7 @@ CreateRasterizerState(
     state.line_rectangular = 0;
  
     pRasterizerState->handle = pipe->create_rasterizer_state(pipe, &state);
@@ -290,7 +398,7 @@ index a0262da..7cdd4b1 100644
  }
  
  
-@@ -283,5 +326,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+@@ -283,5 +425,6 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
     struct pipe_context *pipe = CastPipeContext(hDevice);
     void *state = CastPipeRasterizerState(hRasterizerState);
  
@@ -330,20 +438,21 @@ index 84b7ccf..5c39503 100644
        pipe->resource_copy_region(pipe,
                                   dst_resource, dst_level,
 diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
-index 2aecca7..6982f48 100644
+index 2aecca7..eb2de87 100644
 --- a/src/gallium/frontends/d3d10umd/State.h
 +++ b/src/gallium/frontends/d3d10umd/State.h
-@@ -152,7 +152,8 @@ CastPipeDevice(DXGI_DDI_HDEVICE hDevice)
+@@ -152,7 +152,9 @@ CastPipeDevice(DXGI_DDI_HDEVICE hDevice)
  }
  
  
 -extern "C" void TopazWddmLogf(const char *fmt, ...);   /* TopazGpu: topaz_wddm.cpp */
 +extern "C" void TopazWddmLogf(const char *fmt, ...);
++extern "C" void TopazMaybeDump(void *pipe, void *presented);   /* Rasterizer.cpp */
 +extern "C" void TopazLogDraw(const char *kind, unsigned count, void *device, void *rt, unsigned rtw, unsigned rth);   /* Rasterizer.cpp, TOPAZ_DRAWLOG=1 */   /* TopazGpu: topaz_wddm.cpp */
  
  #define SetError(hDevice, hr) SetErrorAt(hDevice, hr, __func__, __LINE__)
  
-@@ -312,6 +313,7 @@ CastPipeDepthStencilState(D3D10DDI_HDEPTHSTENCILSTATE hDepthStencilState)
+@@ -312,6 +314,7 @@ CastPipeDepthStencilState(D3D10DDI_HDEPTHSTENCILSTATE hDepthStencilState)
  struct RasterizerState
  {
     void *handle;

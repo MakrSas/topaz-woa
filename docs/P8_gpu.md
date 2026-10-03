@@ -788,3 +788,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   produced correctly -> draw-side bug, not flip/copy/rotation/scissor-state. Next: log PS SRVs + copy boxes
   (DRAWLOG now prints t0..t2 texture ptr/size/format per draw, and the copy boxes) and compare with the
   stale rect.
+- 13:15 Decisive next experiment: TOPAZ_DRAWLOG=1 + trigger file C:\ProgramData\topaz\umd.dump -> at the next
+  Present dump the presented frame and the last 12 large (>=400x400) textures sampled as BMPs
+  (C:\ProgramData\topaz\umd-dump-<pid>-<n>-frame0/tex<i>.bmp). If the wallpaper texture itself contains the
+  blob -> memory aliasing / bad upload of the texture; if the texture is fine but the frame is not -> the
+  draw sampling it is wrong.
