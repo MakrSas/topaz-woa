@@ -676,3 +676,12 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   the KMD rejected GEM_SUBMITs with more than 64 IBs (DWM sent 66): the whole submit (part of a frame)
   was dropped. v0.39: up to 512 IBs (heap arrays; ring 8192 dwords), every rejected/failed submit is
   logged, and "fps: N flips/s" is logged once a second by the vsync DPC.
+
+### v0.39 result (10:34)
+- No rejected submits any more; the Start icon is complete. fps log: 7-60 flips/s depending on activity.
+- Remaining: (a) stale regions are back after the reboot (old window copy at its previous position, the
+  zoomed open-animation frame) - with direct scanout flip completion is still reported by the 60 Hz
+  timer, not by the panel's vsync, so DWM's idea of which buffer is on screen can be wrong; next: real
+  MDP vsync interrupt (INTF1/CTL) for flip completion; (b) small dashes/bars next to text since the
+  first GPU run - probably the glyph atlas updated by the CPU while the GPU still samples it (UMD
+  map/update synchronisation).
