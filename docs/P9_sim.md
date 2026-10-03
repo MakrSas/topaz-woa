@@ -17,3 +17,10 @@ IPA v4.2 / GSI) → stage 3 Windows network adapter (raw-IP NetAdapter, later MB
   new test cert: add its topaz-woa-test.cer to Root + TrustedPublisher first (else sig UnknownError).
   Rollback: set `HKLM\SYSTEM\CurrentControlSet\Services\TopazWifi\ImagePath` back to
   `\SystemRoot\System32\DriverStore\FileRepository\topazwifi.inf_arm64_e38bc04a85bb22a4\TopazWifi.sys`.
+- v0.5 result: IMEI 868773065134622, MPSS.HA.1.1.c1-00084 (Nov 2023); modem comes up in mode 5
+  (shutting-down), SET_OPERATING_MODE online answers error 52 but the mode is online next poll;
+  NAS camps on 250-01 UMTS (emergency only).
+- v0.6 result: card is in **physical/logical slot 2** (slot 1 empty = "no ATR"), USIM app
+  "detected", ICCID 89701204145300976051 (T2 Russia); index_gw_primary = 0xFFFF = no provisioned
+  subscription (Android's RIL does that) -> v0.7 sends UIM CHANGE_PROVISIONING_SESSION
+  (primary GW, activate, slot + AID of the USIM).

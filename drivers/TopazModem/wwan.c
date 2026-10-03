@@ -32,6 +32,7 @@ enum { CL_DMS, CL_NAS, CL_UIM, CL_COUNT };
 #define DMS_SET_OPER_MODE    0x002E
 #define UIM_GET_CARD_STATUS  0x002F
 #define UIM_GET_SLOT_STATUS  0x0047
+#define UIM_CHANGE_PROV_SESSION 0x0038
 #define NAS_GET_SIGNAL_INFO  0x004F
 #define NAS_GET_SERVING_SYS  0x0024
 
@@ -53,6 +54,7 @@ STATIC INT32   mOperMode = -1;
 STATIC UINT8   mCard[8];                      /* slot of the first present card: state, error, app type/state, pin1 state/retries, puk1 */
 STATIC UINT8   mCardRaw[96];                  /* last card-status TLV, to log only changes */
 STATIC UINT8   mSlotRaw[64];                  /* last slot-status TLV */
+STATIC UINT8   mProvSent;                     /* provisioning requests sent (bounded retries) */
 STATIC UINT8   mReg[6];                       /* reg, cs, ps, net, radio, n_radio */
 STATIC UINT16  mMcc, mMnc;
 STATIC CHAR8   mOper[32];
@@ -243,11 +245,34 @@ STATIC VOID Dump(CONST CHAR8 *Tag, CONST UINT8 *V, UINT16 L)
  * perso_feature, perso_retries, perso_unblock_retries, aid_len, aid[], univ_pin,
  * pin1_state, pin1_retries, puk1_retries, pin2_state, pin2_retries, puk2_retries.
  */
+/*
+ * Nobody provisions a subscription on a cold modem (Android's RIL does): the card is "present",
+ * the USIM app stays "detected" and index_gw_primary = 0xFFFF, so the modem only camps for
+ * emergency calls. UIM CHANGE_PROVISIONING_SESSION: TLV 0x01 {session type 0 = primary GW,
+ * activate 1}, TLV 0x10 {logical slot (1-based), aid_len, aid[]}.
+ */
+STATIC VOID Provision(UINT8 Slot, CONST UINT8 *Aid, UINT8 AidLen)
+{
+  UINT8 t[3 + 2 + 3 + 2 + 32];
+  UINT16 n = 0;
+
+  if (AidLen > 32 || mProvSent >= 3) {
+    return;
+  }
+  mProvSent++;
+  t[n++] = 0x01; *(UINT16 *)(t + n) = 2; n += 2; t[n++] = 0; t[n++] = 1;
+  t[n++] = 0x10; *(UINT16 *)(t + n) = (UINT16)(2 + AidLen); n += 2; t[n++] = Slot; t[n++] = AidLen;
+  CopyMem (t + n, Aid, AidLen);
+  n = (UINT16)(n + AidLen);
+  Out ("  wwan: provisioning USIM in logical slot %u as the primary GW subscription (try %u)\r\n", Slot, mProvSent);
+  Send (CL_UIM, UIM_CHANGE_PROV_SESSION, t, n);
+}
+
 STATIC VOID CardStatus(CONST UINT8 *V, UINT16 L)
 {
   CONST UINT8 *p = V + 9, *end = V + L;
   UINT8 slot, nSlots = (L >= 9) ? V[8] : 0, app;
-  BOOLEAN first = TRUE;
+  BOOLEAN first = TRUE, gwProvisioned = (L >= 2) && *(CONST UINT16 *)V != 0xFFFF;
 
   ZeroMem (mCard, sizeof (mCard));
   for (slot = 0; slot < nSlots && p + 6 <= end; slot++) {
@@ -272,6 +297,10 @@ STATIC VOID CardStatus(CONST UINT8 *V, UINT16 L)
       if (state == 1 && first) {
         mCard[2] = p[0]; mCard[3] = p[1]; mCard[4] = q[1]; mCard[5] = q[2]; mCard[6] = q[3];
       }
+      if (state == 1 && !gwProvisioned && (p[0] == 2 || p[0] == 1)) {   /* USIM (or SIM) */
+        Provision ((UINT8)(slot + 1), p + 7, aidLen);
+        gwProvisioned = TRUE;
+      }
       p = q + 7;
     }
     if (state == 1) {
@@ -289,7 +318,10 @@ STATIC VOID UimRx(UINT16 Msg, CONST UINT8 *D, UINT32 Len)
     Out ("  wwan: uim msg %04x error %u\r\n", Msg, err);
     return;
   }
-  if (Msg == UIM_GET_CARD_STATUS) {
+  if (Msg == UIM_CHANGE_PROV_SESSION) {
+    Out ("  wwan: provisioning session changed ok\r\n");
+    Send (CL_UIM, UIM_GET_CARD_STATUS, NULL, 0);
+  } else if (Msg == UIM_GET_CARD_STATUS) {
     v = Tlv (D, Len, 0x10, &l);
     if (v != NULL && (l > sizeof (mCardRaw) || CompareMem (v, mCardRaw, l) != 0)) {
       ZeroMem (mCardRaw, sizeof (mCardRaw));
