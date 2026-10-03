@@ -31,6 +31,7 @@ enum { CL_DMS, CL_NAS, CL_UIM, CL_COUNT };
 #define DMS_GET_OPER_MODE    0x002D
 #define DMS_SET_OPER_MODE    0x002E
 #define UIM_GET_CARD_STATUS  0x002F
+#define UIM_GET_SLOT_STATUS  0x0047
 #define NAS_GET_SIGNAL_INFO  0x004F
 #define NAS_GET_SERVING_SYS  0x0024
 
@@ -49,7 +50,9 @@ STATIC BOOLEAN mOnlineSent;
 /* last logged state, to log only changes */
 STATIC CHAR8   mImei[20], mRev[64];
 STATIC INT32   mOperMode = -1;
-STATIC UINT8   mCard[8];                      /* card_state, upin, app type/state, pin1 state/retries, puk1 */
+STATIC UINT8   mCard[8];                      /* slot of the first present card: state, error, app type/state, pin1 state/retries, puk1 */
+STATIC UINT8   mCardRaw[96];                  /* last card-status TLV, to log only changes */
+STATIC UINT8   mSlotRaw[64];                  /* last slot-status TLV */
 STATIC UINT8   mReg[6];                       /* reg, cs, ps, net, radio, n_radio */
 STATIC UINT16  mMcc, mMnc;
 STATIC CHAR8   mOper[32];
@@ -137,6 +140,7 @@ STATIC VOID Poll(VOID)
 {
   Send (CL_DMS, DMS_GET_OPER_MODE, NULL, 0);
   Send (CL_UIM, UIM_GET_CARD_STATUS, NULL, 0);
+  Send (CL_UIM, UIM_GET_SLOT_STATUS, NULL, 0);
   Send (CL_NAS, NAS_GET_SERVING_SYS, NULL, 0);
   Send (CL_NAS, NAS_GET_SIGNAL_INFO, NULL, 0);
 }
@@ -213,50 +217,103 @@ STATIC VOID DmsRx(UINT16 Msg, CONST UINT8 *D, UINT32 Len)
   }
 }
 
+STATIC CONST CHAR8 *CardErr(UINT8 E)
+{
+  STATIC CONST CHAR8 *n[] = { "unknown", "power down", "poll error", "no ATR", "voltage mismatch", "parity error",
+                              "possibly removed", "technical problem", "null bytes", "sap connected" };
+  return E < ARRAY_SIZE (n) ? n[E] : "?";
+}
+
+STATIC VOID Dump(CONST CHAR8 *Tag, CONST UINT8 *V, UINT16 L)
+{
+  UINT16 i;
+  CHAR8 h[3 * 48 + 1];
+
+  for (i = 0; i < L && i < 48; i++) {
+    CONST CHAR8 *x = "0123456789abcdef";
+    h[3 * i] = x[V[i] >> 4]; h[3 * i + 1] = x[V[i] & 15]; h[3 * i + 2] = ' ';
+  }
+  h[3 * i] = 0;
+  Out ("  wwan: %a (%u B): %a\r\n", Tag, L, h);
+}
+
+/*
+ * Card status TLV 0x10: u16 x4 (gw/1x primary/secondary index), u8 n_slots, per slot: card_state,
+ * upin_state, upin_retries, upuk_retries, error, n_apps, per app: type, state, perso_state,
+ * perso_feature, perso_retries, perso_unblock_retries, aid_len, aid[], univ_pin,
+ * pin1_state, pin1_retries, puk1_retries, pin2_state, pin2_retries, puk2_retries.
+ */
+STATIC VOID CardStatus(CONST UINT8 *V, UINT16 L)
+{
+  CONST UINT8 *p = V + 9, *end = V + L;
+  UINT8 slot, nSlots = (L >= 9) ? V[8] : 0, app;
+  BOOLEAN first = TRUE;
+
+  ZeroMem (mCard, sizeof (mCard));
+  for (slot = 0; slot < nSlots && p + 6 <= end; slot++) {
+    UINT8 state = p[0], err = p[4], nApps = p[5];
+    Out ("  wwan: SIM slot %u: card %a%a%a, upin state %u, %u app(s)\r\n", slot + 1,
+         state == 1 ? "present" : state == 0 ? "absent" : "ERROR", state == 2 ? " - " : "", state == 2 ? CardErr (err) : "",
+         p[1], nApps);
+    if (state == 1 && first) {
+      mCard[0] = state;
+    }
+    p += 6;
+    for (app = 0; app < nApps && p + 7 <= end; app++) {
+      UINT8 aidLen = p[6];
+      CONST UINT8 *q = p + 7 + aidLen;
+      if (q + 7 > end) {
+        return;
+      }
+      Out ("  wwan:   app %u: type %u (%a) state %u%a, pin1 state %u retries %u, puk1 retries %u\r\n", app,
+           p[0], p[0] == 1 ? "SIM" : p[0] == 2 ? "USIM" : p[0] == 3 ? "RUIM" : p[0] == 4 ? "CSIM" : p[0] == 5 ? "ISIM" : "?",
+           p[1], p[1] == 7 ? " READY" : p[1] == 2 ? " PIN REQUIRED" : p[1] == 3 ? " PUK REQUIRED" : p[1] == 1 ? " detected" : "",
+           q[1], q[2], q[3]);
+      if (state == 1 && first) {
+        mCard[2] = p[0]; mCard[3] = p[1]; mCard[4] = q[1]; mCard[5] = q[2]; mCard[6] = q[3];
+      }
+      p = q + 7;
+    }
+    if (state == 1) {
+      first = FALSE;
+    }
+  }
+}
+
 STATIC VOID UimRx(UINT16 Msg, CONST UINT8 *D, UINT32 Len)
 {
   UINT16 l, err = Result (D, Len);
   CONST UINT8 *v;
-  UINT8 c[8];
 
-  if (Msg != UIM_GET_CARD_STATUS) {
-    return;
-  }
   if (err != 0) {
-    Out ("  wwan: uim card status error %u\r\n", err);
+    Out ("  wwan: uim msg %04x error %u\r\n", Msg, err);
     return;
   }
-  /*
-   * TLV 0x10: u16 x4 (gw/1x primary/secondary index), u8 n_slots, per slot: card_state,
-   * upin_state, upin_retries, upuk_retries, error, n_apps, per app: type, state, perso_state,
-   * perso_feature, perso_retries, perso_unblock_retries, aid_len, aid[], univ_pin,
-   * pin1_state, pin1_retries, puk1_retries, pin2_state, pin2_retries, puk2_retries.
-   */
-  v = Tlv (D, Len, 0x10, &l);
-  ZeroMem (c, sizeof (c));
-  if (v != NULL && l >= 9 + 6) {
-    CONST UINT8 *s = v + 9;
-    c[0] = s[0];                                  /* card state: 0 absent, 1 present, 2 error */
-    c[1] = s[4];                                  /* card error code */
-    if (s[5] >= 1 && l >= 9 + 6 + 7) {
-      CONST UINT8 *a = s + 6;
-      UINT8 aidLen = a[6];
-      c[2] = a[0];                                /* app type: 1 sim, 2 usim, ... */
-      c[3] = a[1];                                /* app state: 2 pin1 required, 3 puk1, 7 ready */
-      if (l >= 9 + 6 + 7 + aidLen + 4) {
-        CONST UINT8 *p = a + 7 + aidLen;
-        c[4] = p[1];                              /* pin1 state: 1 enabled-not-verified, 2 verified, 3 disabled, 4 blocked */
-        c[5] = p[2];                              /* pin1 retries */
-        c[6] = p[3];                              /* puk1 retries */
+  if (Msg == UIM_GET_CARD_STATUS) {
+    v = Tlv (D, Len, 0x10, &l);
+    if (v != NULL && (l > sizeof (mCardRaw) || CompareMem (v, mCardRaw, l) != 0)) {
+      ZeroMem (mCardRaw, sizeof (mCardRaw));
+      CopyMem (mCardRaw, v, MIN (l, sizeof (mCardRaw)));
+      Dump ("card status", v, l);
+      CardStatus (v, l);
+    }
+  } else if (Msg == UIM_GET_SLOT_STATUS) {
+    /* TLV 0x10: u8 n, per physical slot: u32 card_state (0 unknown, 1 absent, 2 present),
+       u32 slot_state (0 inactive, 1 active), u8 logical_slot, u8 iccid_len, iccid[] */
+    v = Tlv (D, Len, 0x10, &l);
+    if (v != NULL && (l > sizeof (mSlotRaw) || CompareMem (v, mSlotRaw, l) != 0)) {
+      CONST UINT8 *p = v + 1, *end = v + l;
+      UINT8 i;
+      ZeroMem (mSlotRaw, sizeof (mSlotRaw));
+      CopyMem (mSlotRaw, v, MIN (l, sizeof (mSlotRaw)));
+      Dump ("slot status", v, l);
+      for (i = 0; i < v[0] && p + 10 <= end; i++) {
+        UINT32 card = *(CONST UINT32 *)p, act = *(CONST UINT32 *)(p + 4);
+        Out ("  wwan: physical slot %u: card %a, slot %a, logical slot %u, iccid %u B\r\n", i + 1,
+             card == 2 ? "present" : card == 1 ? "absent" : "unknown", act ? "active" : "inactive", p[8], p[9]);
+        p += 10 + p[9];
       }
     }
-  }
-  if (CompareMem (c, mCard, sizeof (c)) != 0) {
-    CopyMem (mCard, c, sizeof (c));
-    Out ("  wwan: SIM card %a (error %u), app type %u state %u%a, pin1 state %u retries %u puk %u\r\n",
-         c[0] == 1 ? "present" : c[0] == 0 ? "ABSENT" : "ERROR", c[1], c[2], c[3],
-         c[3] == 7 ? " (READY)" : c[3] == 2 ? " (PIN REQUIRED)" : c[3] == 3 ? " (PUK REQUIRED)" : "",
-         c[4], c[5], c[6]);
   }
 }
 
