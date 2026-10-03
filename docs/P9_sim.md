@@ -75,3 +75,8 @@ pas-ids 0x0f, firmware ipa_fws, memory region ipa_fw_region 0x55b00000 (64 KiB) 
 - ipa_fws firmware: vendor_a (EROFS) read-only from super (PhysicalDrive0 p9, LP metadata:
   vendor_a = 691810304 B at super+6343884800), extracted on s8build `~/work/vendor_a/firmware/`:
   ipa_fws.mdt (7020) + .b00..b04 + .elf (29120); copied to C:\topaz\fw\image\.
+- v0.11 result (sim.on + ipa.on): the modem connects to our AP IPA service at t=0.32 s and sends
+  INDICATION_REGISTER (0x20) TLV 0x10 = 1 (wants the "AP driver init complete" indication);
+  answered ok, no INIT_DRIVER / INIT_COMPLETE from us (nothing to report), crash unchanged.
+  Confirms the modem depends on the AP IPA driver. Next: RPM client (IPA clock vote; also the
+  pending GPU voltage vote), ipa_fws PAS load (id 15), IPA v4.2 + GSI init, then INIT_DRIVER.
