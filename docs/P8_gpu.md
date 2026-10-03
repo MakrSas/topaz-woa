@@ -1022,3 +1022,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   no hang in this boot. Chrome move 42-50, big window up to 120-133. But TIMING gpu wait still 5-10 ms (same as at
   600 MHz) -> not GPU-bound: HwWaitFence sleeps with KeDelayExecutionThread(200 us), which wakes only on the
   system timer tick (1-15.6 ms). v0.44: spin-poll (20 us stalls) up to 16 ms before sleeping.
+- 00:45 v0.44 (spin fence wait) at 1260 MHz: gpu wait still 6-8 ms per present -> the GPU really is busy that long;
+  with the clock at 4x the 300 MHz baseline this looks memory-bandwidth bound: the stock driver votes a DDR/bus
+  level with every GPU OPP (qcom,bus-freq 0..7 per pwrlevel) over RPM, we do not -> DDR likely at the bootloader's
+  level. Remaining big levers: RPM bus/DDR vote (needs an RPM SMD/GLINK client in Windows), async present,
+  transparency effects off (user setting). gpu.mhz = 1260 kept (stable, no hang in two boots).
