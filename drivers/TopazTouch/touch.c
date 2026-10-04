@@ -18,6 +18,10 @@
  * v0.10: X/Y with the fraction bits (x4: 0..5399 x 0..11999); registers 0x80..0x8F / 0xA0..0xAF
  * logged at start; C:\topaz\touch.r12 writes 12 (= 120 Hz, units of 10 Hz) to the report-rate
  * register 0x88.
+ * v0.11 result: with 0x88 = 12 (default 0x18) new frames arrive every ~7 ms (median) instead of
+ * ~21 ms - the controller is at least 3x faster and our 5 ms + 1.1 ms polling is now the limit.
+ * v0.12: 0x88 = 12 by default (C:\topaz\touch.slow keeps the firmware default); while touching,
+ * poll every 2 ms (full 63-byte reads, every read reported - the v0.8 short reads broke touch).
  */
 #include "driver.h"
 
@@ -220,20 +224,22 @@ NTSTATUS TouchHwInit(PDEVICE_CONTEXT Ctx)
         }
     }
     {
-        UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\touch.r12");
+        UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\touch.slow");
         OBJECT_ATTRIBUTES oa;
         IO_STATUS_BLOCK iosb;
         HANDLE h;
         InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-        if (NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
-                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
-                                    FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+        if (!NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+                                     FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
             UCHAR w[2] = { 0x88, 12 }, back = 0;
             NTSTATUS ws;
-            ZwClose(h);
             ws = GeniI2cWrite(&Ctx->Bus, TS_I2C_ADDR, w, 2, TRUE);
             GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x88, &back, 1);
-            LogPrint("C:\\topaz\\touch.r12: report rate reg 0x88 <- 12: %08x, reads back %02x\n", ws, back);
+            LogPrint("report rate reg 0x88 <- 12 (fast; C:\\topaz\\touch.slow disables): %08x, reads back %02x\n", ws, back);
+        } else {
+            ZwClose(h);
+            LogPrint("C:\\topaz\\touch.slow present: report rate left at the firmware default\n");
         }
     }
 
@@ -353,7 +359,8 @@ static VOID TouchThread(PVOID Context)
     ULONG dups = 0, irqAtRead = 0;
     LONG64 gapMin = MAXLONG64, gapMax = 0;
 
-    period.QuadPart = -10000LL * 5; /* 5 ms */
+    period.QuadPart = -10000LL * 5; /* 5 ms idle, 2 ms while touching */
+    ExSetTimerResolution(10000, TRUE);                  /* 1 ms, for the 2 ms touch period */
     LogPrint("thread started\n");
 
     while (KeWaitForSingleObject(&Ctx->StopEvent, Executive, KernelMode, FALSE, &period) == STATUS_TIMEOUT) {
@@ -423,7 +430,7 @@ static VOID TouchThread(PVOID Context)
                 dumpUntil = now + 30000000ULL;          /* 3 s */
                 dumpLines = 0;                          /* every touch gets its dump */
             }
-            if (now < dumpUntil && dumpLines < 400) {
+            if (now < dumpUntil && dumpLines < 200) {
                 dumpLines++;
                 LogPrint("raw %llu: %02x %02x %02x %02x %02x %02x\n", (now / 10000) % 100000,
                          buf[3], buf[4], buf[5], buf[6], buf[7], buf[8]);
@@ -431,7 +438,9 @@ static VOID TouchThread(PVOID Context)
         }
         wasTouching = ((buf[2] & 0x0F) != 0 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS) || Ctx->ActiveMask != 0;
         TouchProcess(Ctx, buf, readTime);
+        period.QuadPart = -10000LL * (wasTouching ? 2 : 5);
     }
+    ExSetTimerResolution(0, FALSE);
     LogPrint("thread exit (polls=%u errors=%u)\n", polls, errors);
     PsTerminateSystemThread(STATUS_SUCCESS);
 }
