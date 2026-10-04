@@ -3,7 +3,7 @@
  * (SH_MEM_PULL_MODE) reads its own physically contiguous, non-cached ring of 2 * PacketSize bytes.
  * v0.7: the packets are copied into the ring - v0.6 let the DSP read the engine's mapping directly
  * and it crackled (CPU cache vs. DSP DMA).
- * v0.8: the DSP ring has 4 slots and engine packet n goes to slot (n - RunBase + 2) % 4, so the DSP
+ * v0.8: the DSP ring has SPK_SLOTS slots, engine packet n goes to slot (n - RunBase + SPK_LEAD) % SLOTS (v0.9: 8 slots, lead 4), so the DSP
  * plays 2 packets of silence first and every packet is in the ring ~3 packets before the DSP needs
  * it (v0.7 had < 1 packet of margin and crackled now and then). Packet n is completed (engine may
  * refill its buffer with n + 2) once the DSP consumed n + 1 packets since Run: the slot for n + 2 is
@@ -15,8 +15,8 @@
 
 #define SPK_PACKETS   2
 #define SPK_TIMER_MS  5
-#define SPK_SLOTS     4
-#define SPK_LEAD      2
+#define SPK_SLOTS     8
+#define SPK_LEAD      4
 
 typedef struct {
     ACXSTREAM      Stream;
