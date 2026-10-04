@@ -1111,3 +1111,15 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   get ~150 moves/s (touchrate.ps1), so the rate is fine. The HID report had no Scan Time (0x56),
   which Windows' touch stack uses to timestamp / smooth / predict contacts. TopazTouch v0.6 adds it
   (16-bit, 100 us units, time the frame was read), installed with devcon update (no reboot).
+- Finger drag, continued (TopazTouch v0.7..v0.12, all devcon update, no reboot):
+  - v0.7 stats: read gaps 6.0..7.7 ms, IRQ pulse never seen by polling, almost no repeated frames.
+  - v0.8 (1 ms polling, 9-byte reads, only changed frames) BROKE touch (reads returned nothing,
+    IRQ stuck low) - reverted. Lesson: keep the full 63-byte read; report every read.
+  - v0.9 raw dumps: p[4] bits 7:6 / 5:4 = 2 fraction bits of X / Y (Android display-coords
+    10800 x 24000 hint at the extra precision); controller produced a frame only every ~21 ms.
+  - v0.10/v0.11: registers 0x80..: 32 25 0a 0a 0a 80 01 02 18 1e ..., 0xa0..: 0b 00 01 54 01 00 36 ...;
+    writing 0x88 = 12 (was 0x18) -> frames every ~7..9 ms (~110 Hz) instead of ~21 ms.
+  - v0.12: 0x88 = 12 by default (C:\topaz\touch.slow keeps the default), 2 ms polling while
+    touching -> ~285 reads/s, new frames delivered within ~3-5 ms, x4 coordinates, Scan Time.
+  - User: still feels worse than the mouse. Remaining suspects are on the Windows side (no cursor
+    to hide the window lag behind the finger, DWM composition rate, touch visualization).
