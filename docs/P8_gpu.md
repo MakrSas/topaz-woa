@@ -1175,3 +1175,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   ~40 % of the frame rate. User wants the blur kept and made fast, not disabled. Suspects: memory
   bandwidth (no RPM DDR/bus vote, a blur is many texture reads) and how the Mesa UMD renders the blur
   passes (GMEM vs sysmem, no UBWC). Next: TopazRpm DDR bandwidth + CX level vote, then per-frame GPU time.
+- TopazRpm v0.7 with C:\topaz\rpm.gpu: RPM acked all four votes (rwcx vlvl 0x1a0 and bimc clk2
+  3125732 kHz, active + sleep set). The 1260 MHz GPU now runs on a voted TURBO_L1 rail. Frame rate
+  barely moved: finger drag with the blur effect 19..23 frames/s (was 17..22), mouse drag 34..55. So
+  DDR clock is not the limit (or the bootloader already left it high); the blurred touch drag is
+  limited by how our GPU stack renders it. Next: per-frame GPU time and what the blur passes cost
+  in the Mesa UMD (GMEM vs sysmem / bypass rendering, UBWC, resolve copies).
