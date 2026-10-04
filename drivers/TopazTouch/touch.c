@@ -1,6 +1,10 @@
 /*
  * FocalTech touch controller -> Windows multi-touch digitizer via VHF.
  * v0.2: polled (GPIO80 level + periodic poll), no ACPI, root-enumerated.
+ * v0.6: Scan Time (Digitizer 0x56, 16-bit, 100 us units) in every report = when the frame was
+ * read from the controller. Windows' touch stack smooths / predicts contacts by it; without it
+ * only the report arrival time is known, which jitters with the ~1.1 ms I2C read. Finger drags
+ * felt rougher than mouse drags at the same ~150 reports/s.
  */
 #include "driver.h"
 
@@ -43,6 +47,12 @@ static const UCHAR g_ReportDescriptor[] = {
     FINGER_COLLECTION(MAXX, MAXY), FINGER_COLLECTION(MAXX, MAXY),
     FINGER_COLLECTION(MAXX, MAXY), FINGER_COLLECTION(MAXX, MAXY),
     0x05, 0x0D,
+    0x55, 0x0C, 0x66, 0x01, 0x10,       /* Unit Exponent -4, Unit (seconds) */
+    0x47, 0xFF, 0xFF, 0x00, 0x00,       /* Physical Maximum 65535 */
+    0x27, 0xFF, 0xFF, 0x00, 0x00,       /* Logical Maximum 65535 */
+    0x75, 0x10, 0x95, 0x01,
+    0x09, 0x56, 0x81, 0x02,             /* Usage (Scan Time), Input */
+    0x55, 0x00, 0x65, 0x00, 0x45, 0x00, /* reset unit / physical */
     0x09, 0x54,             /* Usage (Contact Count) */
     0x15, 0x00, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x01, 0x81, 0x02,
     0x85, REPORTID_MAXCNT,
@@ -62,6 +72,7 @@ typedef struct _TOUCH_FINGER {
 typedef struct _TOUCH_REPORT {
     UCHAR        ReportId;
     TOUCH_FINGER Finger[TS_MAX_CONTACTS];
+    USHORT       ScanTime;                  /* 100 us units, wraps */
     UCHAR        Count;
 } TOUCH_REPORT;
 #pragma pack(pop)
@@ -200,7 +211,7 @@ VOID TouchHwDeinit(PDEVICE_CONTEXT Ctx)
 
 /* ---- Polling thread -------------------------------------------------------- */
 
-static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf)
+static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf, ULONGLONG ReadTime)
 {
     TOUCH_REPORT rpt;
     HID_XFER_PACKET pkt;
@@ -271,6 +282,7 @@ static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf)
     }
     Ctx->ActiveMask = mask;
     rpt.Count = (UCHAR)n;
+    rpt.ScanTime = (USHORT)(ReadTime / 1000);           /* interrupt time is in 100 ns */
 
     if (n == 0 || !Ctx->VhfStarted) {
         return;
@@ -291,6 +303,7 @@ static VOID TouchThread(PVOID Context)
     ULONG errors = 0, polls = 0, reads = 0, statPolls = 0;
     LONG64 rdSum = 0, rdMax = 0, statT0 = (LONG64)KeQueryInterruptTime();
     BOOLEAN wasTouching = FALSE;
+    ULONGLONG readTime = 0;
 
     period.QuadPart = -10000LL * 5; /* 5 ms */
     LogPrint("thread started\n");
@@ -306,6 +319,7 @@ static VOID TouchThread(PVOID Context)
         }
         {
             LONG64 r0 = (LONG64)KeQueryInterruptTime();
+            readTime = (ULONGLONG)r0;
             status = GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x00, buf, sizeof(buf));
             LONG64 dt = (LONG64)KeQueryInterruptTime() - r0;   /* 100 ns */
             rdSum += dt;
@@ -336,7 +350,7 @@ static VOID TouchThread(PVOID Context)
             continue;
         }
         wasTouching = ((buf[2] & 0x0F) != 0 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS) || Ctx->ActiveMask != 0;
-        TouchProcess(Ctx, buf);
+        TouchProcess(Ctx, buf, readTime);
     }
     LogPrint("thread exit (polls=%u errors=%u)\n", polls, errors);
     PsTerminateSystemThread(STATUS_SUCCESS);
