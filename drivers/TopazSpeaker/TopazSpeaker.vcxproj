@@ -67,9 +67,12 @@
     <ClCompile Include="hw.c" />
     <ClCompile Include="log.c" />
     <ClCompile Include="stream.c" />
+    <ClCompile Include="ta.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="tspk.h" />
+    <ClInclude Include="ta.h" />
+    <ClInclude Include="rxtab.h" />
   </ItemGroup>
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />
