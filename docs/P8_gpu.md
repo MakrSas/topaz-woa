@@ -1107,3 +1107,7 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   jitter / coalescing, the HID touch -> pointer path in Windows (touch drag has its own
   smoothing/latency), or uneven timing of the polling thread. To measure later with
   tools/gpu/touchrate.ps1 + movebench (finger vs mouse, same window).
+- 2026-10-04 finger-vs-mouse drag: TopazTouch reads ~149 frames/s (1.1 ms per I2C read) and apps
+  get ~150 moves/s (touchrate.ps1), so the rate is fine. The HID report had no Scan Time (0x56),
+  which Windows' touch stack uses to timestamp / smooth / predict contacts. TopazTouch v0.6 adds it
+  (16-bit, 100 us units, time the frame was read), installed with devcon update (no reboot).
