@@ -28,6 +28,11 @@
  * v0.13 result: still stuck - with 0x88 = 12 the controller sometimes stops updating after a
  * touch (every read returns the same "contact" frame, IRQ never asserted again). v0.14: firmware
  * default rate again; C:\topaz\touch.fast opts into 0x88 = 12.
+ * v0.14 result: still stuck at the default rate. Common to v0.12..v0.14: 2 ms polling (~290
+ * reads/s, ~6x the controller frame rate); v0.6/v0.7 at 5 ms never froze. v0.15: 5 ms again, plus
+ * a watchdog - even a still finger changes the frame bytes (fraction / weight noise); a contact
+ * frame identical for 500 ms = frozen controller: report every contact lifted and reset it.
+ * (The IRQ pulse is too short to be a reliable sign at 5 ms polling.)
  */
 #include "driver.h"
 
@@ -366,7 +371,7 @@ static VOID TouchThread(PVOID Context)
     ULONG errors = 0, polls = 0, reads = 0, statPolls = 0;
     LONG64 rdSum = 0, rdMax = 0, statT0 = (LONG64)KeQueryInterruptTime();
     BOOLEAN wasTouching = FALSE;
-    ULONGLONG readTime = 0, lastRead = 0;
+    ULONGLONG readTime = 0, lastRead = 0, lastChange = KeQueryInterruptTime();
     UCHAR prev[FTS_TOUCH_DATA_LEN];
     ULONG dups = 0, irqAtRead = 0;
     LONG64 gapMin = MAXLONG64, gapMax = 0;
@@ -386,6 +391,22 @@ static VOID TouchThread(PVOID Context)
         }
         if (irqLow) {
             irqAtRead++;
+        }
+        /* frozen controller: a contact frame unchanged for 500 ms -> release + reset (v0.15) */
+        if (wasTouching && KeQueryInterruptTime() - lastChange > 5000000ULL) {
+            UCHAR none[FTS_TOUCH_DATA_LEN];
+            LogPrint("watchdog: contact frame unchanged for 500 ms - releasing, resetting the controller\n");
+            RtlFillMemory(none, sizeof(none), 0xFF);
+            none[2] = 0;                                /* point count 0 = release everything */
+            TouchProcess(Ctx, none, KeQueryInterruptTime());
+            wasTouching = FALSE;
+            TlmmSetOutput(&Ctx->PinReset, FALSE);
+            SleepMs(20);
+            TlmmSetOutput(&Ctx->PinReset, TRUE);
+            SleepMs(250);
+            lastChange = KeQueryInterruptTime();
+            RtlFillMemory(prev, sizeof(prev), 0);
+            continue;
         }
         {
             LONG64 r0 = (LONG64)KeQueryInterruptTime();
@@ -433,6 +454,9 @@ static VOID TouchThread(PVOID Context)
         if (wasTouching && RtlCompareMemory(buf, prev, sizeof(buf)) == sizeof(buf)) {
             dups++;
         }
+        if (RtlCompareMemory(buf, prev, sizeof(buf)) != sizeof(buf)) {
+            lastChange = KeQueryInterruptTime();
+        }
         RtlCopyMemory(prev, buf, sizeof(buf));
         {
             static ULONGLONG dumpUntil;
@@ -450,7 +474,7 @@ static VOID TouchThread(PVOID Context)
         }
         wasTouching = ((buf[2] & 0x0F) != 0 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS) || Ctx->ActiveMask != 0;
         TouchProcess(Ctx, buf, readTime);
-        period.QuadPart = -10000LL * (wasTouching ? 2 : 5);
+        period.QuadPart = -10000LL * 5;
     }
     ExSetTimerResolution(0, FALSE);
     LogPrint("thread exit (polls=%u errors=%u)\n", polls, errors);
