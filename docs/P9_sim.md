@@ -200,3 +200,9 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   rmnet/QMAP), (3) Windows: MBBCx "Cellular" adapter.
 - v0.21: modem GSI channel allocation on every ipa.on boot (gsi.alloc gone; C:\topaz\fw\gsi.off
   skips it), step log without flush/stall. Flags for a working SIM: rpm.on, fw\ipa.on, fw\sim.on.
+
+## Stage 3: data
+
+- v0.22 (C:\topaz\fw\data.on): WDS client; once REGISTERED with PS attached, START_NETWORK
+  (APN internet.tele2.ru, IPv4) and GET_CURRENT_SETTINGS -> logs the address / mask / gateway /
+  DNS / MTU t2 hands out. No packets yet (needs the IPA AP<->modem endpoints).

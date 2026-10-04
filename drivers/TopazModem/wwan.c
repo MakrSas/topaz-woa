@@ -22,9 +22,10 @@
 #define SVC_DMS  0x02
 #define SVC_NAS  0x03
 #define SVC_UIM  0x0B
+#define SVC_WDS  0x01
 
 /* our client ports (PORT_WWAN_BASE + index), see SvcRx */
-enum { CL_DMS, CL_NAS, CL_UIM, CL_COUNT };
+enum { CL_DMS, CL_NAS, CL_UIM, CL_WDS, CL_COUNT };
 
 #define DMS_GET_REVISION     0x0023
 #define DMS_GET_IDS          0x0025
@@ -43,7 +44,7 @@ typedef struct {
   BOOLEAN Up;
 } CLIENT;
 
-STATIC CLIENT  mCl[CL_COUNT] = { { SVC_DMS }, { SVC_NAS }, { SVC_UIM } };
+STATIC CLIENT  mCl[CL_COUNT] = { { SVC_DMS }, { SVC_NAS }, { SVC_UIM }, { SVC_WDS } };
 STATIC UINT16  mTxn = 1;
 STATIC UINTN   mLastPoll;
 STATIC BOOLEAN mOnlineSent;
@@ -138,6 +139,104 @@ STATIC VOID Str(CONST UINT8 *V, UINT16 L, CHAR8 *Out, UINTN Max)
 
 /* ---------------- requests ---------------- */
 
+/*
+ * Mobile data, step 1 (QMI only, no packets yet): WDS START_NETWORK with the t2 APN once the
+ * modem is registered with PS attached, then GET_CURRENT_SETTINGS to see the address the carrier
+ * gave us. libqmi qmi-service-wds.json: START_NETWORK 0x0020 (TLV 0x14 APN, 0x19 IP family 4;
+ * reply 0x01 packet data handle, 0x10/0x11 call end reasons), GET_CURRENT_SETTINGS 0x002D
+ * (TLV 0x10 requested mask; reply 0x1E IPv4, 0x15/0x16 DNS, 0x20 gateway, 0x21 mask, 0x29 MTU).
+ * Opt-in: C:\topaz\fw\data.on.
+ */
+#define WDS_START_NETWORK      0x0020
+#define WDS_GET_CURRENT_SET    0x002D
+#define T2_APN                 "internet.tele2.ru"
+
+STATIC INT8    mDataOn = -1;
+STATIC BOOLEAN mStartSent, mSettingsSent;
+STATIC UINT32  mPdh;
+
+STATIC BOOLEAN DataOn(VOID)
+{
+  EFI_FILE_PROTOCOL *root = SvcRoot (), *f = NULL;
+
+  if (mDataOn < 0) {
+    mDataOn = (root != NULL && !EFI_ERROR (root->Open (root, &f, L"\\data.on", EFI_FILE_MODE_READ, 0))) ? 1 : 0;
+    if (f != NULL) {
+      f->Close (f);
+    }
+    Out ("  wwan: C:\\topaz\\fw\\data.on %a: data call %a\r\n", mDataOn ? "present" : "missing", mDataOn ? "ON" : "off");
+  }
+  return mDataOn == 1;
+}
+
+STATIC VOID StartNetwork(VOID)
+{
+  UINT8 t[3 + sizeof (T2_APN) + 4];
+  UINT16 n = 0, l = (UINT16)(sizeof (T2_APN) - 1);
+
+  t[n++] = 0x14; *(UINT16 *)(t + n) = l; n += 2;
+  CopyMem (t + n, T2_APN, l); n = (UINT16)(n + l);
+  t[n++] = 0x19; *(UINT16 *)(t + n) = 1; n += 2; t[n++] = 4;      /* IPv4 */
+  mStartSent = TRUE;
+  Out ("  wwan: WDS START_NETWORK apn \"%a\" IPv4\r\n", T2_APN);
+  Send (CL_WDS, WDS_START_NETWORK, t, n);
+}
+
+STATIC VOID Ip4(CONST CHAR8 *Name, CONST UINT8 *D, UINT32 Len, UINT8 Type)
+{
+  UINT16 l;
+  CONST UINT8 *v = Tlv (D, Len, Type, &l);
+  UINT32 a;
+
+  if (v != NULL && l >= 4) {
+    a = *(CONST UINT32 *)v;
+    Out ("  wwan:   %a %u.%u.%u.%u\r\n", Name, (a >> 24) & 255, (a >> 16) & 255, (a >> 8) & 255, a & 255);
+  }
+}
+
+STATIC VOID WdsRx(UINT16 Msg, CONST UINT8 *D, UINT32 Len)
+{
+  UINT16 l, err = Result (D, Len);
+  CONST UINT8 *v;
+
+  if (Msg == WDS_START_NETWORK) {
+    if (err != 0) {
+      UINT16 reason = 0, vt = 0, vr = 0;
+      if ((v = Tlv (D, Len, 0x10, &l)) != NULL && l >= 2) {
+        reason = *(CONST UINT16 *)v;
+      }
+      if ((v = Tlv (D, Len, 0x11, &l)) != NULL && l >= 4) {
+        vt = *(CONST UINT16 *)v; vr = *(CONST UINT16 *)(v + 2);
+      }
+      Out ("  wwan: START_NETWORK failed: error %u, call end reason %u, verbose type %u reason %u\r\n", err, reason, vt, vr);
+      return;
+    }
+    if ((v = Tlv (D, Len, 0x01, &l)) != NULL && l >= 4) {
+      mPdh = *(CONST UINT32 *)v;
+    }
+    Out ("  wwan: *** DATA CALL UP *** packet data handle %08x\r\n", mPdh);
+    {
+      UINT8 t[7] = { 0x10, 4, 0, 0x10, 0xA3, 0, 0 };   /* mask: DNS | IP | gateway | MTU | IP family */
+      mSettingsSent = TRUE;
+      Send (CL_WDS, WDS_GET_CURRENT_SET, t, 7);
+    }
+  } else if (Msg == WDS_GET_CURRENT_SET) {
+    if (err != 0) {
+      Out ("  wwan: GET_CURRENT_SETTINGS error %u\r\n", err);
+      return;
+    }
+    Out ("  wwan: current settings from t2:\r\n");
+    Ip4 ("IPv4 address", D, Len, 0x1E);
+    Ip4 ("subnet mask ", D, Len, 0x21);
+    Ip4 ("gateway     ", D, Len, 0x20);
+    Ip4 ("DNS 1       ", D, Len, 0x15);
+    Ip4 ("DNS 2       ", D, Len, 0x16);
+    if ((v = Tlv (D, Len, 0x29, &l)) != NULL && l >= 4) {
+      Out ("  wwan:   MTU %u\r\n", *(CONST UINT32 *)v);
+    }
+  }
+}
+
 STATIC VOID Poll(VOID)
 {
   Send (CL_DMS, DMS_GET_OPER_MODE, NULL, 0);
@@ -145,6 +244,9 @@ STATIC VOID Poll(VOID)
   Send (CL_UIM, UIM_GET_SLOT_STATUS, NULL, 0);
   Send (CL_NAS, NAS_GET_SERVING_SYS, NULL, 0);
   Send (CL_NAS, NAS_GET_SIGNAL_INFO, NULL, 0);
+  if (mCl[CL_WDS].Up && !mStartSent && mReg[0] == 1 && mReg[2] == 1 && DataOn ()) {
+    StartNetwork ();                              /* registered + PS attached */
+  }
 }
 
 VOID WwanArrive(UINT32 Svc, UINT32 Node, UINT32 Port)
@@ -432,6 +534,7 @@ BOOLEAN WwanRx(UINT32 DstPort, CONST UINT8 *D, UINT32 Len)
   case CL_DMS: DmsRx (msg, D, Len); break;
   case CL_UIM: UimRx (msg, D, Len); break;
   case CL_NAS: NasRx (msg, D, Len); break;
+  case CL_WDS: WdsRx (msg, D, Len); break;
   }
   return TRUE;
 }
