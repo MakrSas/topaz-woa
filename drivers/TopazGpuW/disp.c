@@ -124,6 +124,8 @@ static LONG64 g_CbLast, g_CbAvg;                 /* 100 ns; g_CbAvg = moving ave
 static LONG64 g_CbMin, g_CbMax;
 static ULONG g_Ticks;                            /* vsyncs reported in the current second */
 static BOOLEAN g_TimerRes;
+static PHYSICAL_ADDRESS g_TickPa;                /* v0.45.2: g_ShownPa at the previous vsync */
+static ULONG g_Shown;                            /* vsyncs with a new picture in the current second */
 
 static VOID VsyncNotify(BOOLEAN flip)
 {
@@ -186,6 +188,10 @@ static VOID VsyncWork(BOOLEAN periodicTick)
     if (periodicTick || now + slack >= g_NextVsync) {
         tick = TRUE;
         g_Ticks++;
+        if (g_ShownPa.QuadPart != g_TickPa.QuadPart) {
+            g_TickPa = g_ShownPa;
+            g_Shown++;
+        }
         if (!periodicTick) {
             g_NextVsync += VSYNC_PERIOD;
             if (g_NextVsync <= now) {
@@ -197,11 +203,12 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             LONG f = InterlockedExchange(&g_FlipCount, 0);
             g_FpsTicks = 0;
             if (f != 0) {
-                LogPrint("fps: %ld flips/s, %u vsyncs/s, timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
-                         "%u deferred to the GPU fence)\n", f, g_Ticks, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
+                LogPrint("fps: %u shown/s, %ld flips/s, %u vsyncs/s, timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
+                         "%u deferred to the GPU fence)\n", g_Shown, f, g_Ticks, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
                          g_DirectActive ? "direct" : "copy", g_FlipWaits, g_DeferCount);
             }
             g_Ticks = 0;
+            g_Shown = 0;
             g_CbMin = 0;
             g_CbMax = 0;
         }
