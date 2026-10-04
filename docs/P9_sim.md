@@ -182,3 +182,9 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   right after GENERIC_CMD 0x402 (boot got as far as a lock screen covered in grey garbage).
 - v0.20: Linux gsi_irq_setup() first: CNTXT_INTSET = 1 (IRQ instead of MSI), all interrupt masks
   0 (type, src ch/ev, glob, ieob, gsi, inter-EE), then TYPE_IRQ_MSK = GLOB_EE for the commands.
+- **v0.20 result: IPA handshake complete, system and Wi-Fi alive.** INTSET was 0 (MSI) and
+  TYPE_IRQ_MSK 0x7f before our gsi_irq_setup - the earlier resets were the GSI completion going out
+  as an MSI write. Now: ALLOCATE_CHANNEL modem ch 0..3 all SUCCESS after ~100 us, INIT_DRIVER
+  answered result 0, modem DRIVER_INIT_COMPLETE (0x35) acked, INIT_COMPLETE indication sent, then
+  the modem continued with IPA QMI requests 0x27 (56 B) and 0x23 (2965 B, filter rules?) - both
+  acked generically for now.
