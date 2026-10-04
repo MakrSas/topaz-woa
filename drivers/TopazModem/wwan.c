@@ -23,9 +23,10 @@
 #define SVC_NAS  0x03
 #define SVC_UIM  0x0B
 #define SVC_WDS  0x01
+#define SVC_WDA  0x1A
 
 /* our client ports (PORT_WWAN_BASE + index), see SvcRx */
-enum { CL_DMS, CL_NAS, CL_UIM, CL_WDS, CL_COUNT };
+enum { CL_DMS, CL_NAS, CL_UIM, CL_WDS, CL_WDA, CL_COUNT };
 
 #define DMS_GET_REVISION     0x0023
 #define DMS_GET_IDS          0x0025
@@ -44,7 +45,7 @@ typedef struct {
   BOOLEAN Up;
 } CLIENT;
 
-STATIC CLIENT  mCl[CL_COUNT] = { { SVC_DMS }, { SVC_NAS }, { SVC_UIM }, { SVC_WDS } };
+STATIC CLIENT  mCl[CL_COUNT] = { { SVC_DMS }, { SVC_NAS }, { SVC_UIM }, { SVC_WDS }, { SVC_WDA } };
 STATIC UINT16  mTxn = 1;
 STATIC UINTN   mLastPoll;
 STATIC BOOLEAN mOnlineSent;
@@ -147,12 +148,24 @@ STATIC VOID Str(CONST UINT8 *V, UINT16 L, CHAR8 *Out, UINTN Max)
  * (TLV 0x10 requested mask; reply 0x1E IPv4, 0x15/0x16 DNS, 0x20 gateway, 0x21 mask, 0x29 MTU).
  * Opt-in: C:\topaz\fw\data.on.
  */
+/*
+ * v0.22: START_NETWORK -> error 70 (INVALID_DATA_FORMAT): the data path was never described.
+ * v0.23, like ModemManager / Android rmnet_ipa: WDA SET_DATA_FORMAT 0x0020 (TLV 0x11 link layer
+ * raw-IP, 0x12/0x13 UL/DL aggregation QMAP, 0x15/0x16 DL max datagrams/size, 0x17 endpoint info
+ * {type EMBEDDED 4, interface 1}), then WDS BIND_MUX_DATA_PORT 0x00A2 (TLV 0x10 endpoint, 0x11 mux
+ * id 1), then START_NETWORK.
+ */
+#define WDA_SET_DATA_FORMAT    0x0020
+#define WDS_BIND_MUX_PORT      0x00A2
+#define EP_TYPE_EMBEDDED       4
+#define EP_IFACE               1
+#define QMAP_MUX_ID            1
 #define WDS_START_NETWORK      0x0020
 #define WDS_GET_CURRENT_SET    0x002D
 #define T2_APN                 "internet.tele2.ru"
 
 STATIC INT8    mDataOn = -1;
-STATIC BOOLEAN mStartSent, mSettingsSent;
+STATIC BOOLEAN mStartSent, mSettingsSent, mFormatSent, mBound;
 STATIC UINT32  mPdh;
 
 STATIC BOOLEAN DataOn(VOID)
@@ -167,6 +180,63 @@ STATIC BOOLEAN DataOn(VOID)
     Out ("  wwan: C:\\topaz\\fw\\data.on %a: data call %a\r\n", mDataOn ? "present" : "missing", mDataOn ? "ON" : "off");
   }
   return mDataOn == 1;
+}
+
+STATIC UINT16 PutU32(UINT8 *T, UINT16 N, UINT8 Type, UINT32 V)
+{
+  T[N] = Type; *(UINT16 *)(T + N + 1) = 4; *(UINT32 *)(T + N + 3) = V;
+  return (UINT16)(N + 7);
+}
+
+STATIC VOID SetDataFormat(VOID)
+{
+  UINT8 t[80];
+  UINT16 n = 0;
+
+  n = PutU32 (t, n, 0x11, 2);                     /* link layer: raw IP */
+  n = PutU32 (t, n, 0x12, 5);                     /* UL aggregation: QMAP */
+  n = PutU32 (t, n, 0x13, 5);                     /* DL aggregation: QMAP */
+  n = PutU32 (t, n, 0x15, 32);                    /* DL max datagrams */
+  n = PutU32 (t, n, 0x16, 16384);                 /* DL max size */
+  t[n] = 0x17; *(UINT16 *)(t + n + 1) = 8;
+  *(UINT32 *)(t + n + 3) = EP_TYPE_EMBEDDED; *(UINT32 *)(t + n + 7) = EP_IFACE; n = (UINT16)(n + 11);
+  mFormatSent = TRUE;
+  Out ("  wwan: WDA SET_DATA_FORMAT raw-IP, QMAP, endpoint embedded/%u\r\n", EP_IFACE);
+  Send (CL_WDA, WDA_SET_DATA_FORMAT, t, n);
+}
+
+STATIC VOID BindMuxPort(VOID)
+{
+  UINT8 t[24];
+  UINT16 n = 0;
+
+  t[n] = 0x10; *(UINT16 *)(t + n + 1) = 8;
+  *(UINT32 *)(t + n + 3) = EP_TYPE_EMBEDDED; *(UINT32 *)(t + n + 7) = EP_IFACE; n = (UINT16)(n + 11);
+  t[n++] = 0x11; *(UINT16 *)(t + n) = 1; n += 2; t[n++] = QMAP_MUX_ID;
+  Out ("  wwan: WDS BIND_MUX_DATA_PORT embedded/%u mux %u\r\n", EP_IFACE, QMAP_MUX_ID);
+  Send (CL_WDS, WDS_BIND_MUX_PORT, t, n);
+}
+
+STATIC VOID WdaRx(UINT16 Msg, CONST UINT8 *D, UINT32 Len)
+{
+  UINT16 l, err = Result (D, Len);
+  CONST UINT8 *v;
+
+  if (Msg != WDA_SET_DATA_FORMAT) {
+    return;
+  }
+  Out ("  wwan: SET_DATA_FORMAT: error %u", err);
+  if ((v = Tlv (D, Len, 0x11, &l)) != NULL && l >= 4) {
+    Out (", link layer %u", *(CONST UINT32 *)v);
+  }
+  if ((v = Tlv (D, Len, 0x12, &l)) != NULL && l >= 4) {
+    Out (", UL agg %u", *(CONST UINT32 *)v);
+  }
+  if ((v = Tlv (D, Len, 0x13, &l)) != NULL && l >= 4) {
+    Out (", DL agg %u", *(CONST UINT32 *)v);
+  }
+  Out ("\r\n");
+  BindMuxPort ();                                 /* even on error: the bind result tells more */
 }
 
 STATIC VOID StartNetwork(VOID)
@@ -199,6 +269,12 @@ STATIC VOID WdsRx(UINT16 Msg, CONST UINT8 *D, UINT32 Len)
   UINT16 l, err = Result (D, Len);
   CONST UINT8 *v;
 
+  if (Msg == WDS_BIND_MUX_PORT) {
+    Out ("  wwan: BIND_MUX_DATA_PORT: error %u\r\n", err);
+    mBound = TRUE;
+    StartNetwork ();
+    return;
+  }
   if (Msg == WDS_START_NETWORK) {
     if (err != 0) {
       UINT16 reason = 0, vt = 0, vr = 0;
@@ -244,8 +320,8 @@ STATIC VOID Poll(VOID)
   Send (CL_UIM, UIM_GET_SLOT_STATUS, NULL, 0);
   Send (CL_NAS, NAS_GET_SERVING_SYS, NULL, 0);
   Send (CL_NAS, NAS_GET_SIGNAL_INFO, NULL, 0);
-  if (mCl[CL_WDS].Up && !mStartSent && mReg[0] == 1 && mReg[2] == 1 && DataOn ()) {
-    StartNetwork ();                              /* registered + PS attached */
+  if (mCl[CL_WDS].Up && mCl[CL_WDA].Up && !mFormatSent && mReg[0] == 1 && mReg[2] == 1 && DataOn ()) {
+    SetDataFormat ();                             /* registered + PS attached: format -> bind -> start */
   }
 }
 
@@ -535,6 +611,7 @@ BOOLEAN WwanRx(UINT32 DstPort, CONST UINT8 *D, UINT32 Len)
   case CL_UIM: UimRx (msg, D, Len); break;
   case CL_NAS: NasRx (msg, D, Len); break;
   case CL_WDS: WdsRx (msg, D, Len); break;
+  case CL_WDA: WdaRx (msg, D, Len); break;
   }
   return TRUE;
 }

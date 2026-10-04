@@ -206,3 +206,7 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
 - v0.22 (C:\topaz\fw\data.on): WDS client; once REGISTERED with PS attached, START_NETWORK
   (APN internet.tele2.ru, IPv4) and GET_CURRENT_SETTINGS -> logs the address / mask / gateway /
   DNS / MTU t2 hands out. No packets yet (needs the IPA AP<->modem endpoints).
+- v0.22 result: REGISTERED LTE 250-20, START_NETWORK -> **error 70 (INVALID_DATA_FORMAT)**, no call
+  end reason: the data path was never described to the modem.
+- v0.23: WDA SET_DATA_FORMAT (raw-IP, QMAP UL/DL, DL 32 datagrams / 16 KiB, endpoint EMBEDDED/1),
+  WDS BIND_MUX_DATA_PORT (EMBEDDED/1, mux 1), then START_NETWORK.
