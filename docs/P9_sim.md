@@ -215,3 +215,7 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   wda_data_format_enabled 1, QMAPv4 (8), msmsteppe DL 10/8192, gen4 DL 31/16384 + UL 32/16384,
   phys dev rmnet_ipa0. v0.24 tries data-format variants in one boot (raw-IP only, QMAPv4, QMAPv5,
   QMAP 32/32K, QMAPv4 gen4) and logs whether the DPM service (0x2f) exists.
+- v0.24 result: DPM service 0x2f present (port 0x2d); all five SET_DATA_FORMAT variants -> 70, bind
+  -> 3, start -> 70: the EMBEDDED/1 port is unknown to the modem, not the format.
+- v0.25: DPM OPEN_PORT first (hardware data port EMBEDDED/1, IPA endpoints rx/tx 9/1 then 1/9),
+  then data format -> bind -> start.

@@ -24,9 +24,10 @@
 #define SVC_UIM  0x0B
 #define SVC_WDS  0x01
 #define SVC_WDA  0x1A
+#define SVC_DPM  0x2F
 
 /* our client ports (PORT_WWAN_BASE + index), see SvcRx */
-enum { CL_DMS, CL_NAS, CL_UIM, CL_WDS, CL_WDA, CL_COUNT };
+enum { CL_DMS, CL_NAS, CL_UIM, CL_WDS, CL_WDA, CL_DPM, CL_COUNT };
 
 #define DMS_GET_REVISION     0x0023
 #define DMS_GET_IDS          0x0025
@@ -45,7 +46,7 @@ typedef struct {
   BOOLEAN Up;
 } CLIENT;
 
-STATIC CLIENT  mCl[CL_COUNT] = { { SVC_DMS }, { SVC_NAS }, { SVC_UIM }, { SVC_WDS }, { SVC_WDA } };
+STATIC CLIENT  mCl[CL_COUNT] = { { SVC_DMS }, { SVC_NAS }, { SVC_UIM }, { SVC_WDS }, { SVC_WDA }, { SVC_DPM } };
 STATIC UINT16  mTxn = 1;
 STATIC UINTN   mLastPoll;
 STATIC BOOLEAN mOnlineSent;
@@ -165,7 +166,7 @@ STATIC VOID Str(CONST UINT8 *V, UINT16 L, CHAR8 *Out, UINTN Max)
 #define T2_APN                 "internet.tele2.ru"
 
 STATIC INT8    mDataOn = -1;
-STATIC BOOLEAN mStartSent, mSettingsSent, mFormatSent, mBound;
+STATIC BOOLEAN mStartSent, mSettingsSent, mFormatSent, mBound, mSeqStarted;
 STATIC UINT32  mPdh;
 
 STATIC BOOLEAN DataOn(VOID)
@@ -221,6 +222,50 @@ STATIC VOID SetDataFormat(VOID)
   mFormatSent = TRUE;
   Out ("  wwan: WDA SET_DATA_FORMAT try %u: %a, endpoint embedded/%u\r\n", (UINT32)mFmtTry, f->Name, EP_IFACE);
   Send (CL_WDA, WDA_SET_DATA_FORMAT, t, n);
+}
+
+/*
+ * v0.24: every data format -> error 70 and the mux bind -> 3: the modem does not know the
+ * EMBEDDED/1 port. Android opens it first with DPM (qmi_dpm_enabled=1): OPEN_PORT 0x0020, TLV 0x11
+ * hardware data ports = u8 count + {u32 ep type, u32 interface, u32 rx endpoint, u32 tx endpoint}
+ * (libqmi qmi-service-dpm.json). IPA endpoints from Linux ipa_data-v4.2.c: AP_MODEM_TX = 1,
+ * AP_MODEM_RX = 9; which one the modem calls rx is unknown -> both orders are tried.
+ */
+#define DPM_OPEN_PORT          0x0020
+STATIC CONST UINT32 mDpmPipes[][2] = { { 9, 1 }, { 1, 9 } };
+STATIC UINTN mDpmTry;
+STATIC BOOLEAN mDpmDone;
+
+STATIC VOID DpmOpenPort(VOID)
+{
+  UINT8 t[24];
+  UINT16 n = 0;
+
+  t[n++] = 0x11; *(UINT16 *)(t + n) = 17; n += 2; t[n++] = 1;
+  *(UINT32 *)(t + n) = EP_TYPE_EMBEDDED;     n += 4;
+  *(UINT32 *)(t + n) = EP_IFACE;             n += 4;
+  *(UINT32 *)(t + n) = mDpmPipes[mDpmTry][0]; n += 4;
+  *(UINT32 *)(t + n) = mDpmPipes[mDpmTry][1]; n += 4;
+  Out ("  wwan: DPM OPEN_PORT try %u: hw data port embedded/%u rx %u tx %u\r\n", (UINT32)mDpmTry, EP_IFACE,
+       mDpmPipes[mDpmTry][0], mDpmPipes[mDpmTry][1]);
+  Send (CL_DPM, DPM_OPEN_PORT, t, n);
+}
+
+STATIC VOID DpmRx(UINT16 Msg, CONST UINT8 *D, UINT32 Len)
+{
+  UINT16 err = Result (D, Len);
+
+  if (Msg != DPM_OPEN_PORT) {
+    return;
+  }
+  Out ("  wwan: DPM OPEN_PORT: error %u\r\n", err);
+  if (err != 0 && mDpmTry + 1 < ARRAY_SIZE (mDpmPipes)) {
+    mDpmTry++;
+    DpmOpenPort ();
+    return;
+  }
+  mDpmDone = TRUE;
+  SetDataFormat ();
 }
 
 STATIC VOID BindMuxPort(VOID)
@@ -343,8 +388,13 @@ STATIC VOID Poll(VOID)
   Send (CL_UIM, UIM_GET_SLOT_STATUS, NULL, 0);
   Send (CL_NAS, NAS_GET_SERVING_SYS, NULL, 0);
   Send (CL_NAS, NAS_GET_SIGNAL_INFO, NULL, 0);
-  if (mCl[CL_WDS].Up && mCl[CL_WDA].Up && !mFormatSent && mReg[0] == 1 && mReg[2] == 1 && DataOn ()) {
-    SetDataFormat ();                             /* registered + PS attached: format -> bind -> start */
+  if (mCl[CL_WDS].Up && mCl[CL_WDA].Up && !mFormatSent && !mDpmDone && mReg[0] == 1 && mReg[2] == 1 && DataOn ()) {
+    if (mCl[CL_DPM].Up && !mSeqStarted) {
+      mSeqStarted = TRUE;
+      DpmOpenPort ();                             /* DPM port -> format -> bind -> start */
+    } else if (!mCl[CL_DPM].Up) {
+      SetDataFormat ();
+    }
   }
 }
 
@@ -639,6 +689,7 @@ BOOLEAN WwanRx(UINT32 DstPort, CONST UINT8 *D, UINT32 Len)
   case CL_NAS: NasRx (msg, D, Len); break;
   case CL_WDS: WdsRx (msg, D, Len); break;
   case CL_WDA: WdaRx (msg, D, Len); break;
+  case CL_DPM: DpmRx (msg, D, Len); break;
   }
   return TRUE;
 }
