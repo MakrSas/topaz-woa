@@ -131,6 +131,7 @@ static ULONG g_Shown;                            /* vsyncs with a new picture in
    the previous one. Complete at most one flip per vsync period so DWM is paced to 60 Hz. */
 static LONG64 g_LastFlipDone;
 static BOOLEAN g_HeldThis;
+static volatile LONG g_FlipOverrun, g_FlipImm;   /* v0.45.4: flips replacing a pending one / FlipImmediate flips */
 static ULONG g_FlipHeld;                         /* flips held back for pacing in the current second */
 
 static VOID VsyncNotify(BOOLEAN flip)
@@ -216,8 +217,9 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             LONG f = InterlockedExchange(&g_FlipCount, 0);
             g_FpsTicks = 0;
             if (f != 0) {
-                LogPrint("fps: %u shown/s, %ld flips/s, %u held, %u vsyncs/s, timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
-                         "%u deferred to the GPU fence)\n", g_Shown, f, g_FlipHeld, g_Ticks, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
+                LogPrint("fps: %u shown/s, %ld flips/s (%ld replaced a pending flip, %ld immediate), %u held, %u vsyncs/s, timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
+                         "%u deferred to the GPU fence)\n", g_Shown, f, InterlockedExchange(&g_FlipOverrun, 0),
+                         InterlockedExchange(&g_FlipImm, 0), g_FlipHeld, g_Ticks, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
                          g_DirectActive ? "direct" : "copy", g_FlipWaits, g_DeferCount);
             }
             g_Ticks = 0;
@@ -355,6 +357,12 @@ NTSTATUS DispSetSourceAddress(const DXGKARG_SETVIDPNSOURCEADDRESS *A)
 
     BOOLEAN direct;
 
+    if (g_FlipPending) {
+        InterlockedIncrement(&g_FlipOverrun);
+    }
+    if (A->Flags.FlipImmediate) {
+        InterlockedIncrement(&g_FlipImm);
+    }
     g_ScanCur = (TGPU_ALLOCATION *)A->hAllocation;
     g_ScanPa = A->PrimaryAddress;
     InterlockedIncrement(&g_FlipCount);
