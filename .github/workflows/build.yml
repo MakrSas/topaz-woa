@@ -16,16 +16,6 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
-      - name: ACX 1.0 pin config (debug)
-        shell: pwsh
-        run: |
-          $d = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\km\acx\km\1.0"
-          $t = Get-Content "$d\acxpin.h"
-          $i = ($t | Select-String "typedef struct _ACX_PIN_CONFIG" | Select -First 1).LineNumber
-          $t[($i-1)..($i+40)]
-          $j = ($t | Select-String "ACX_PIN_CONFIG_INIT" | Select -First 1).LineNumber
-          $t[($j-1)..($j+20)]
-
       - name: Build drivers (ARM64 Release)
         run: |
           msbuild drivers\TopazTouch\TopazTouch.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal

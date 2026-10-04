@@ -76,6 +76,54 @@ int main(int argc, char **argv)
             }
         }
     }
+    {   // processing modes of pin 0
+        BYTE mb[512] = {};
+        if (Prop(KSPROPSETID_AudioSignalProcessing, KSPROPERTY_AUDIOSIGNALPROCESSING_MODES, 0, mb, sizeof(mb), &got, TRUE)) {
+            KSMULTIPLE_ITEM *mi = (KSMULTIPLE_ITEM *)mb;
+            GUID *g = (GUID *)(mi + 1);
+            for (ULONG i = 0; i < mi->Count && i < 8; i++) printf("mode %08lx-%04x\n", g[i].Data1, g[i].Data2);
+        }
+    }
+    // pin create with a mode attribute (what the audio engine sends)
+    for (int m = 0; m < 2; m++) {
+        struct {
+            KSPIN_CONNECT c;
+            KSDATAFORMAT_WAVEFORMATEXTENSIBLE f;
+            KSMULTIPLE_ITEM list;
+            KSATTRIBUTE_AUDIOSIGNALPROCESSING_MODE mode;
+        } req = {};
+        req.c.Interface.Set = KSINTERFACESETID_Standard;
+        req.c.Interface.Id = KSINTERFACE_STANDARD_LOOPED_STREAMING;
+        req.c.Medium.Set = KSMEDIUMSETID_Standard;
+        req.c.Medium.Id = KSMEDIUM_TYPE_ANYINSTANCE;
+        req.c.Priority.PriorityClass = KSPRIORITY_NORMAL;
+        req.c.Priority.PrioritySubClass = 1;
+        req.f.DataFormat.FormatSize = sizeof(req.f);
+        req.f.DataFormat.Flags = KSDATAFORMAT_ATTRIBUTES;
+        req.f.DataFormat.SampleSize = 4;
+        req.f.DataFormat.MajorFormat = KSDATAFORMAT_TYPE_AUDIO;
+        req.f.DataFormat.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+        req.f.DataFormat.Specifier = KSDATAFORMAT_SPECIFIER_WAVEFORMATEX;
+        req.f.WaveFormatExt.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+        req.f.WaveFormatExt.Format.nChannels = 2;
+        req.f.WaveFormatExt.Format.nSamplesPerSec = 48000;
+        req.f.WaveFormatExt.Format.nAvgBytesPerSec = 192000;
+        req.f.WaveFormatExt.Format.nBlockAlign = 4;
+        req.f.WaveFormatExt.Format.wBitsPerSample = 16;
+        req.f.WaveFormatExt.Format.cbSize = 22;
+        req.f.WaveFormatExt.Samples.wValidBitsPerSample = 16;
+        req.f.WaveFormatExt.dwChannelMask = KSAUDIO_SPEAKER_STEREO;
+        req.f.WaveFormatExt.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+        req.list.Size = sizeof(req.list) + sizeof(req.mode);
+        req.list.Count = 1;
+        req.mode.AttributeHeader.Size = sizeof(req.mode);
+        req.mode.AttributeHeader.Attribute = KSATTRIBUTEID_AUDIOSIGNALPROCESSING_MODE;
+        req.mode.SignalProcessingMode = m ? AUDIO_SIGNALPROCESSINGMODE_DEFAULT : AUDIO_SIGNALPROCESSINGMODE_RAW;
+        HANDLE pin = nullptr;
+        DWORD r = KsCreatePin(g_F, &req.c, GENERIC_WRITE, &pin);
+        printf("KsCreatePin(LOOPED, EXT + mode %s): %lu\n", m ? "DEFAULT" : "RAW", r);
+        if (r == 0) CloseHandle(pin);
+    }
     // try creating pin 0: interface STREAMING / LOOPED, format EXTENSIBLE / plain WAVEFORMATEX
     for (int variant = 0; variant < 4; variant++) {
         struct {
