@@ -540,6 +540,31 @@ STATIC VOID GsiAllocModemChannels(EFI_FILE_PROTOCOL *Root)
   GSTEP ("read ERROR_LOG %08x\r\n", g[GSI_ERROR_LOG / 4]);
   GSTEP ("read GLOB_IRQ_EN %08x STTS %08x SCRATCH_0 %08x\r\n", g[GSI_GLOB_IRQ_EN / 4], g[GSI_GLOB_IRQ_STTS / 4],
          g[GSI_SCRATCH_0 / 4]);
+  /*
+   * v0.20: Linux gsi_irq_setup() before any command - CNTXT_INTSET = 1 (IRQ, not MSI: in MSI mode
+   * the completion is a memory write to an unprogrammed address), every interrupt mask 0.
+   * v0.17..v0.19 skipped it and the SoC reset on the first GENERIC_CMD (v0.19 with grey screen
+   * garbage = a stray write).
+   */
+  GSTEP ("read INTSET %08x TYPE_IRQ_MSK %08x\r\n", g[0x180 / 4], g[0x088 / 4]);
+  g[0x180 / 4] = 1;                             /* CNTXT_INTSET: IRQ */
+  g[0x088 / 4] = 0;                             /* CNTXT_TYPE_IRQ_MSK */
+  g[0x098 / 4] = 0;                             /* CNTXT_SRC_CH_IRQ_MSK */
+  g[0x09C / 4] = 0;                             /* CNTXT_SRC_EV_CH_IRQ_MSK */
+  g[GSI_GLOB_IRQ_EN / 4] = 0;
+  g[0x0B8 / 4] = 0;                             /* CNTXT_SRC_IEOB_IRQ_MSK */
+  g[0x120 / 4] = 0;                             /* CNTXT_GSI_IRQ_EN */
+  {
+    volatile UINT32 *ie = MapPhys (0x05804000u + 0xC000u, SIZE_4KB, FALSE);   /* inter-EE, EE 0 */
+    if (ie != NULL) {
+      ie[0x20 / 4] = 0;                         /* INTER_EE_SRC_CH_IRQ_MSK */
+      ie[0x24 / 4] = 0;                         /* INTER_EE_SRC_EV_CH_IRQ_MSK */
+      UnmapPhys ((VOID *)ie, SIZE_4KB);
+    }
+  }
+  MemoryFence ();
+  GSTEP ("irq setup done: INTSET %08x TYPE_IRQ_MSK %08x\r\n", g[0x180 / 4], g[0x088 / 4]);
+  g[0x088 / 4] = 1u << 2;                       /* TYPE_IRQ_MSK: GLOB_EE only (gsi_irq_enable) */
   GSTEP ("write ERROR_LOG 0\r\n");
   g[GSI_ERROR_LOG / 4] = 0;
   for (ch = 0; ch < 4; ch++) {

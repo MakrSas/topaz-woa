@@ -178,3 +178,7 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   (sid 0x140 mask 3) read back 0 = rejected (hypervisor?) -> streams still unconfigured, same SoC
   reset after GENERIC_CMD 0x402. Existing SMRs from UEFI: c0, a0, 120, 100, 420/mask 2.
   v0.19: three SMRs, 0x140 / 0x141 / 0x142 mask 0.
+- v0.19 result: the three IPA SMRs (0x140/0x141/0x142, CB5..7) are accepted, still a SoC reset
+  right after GENERIC_CMD 0x402 (boot got as far as a lock screen covered in grey garbage).
+- v0.20: Linux gsi_irq_setup() first: CNTXT_INTSET = 1 (IRQ instead of MSI), all interrupt masks
+  0 (type, src ch/ev, glob, ieob, gsi, inter-EE), then TYPE_IRQ_MSK = GLOB_EE for the commands.
