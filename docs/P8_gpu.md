@@ -1170,3 +1170,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   17..22 frames/s; flips = completed = shown, no overruns, almost every frame deferred to the GPU fence.
   DxgKrnl gets 63..80 vsync notifications/s (flip completions + timer ticks; a tick can land ~1 ms
   before a flip completion in the same period - minor, to clean up).
+- Animation effects off (MinAnimate 0; transparency was already off): finger drag 29..33 frames/s
+  (was 17..22). The touch drag "lifted window" effect (window shrinks, blurred backdrop behind it) costs
+  ~40 % of the frame rate. User wants the blur kept and made fast, not disabled. Suspects: memory
+  bandwidth (no RPM DDR/bus vote, a blur is many texture reads) and how the Mesa UMD renders the blur
+  passes (GMEM vs sysmem, no UBWC). Next: TopazRpm DDR bandwidth + CX level vote, then per-frame GPU time.
