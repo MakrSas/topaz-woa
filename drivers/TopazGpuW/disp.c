@@ -404,7 +404,16 @@ NTSTATUS DispSetVisibility(const DXGKARG_SETVIDPNSOURCEVISIBILITY *A)
 {
     BOOLEAN visible = A->Visible ? TRUE : FALSE;
 
+    static BOOLEAN fbCleared;
+
     LogPrint("SetVidPnSourceVisibility: src %u visible %u\n", A->VidPnSourceId, A->Visible);
+    /* v0.45.8: the boot framebuffer still held the last boot picture (spinner) and showed up for a moment
+       whenever the scanout fell back to it around a screen-off. Clear it once (PASSIVE here). */
+    if (!fbCleared && g_Fb != NULL && g_DirectActive) {
+        RtlZeroMemory(g_Fb, (SIZE_T)g_Post.Pitch * g_Post.Height);
+        fbCleared = TRUE;
+        LogPrint("boot framebuffer cleared\n");
+    }
     if (visible != g_Visible) {
         BlPanel(visible);                                /* v0.45.6: screen off = backlight off */
     }
