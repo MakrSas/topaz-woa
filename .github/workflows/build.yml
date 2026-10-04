@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE) { throw "taudio build failed" }
           cl /nologo /O2 /W3 /EHsc tools\audio\wasapitest.cpp /Fe:out\taudio\wasapitest.exe ole32.lib
           if ($LASTEXITCODE) { throw "wasapitest build failed" }
+          cl /nologo /O2 /W3 /EHsc tools\audio\kstest.cpp /Fe:out\taudio\kstest.exe ksuser.lib
+          if ($LASTEXITCODE) { throw "kstest build failed" }
 
       - name: Package, catalog and test-sign
         shell: pwsh
