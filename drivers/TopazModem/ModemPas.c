@@ -604,6 +604,8 @@ STATIC VOID IpaFwLoad(EFI_FILE_PROTOCOL *Root)
     return;
   }
   f->Close (f);
+  SmmuIpaMap ();                               /* before anything in IPA/GSI can DMA */
+  LogHardFlush ();
   for (t = 0; t < 150 && (khz = IpaClockKhz ()) == 0; t++) {
     gBS->Stall (100 * 1000);
   }

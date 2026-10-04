@@ -111,7 +111,14 @@ VOID CeProbe(VOID)
 #define CB_CLONE_CBA2R  0x00000001u             /* VA64 */
 #define CB_CLONE_SCTLR  0x000000e0u             /* CFCFG|CFIE|CFRE, M=0 -> no translation */
 
-BOOLEAN SmmuWlanMap(VOID)
+STATIC BOOLEAN SidMatchOf(UINT32 Smr, UINT32 Sid, UINT32 Mask)
+{
+  UINT32 id = Smr & 0xFFFF, mask = (Smr >> 16) & 0x7FFF;
+
+  return ((id ^ Sid) & ~(mask | Mask) & 0x7FFF) == 0;
+}
+
+STATIC BOOLEAN SmmuIdentity(UINT32 Sid, UINT32 Mask, CONST CHAR8 *Name)
 {
   UINT8 *s = MapPhys (SMMU_PA, SMMU_SIZE, FALSE);
   UINT32 id0, id1, nsmr, ncb, npage, psize, i, slot = MAX_UINT32, cb = MAX_UINT32, smr, s2cr, n;
@@ -133,7 +140,7 @@ BOOLEAN SmmuWlanMap(VOID)
   for (i = 0; i < nsmr && i < 128; i++) {
     smr = R32 (s, 0x800 + 4 * i);
     s2cr = R32 (s, 0xC00 + 4 * i);
-    if ((smr >> 31) != 0 && SidMatch (smr)) {
+    if ((smr >> 31) != 0 && SidMatchOf (smr, Sid, Mask)) {
       slot = i;                                 /* already present (driver restart): reuse it */
     } else if ((smr >> 31) == 0 && slot == MAX_UINT32) {
       slot = i;
@@ -171,7 +178,7 @@ BOOLEAN SmmuWlanMap(VOID)
 
   /* 2. stream match -> this bank (S2CR type 0 = translate), SMR valid last */
   MmioWrite32 ((UINTN)s + 0xC00 + 4 * slot, cb);          /* S2CR: type 0, cbndx = cb */
-  MmioWrite32 ((UINTN)s + 0x800 + 4 * slot, (1u << 31) | (WLAN_SID_MASK << 16) | WLAN_SID);
+  MmioWrite32 ((UINTN)s + 0x800 + 4 * slot, (1u << 31) | (Mask << 16) | Sid);
   MemoryFence ();
   MmioWrite32 ((UINTN)s + 0x70, 0);                       /* sTLBGSYNC */
   for (n = 0; n < 100000 && (R32 (s, 0x74) & 1) != 0; n++) {
@@ -180,10 +187,25 @@ BOOLEAN SmmuWlanMap(VOID)
 
   smr  = R32 (s, 0x800 + 4 * slot);
   s2cr = R32 (s, 0xC00 + 4 * slot);
-  Out ("  smmu: WLAN identity CB%u in SMR%u: SMR %08x S2CR %08x SCTLR %08x (sync %u us) -> %a\r\n",
-       cb, slot, smr, s2cr, R32 (cbp, 0x0), n,
-       ((smr >> 31) != 0 && SidMatch (smr) && ((s2cr >> 16) & 3) == 0 && (s2cr & 0x3F) == cb) ?
+  Out ("  smmu: %a identity (sid %x mask %x) CB%u in SMR%u: SMR %08x S2CR %08x SCTLR %08x (sync %u us) -> %a\r\n",
+       Name, Sid, Mask, cb, slot, smr, s2cr, R32 (cbp, 0x0), n,
+       ((smr >> 31) != 0 && SidMatchOf (smr, Sid, Mask) && ((s2cr >> 16) & 3) == 0 && (s2cr & 0x3F) == cb) ?
        "OK (type 0 translate)" : "NOT as written");
   UnmapPhys (s, SMMU_SIZE);
   return ((smr >> 31) != 0 && ((s2cr >> 16) & 3) == 0);
+}
+
+BOOLEAN SmmuWlanMap(VOID)
+{
+  return SmmuIdentity (WLAN_SID, WLAN_SID_MASK, "WLAN");
+}
+
+/*
+ * IPA / GSI DMA: DT ipa_smmu_ap / ipa_smmu_wlan / ipa_smmu_uc = apps SMMU streams 0x140, 0x141,
+ * 0x142 (one SMR, mask 3). v0.17: the SoC reset on the first GSI GENERIC_CMD with these streams
+ * unconfigured (unmatched streams fault on this SMMU) - same failure mode as WLAN before 0x1A0.
+ */
+BOOLEAN SmmuIpaMap(VOID)
+{
+  return SmmuIdentity (0x140, 0x3, "IPA");
 }

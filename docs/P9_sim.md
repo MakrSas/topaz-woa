@@ -172,3 +172,5 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   uc 0x142) and nobody set those streams up - same failure mode as WLAN before its identity
   context bank (stream 0x1A0, wlanprobe.c SmmuWlanMap). Next: identity bank for 0x140..0x142
   before ipa_fws / GSI commands.
+- v0.18: SmmuIdentity(sid, mask) generalised from SmmuWlanMap; with ipa.on an identity context
+  bank for the IPA streams 0x140..0x143 (SMR sid 0x140 mask 3) is set up before ipa_fws / GSI.

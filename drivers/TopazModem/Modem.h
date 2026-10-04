@@ -78,6 +78,7 @@ extern volatile BOOLEAN gModemStop;
 VOID           SmmuProbe(BOOLEAN All);
 VOID           CeProbe(VOID);
 BOOLEAN        SmmuWlanMap(VOID);
+BOOLEAN        SmmuIpaMap(VOID);                  /* IPA/GSI streams 0x140..0x142 identity */
 
 /* P4 data path: copy engines (ce.c) + HTC (htc.c), polled from the GLINK loop */
 BOOLEAN        CeStart(VOID);                     /* after WLAN_MODE mission */
