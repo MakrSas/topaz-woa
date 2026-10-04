@@ -251,6 +251,19 @@ NTSTATUS SpkCreateRenderCircuit(WDFDEVICE Device, ACXCIRCUIT *Circuit)
     if (NT_SUCCESS(status)) {
         status = AddFormat(Device, circuit, list, &g_Fmt48c1);
     }
+    /* the same formats for the DEFAULT processing mode: a pin create without a mode attribute (and the
+       endpoint builder) asks for DEFAULT, and with only a RAW list ACX fails it with INVALID_PARAMETER */
+    if (NT_SUCCESS(status)) {
+        ACXDATAFORMATLIST def = NULL;
+        status = AcxPinRetrieveModeDataFormatList(pins[PinHost], &AUDIO_SIGNALPROCESSINGMODE_DEFAULT, &def);
+        LogPrint("default mode format list: %08x\r\n", status);
+        if (NT_SUCCESS(status) && def != NULL) {
+            status = AddFormat(Device, circuit, def, &g_Fmt48c2);
+            if (NT_SUCCESS(status)) {
+                status = AddFormat(Device, circuit, def, &g_Fmt48c1);
+            }
+        }
+    }
     if (NT_SUCCESS(status)) {
         status = AcxCircuitAddPins(circuit, pins, PinCount);
     }
