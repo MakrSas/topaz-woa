@@ -41,6 +41,22 @@ int main(int argc, char **argv)
         Prop(KSPROPSETID_Pin, KSPROPERTY_PIN_COMMUNICATION, p, &com, sizeof(com), &got, TRUE);
         Prop(KSPROPSETID_Pin, KSPROPERTY_PIN_CATEGORY, p, &cat, sizeof(cat), &got, TRUE);
         printf("pin %lu: flow %d com %d category %08lx-...\n", p, flow, com, cat.Data1);
+        KSPIN_CINSTANCES ci = {};
+        if (Prop(KSPROPSETID_Pin, KSPROPERTY_PIN_CINSTANCES, p, &ci, sizeof(ci), &got, TRUE))
+            printf("  instances possible %lu current %lu\n", ci.PossibleCount, ci.CurrentCount);
+        if (Prop(KSPROPSETID_Pin, KSPROPERTY_PIN_GLOBALCINSTANCES, p, &ci, sizeof(ci), &got, TRUE))
+            printf("  global instances possible %lu current %lu\n", ci.PossibleCount, ci.CurrentCount);
+        BYTE ib[512] = {};
+        if (Prop(KSPROPSETID_Pin, KSPROPERTY_PIN_INTERFACES, p, ib, sizeof(ib), &got, TRUE)) {
+            KSMULTIPLE_ITEM *mi = (KSMULTIPLE_ITEM *)ib;
+            KSIDENTIFIER *id = (KSIDENTIFIER *)(mi + 1);
+            for (ULONG i = 0; i < mi->Count && i < 8; i++) printf("  interface %08lx-.. id %lu\n", id[i].Set.Data1, id[i].Id);
+        }
+        if (Prop(KSPROPSETID_Pin, KSPROPERTY_PIN_MEDIUMS, p, ib, sizeof(ib), &got, TRUE)) {
+            KSMULTIPLE_ITEM *mi = (KSMULTIPLE_ITEM *)ib;
+            KSIDENTIFIER *id = (KSIDENTIFIER *)(mi + 1);
+            for (ULONG i = 0; i < mi->Count && i < 8; i++) printf("  medium %08lx-.. id %lu\n", id[i].Set.Data1, id[i].Id);
+        }
         BYTE buf[4096] = {};
         if (Prop(KSPROPSETID_Pin, KSPROPERTY_PIN_DATARANGES, p, buf, sizeof(buf), &got, TRUE)) {
             KSMULTIPLE_ITEM *mi = (KSMULTIPLE_ITEM *)buf;
