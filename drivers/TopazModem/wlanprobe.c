@@ -202,10 +202,15 @@ BOOLEAN SmmuWlanMap(VOID)
 
 /*
  * IPA / GSI DMA: DT ipa_smmu_ap / ipa_smmu_wlan / ipa_smmu_uc = apps SMMU streams 0x140, 0x141,
- * 0x142 (one SMR, mask 3). v0.17: the SoC reset on the first GSI GENERIC_CMD with these streams
- * unconfigured (unmatched streams fault on this SMMU) - same failure mode as WLAN before 0x1A0.
+ * 0x142. v0.17: the SoC reset on the first GSI GENERIC_CMD with these streams unconfigured
+ * (unmatched streams fault on this SMMU) - same failure mode as WLAN before 0x1A0.
+ * v0.18: one SMR sid 0x140 mask 3 read back as 0 (the hypervisor dropped it; mask 3 also covers
+ * 0x143). v0.19: one SMR + identity bank per stream, mask 0.
  */
 BOOLEAN SmmuIpaMap(VOID)
 {
-  return SmmuIdentity (0x140, 0x3, "IPA");
+  BOOLEAN a = SmmuIdentity (0x140, 0, "IPA ap");
+  BOOLEAN b = SmmuIdentity (0x141, 0, "IPA wlan");
+  BOOLEAN c = SmmuIdentity (0x142, 0, "IPA uc");
+  return a && b && c;
 }

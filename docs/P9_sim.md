@@ -174,3 +174,7 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   before ipa_fws / GSI commands.
 - v0.18: SmmuIdentity(sid, mask) generalised from SmmuWlanMap; with ipa.on an identity context
   bank for the IPA streams 0x140..0x143 (SMR sid 0x140 mask 3) is set up before ipa_fws / GSI.
+- v0.18 result: WLAN identity (0x1a0 mask 1, CB4/SMR5) ok as always, but the IPA SMR6
+  (sid 0x140 mask 3) read back 0 = rejected (hypervisor?) -> streams still unconfigured, same SoC
+  reset after GENERIC_CMD 0x402. Existing SMRs from UEFI: c0, a0, 120, 100, 420/mask 2.
+  v0.19: three SMRs, 0x140 / 0x141 / 0x142 mask 0.
