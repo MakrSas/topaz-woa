@@ -55,7 +55,7 @@
       <PreprocessorDefinitions>ACX_VERSION_MAJOR=1;ACX_VERSION_MINOR=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(DDK_LIB_PATH)\acx\km\1.0\acxstub.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DDK_LIB_PATH)\acx\km\1.0\acxstub.lib;$(DDK_LIB_PATH)\ksguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
