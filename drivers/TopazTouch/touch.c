@@ -25,6 +25,9 @@
  * v0.13: touches sometimes stuck. A frame with point count 0 can still carry a stale "contact"
  * slot, which kept the finger down. Like Linux focaltech: count 0 (or a 0xff frame) releases
  * everything (the existing "vanished -> lift" report); otherwise all slots are parsed.
+ * v0.13 result: still stuck - with 0x88 = 12 the controller sometimes stops updating after a
+ * touch (every read returns the same "contact" frame, IRQ never asserted again). v0.14: firmware
+ * default rate again; C:\topaz\touch.fast opts into 0x88 = 12.
  */
 #include "driver.h"
 
@@ -227,22 +230,22 @@ NTSTATUS TouchHwInit(PDEVICE_CONTEXT Ctx)
         }
     }
     {
-        UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\touch.slow");
+        UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\touch.fast");
         OBJECT_ATTRIBUTES oa;
         IO_STATUS_BLOCK iosb;
         HANDLE h;
         InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-        if (!NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
-                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
-                                     FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+        if (NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+                                    FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
             UCHAR w[2] = { 0x88, 12 }, back = 0;
             NTSTATUS ws;
+            ZwClose(h);
             ws = GeniI2cWrite(&Ctx->Bus, TS_I2C_ADDR, w, 2, TRUE);
             GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x88, &back, 1);
-            LogPrint("report rate reg 0x88 <- 12 (fast; C:\\topaz\\touch.slow disables): %08x, reads back %02x\n", ws, back);
+            LogPrint("C:\\topaz\\touch.fast: report rate reg 0x88 <- 12: %08x, reads back %02x (can freeze touches)\n", ws, back);
         } else {
-            ZwClose(h);
-            LogPrint("C:\\topaz\\touch.slow present: report rate left at the firmware default\n");
+            LogPrint("report rate: firmware default (C:\\topaz\\touch.fast for 0x88 = 12)\n");
         }
     }
 
