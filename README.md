@@ -2,7 +2,7 @@
 
 Windows on ARM for **Redmi Note 12 4G** (`topaz` / `tapas`, Qualcomm SM6225 "khaje").
 
-Status (2026-10-04): Windows 11 ARM64 (22621) boots to the desktop via [Mu-Silicium](https://github.com/Project-Silicium/Mu-Silicium) UEFI with the patches in `uefi/`.
+Status (2026-10-04, evening): Windows 11 ARM64 (22621) boots to the desktop via [Mu-Silicium](https://github.com/Project-Silicium/Mu-Silicium) UEFI with the patches in `uefi/`.
 The desktop can be composed by **DWM on the Adreno 610 GPU** (see [GPU](#gpu-adreno-610) below).
 
 | Feature | State |
@@ -17,8 +17,15 @@ The desktop can be composed by **DWM on the Adreno 610 GPU** (see [GPU](#gpu-adr
 | Buttons (Power, Vol-, Vol+) | works — `TopazButtons` |
 | Battery, charging, Type-C roles | works — `TopazBattery` |
 | **Wi-Fi** (scan, WPA2, internet) | **works** — `TopazWifi` (legacy 54 Mb/s for now) |
-| Rotation | portrait only on the GPU path (manual rotation in progress); worked on the plain display driver |
-| SIM data, sound, mic, camera, BT, Modern Standby | not yet — see [docs/ROADMAP.md](docs/ROADMAP.md) |
+| **Speaker** (Windows sound device, apps + volume slider) | **works** — `TopazAudio` (ADSP / AudioReach) + `TopazSpeaker` (ACX endpoint), [docs/P9_audio.md](docs/P9_audio.md) |
+| RPM requests (rails, clocks) | works — `TopazRpm` (IPA clock, GPU CX level + DDR, codec buck L14) |
+| SIM | SIM / LTE registration work; mobile data in progress ([docs/P9_sim.md](docs/P9_sim.md)) |
+| OpenGL / Vulkan apps | not yet (D3D10/11 only) — plan in [docs/P10_opengl_vulkan.md](docs/P10_opengl_vulkan.md) |
+| Rotation | portrait only on the GPU path (rotation attempt v0.46-v0.49 dropped); worked on the plain display driver |
+| Headphones jack, mic, camera, BT, Modern Standby | not yet — see [docs/ROADMAP.md](docs/ROADMAP.md) |
+
+Android stays on slot A (dual boot by slot): rules for flashing your own ROM there without breaking
+Windows in [docs/ANDROID_SLOT_A.md](docs/ANDROID_SLOT_A.md).
 
 How to boot and install drivers: [docs/WINDOWS_USB_AND_INSTALL.md](docs/WINDOWS_USB_AND_INSTALL.md).
 
@@ -33,8 +40,12 @@ How to boot and install drivers: [docs/WINDOWS_USB_AND_INSTALL.md](docs/WINDOWS_
 | `drivers/TopazTouch/` | FocalTech FT5452 touchscreen: TLMM + GCC + GENI I2C (polled) → VHF HID touch screen |
 | `drivers/TopazGpuW/` | WDDM display + render KMD for the Adreno 610 (power-up, zap, SMMU, ring, msm-style escapes, MDP scanout) |
 | `mesa-overlay/` | Mesa UMD sources/patches (freedreno + d3d10umd + WDDM winsys), built by `.github/workflows/mesa.yml` |
+| `drivers/TopazAudio/` | ADSP boot (PAS), SMP2P/GLINK/QRTR/GPR to AudioReach, lab interface `\\.\TopazAudio` (GPR, MMIO, I2C) |
+| `drivers/TopazSpeaker/` | ACX 1.0 speaker endpoint: codec bring-up, pull-mode DSP graph, volume (talks to TopazAudio) |
+| `drivers/TopazRpm/` | RPM GLINK client: IPA clock, GPU CX/DDR votes, L14, LPI rails (opt-in flags) |
 | `drivers/TopazDisplay/`, `TopazWifi/`, `TopazModem/`, `TopazBattery/`, `TopazButtons/`, `TopazCpu/` | the other platform drivers |
 | `tools/gpu/` | GPU test tools: `fpsbench.ps1`, `movebench.ps1`, `touchrate.ps1`, `hangwatch.ps1` |
+| `tools/audio/` | `taudio` (lab CLI), `wasapitest`, `kstest`, `lab/*.ps1` (the scripted speaker bring-up) |
 | `tools/deploy/install-manual.cmd` | Self-elevating installer for a driver package on a flash drive |
 | `tools/` | canary, BCD-SYS helper, unattend.xml |
 
@@ -93,9 +104,10 @@ the stack is built from open pieces. Running notes: [docs/P8_gpu.md](docs/P8_gpu
 - UMD opt-in: `C:\topaz\umd.enable`. Debug switches for the UMD process environment: `C:\ProgramData\topaz\umd.env`
   (`NAME=VALUE` lines, e.g. `TOPAZ_TIMING=1`, `FD_MESA_DEBUG=…`); log `C:\ProgramData\topaz\umd-<pid>.log` when
   `umd.log.enable` exists. KMD log `C:\TopazGpuW.log` (an `fps:` line per second).
-- GPU clock: `C:\topaz\gpu.mhz` = one of the stock OPPs (320 465 600 785 820 980 1025 1100 1260); default 785 for now.
-  **The GX/CX voltage corner is not voted over RPM yet** (VDD_GFX is shared with VDD_CX, pm6125 S3), so the
-  highest clocks run on the bootloader's rail level - keep it moderate until an RPM client exists.
+- GPU clock: `C:\topaz\gpu.mhz` = one of the stock OPPs (320 465 600 785 820 980 1025 1100 1260); the phone runs
+  **1260** with `TopazRpm` + `C:\topaz\rpm.gpu` voting CX TURBO_L1 (rwcx 0x1a0) and the top DDR (bimc) level.
+- KMD **v0.45.5**: vsync really 60 Hz (timer-callback tolerance + 1 ms timer resolution; it ran at 31-40 Hz),
+  at most one flip completion per vsync, per-second `fps:` stats (shown / flips / vsync notifies).
 
 ### Fixes that made it usable (details in docs/P8_gpu.md)
 | Problem | Cause | Fix |
@@ -107,7 +119,9 @@ the stack is built from open pieces. Running notes: [docs/P8_gpu.md](docs/P8_gpu
 | flips at ~30 FPS | vsync = 16 ms KTIMER on 15.6 ms ticks, flip done one tick late | 1 ms high-res timer, flip done right after the MDP latch |
 | CPU waits for the GPU every frame | Present did flush + fence wait | async present (KMD defers the flip to the fence) |
 | explorer crashes | per-process global scratch state shared by several D3D devices | per-device state |
+| everything ~33 FPS | vsync tick needed `now >= next` on ~15.6 ms timer callbacks → every second period | tick tolerance + 1 ms timer resolution (v0.45.1) |
 
 ### Known limits
-portrait only; GPU clock without voltage voting; no DDR bandwidth vote (likely the current bottleneck);
-Modern Standby (BSOD 0x14F) disabled via power timeouts; preemption off; only DWM/apps on FL10 (D3D10 DDI).
+portrait only; finger window drags with the blurred "lifted window" effect ~20 FPS (GPU-bound, mouse ~45);
+Modern Standby (BSOD 0x14F) disabled via power timeouts; preemption off; only DWM/apps on FL10 (D3D10 DDI) -
+no OpenGL ICD and no Vulkan driver yet (games asking for GL 2.1+/Vulkan refuse to start).

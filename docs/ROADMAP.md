@@ -1,4 +1,4 @@
-# Roadmap: Windows on Redmi Note 12 4G (topaz) — 2026-10-01
+# Roadmap: Windows on Redmi Note 12 4G (topaz) — updated 2026-10-04
 
 What works, what is being done now, and the plan for the remaining hardware. Hardware facts marked
 **DT** come from the stock device tree (s8build `~/work/topaz/backup/fdt.dts`). Items marked
@@ -21,8 +21,19 @@ wants something undocumented — each item lists its main unknown.
 | Battery, charging (~2 A at 5 V), Type-C roles | `TopazBattery` | `docs/NOTES_power.md` |
 | Modem boot (MPSS), GLINK/QRTR, rmtfs | `TopazModem` core | base for Wi-Fi and SIM |
 | **Wi-Fi** (scan, WPA2, internet) | `TopazWifi` (WiFiCx) | legacy 54 Mb/s for now |
+| CPU at max clocks | `TopazCpu` | `C:\topaz\cpu.max` |
+| **GPU** (Adreno 610, DWM on the GPU, D3D10/11) | `TopazGpuW` v0.45.5 + Mesa UMD | GPU0 UEFI; 1260 MHz with RPM votes; `docs/P8_gpu.md` |
+| Brightness slider | `TopazGpuW` / `TopazBacklight` | |
+| RPM requests | `TopazRpm` | IPA clock, GPU CX + DDR, L14, LPI rails (flags) |
+| **Speaker** (Windows sound device) | `TopazAudio` + `TopazSpeaker` (ACX) | `docs/P9_audio.md`; ADSP re-armed every boot |
+| SIM registration (LTE) | `TopazModem` / `TopazWifi` | data call in progress, `docs/P9_sim.md` |
 
-## In progress
+## In progress (2026-10-04)
+- **SIM mobile data**: AP IPA/GSI data path, `docs/HANDOFF_p9_sim_data.md`.
+- **OpenGL / Vulkan for apps**: `docs/P10_opengl_vulkan.md` (compat pack test -> Mesa WGL ICD -> turnip).
+- Audio next: headphones jack (HPH, fsa4480), microphones (TX/VA), Bluetooth audio.
+
+## Earlier notes (2026-10-01)
 - **SSH into the phone** (`tools/deploy/enable-ssh.cmd`): the build host installs drivers, reads
   logs and reboots over Wi-Fi without the flash-drive loop.
 - **Wi-Fi P6: HT/VHT** (802.11n/ac): plan in `docs/HANDOFF_p6_htvht.md`. Then P7: CE interrupts
