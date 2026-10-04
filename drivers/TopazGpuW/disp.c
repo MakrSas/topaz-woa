@@ -126,6 +126,12 @@ static ULONG g_Ticks;                            /* vsyncs reported in the curre
 static BOOLEAN g_TimerRes;
 static PHYSICAL_ADDRESS g_TickPa;                /* v0.45.2: g_ShownPa at the previous vsync */
 static ULONG g_Shown;                            /* vsyncs with a new picture in the current second */
+/* v0.45.3: with the mouse DWM flipped 99..166 times/s at 60 vsyncs/s and most flips never reached the panel: a flip
+   was reported done as soon as the CTL flush bit read clear, which can happen sooner than one panel period after
+   the previous one. Complete at most one flip per vsync period so DWM is paced to 60 Hz. */
+static LONG64 g_LastFlipDone;
+static BOOLEAN g_HeldThis;
+static ULONG g_FlipHeld;                         /* flips held back for pacing in the current second */
 
 static VOID VsyncNotify(BOOLEAN flip)
 {
@@ -176,10 +182,17 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             if (periodicTick || now >= g_NextVsync) {
                 g_FlipWaits++;
             }
+        } else if (now - g_LastFlipDone < VSYNC_PERIOD - VSYNC_PERIOD / 8) {
+            if (!g_HeldThis) {                   /* latched, but the previous flip completed less than a period ago */
+                g_HeldThis = TRUE;
+                g_FlipHeld++;
+            }
         } else {
             InterlockedExchange(&g_FlipPending, 0);
             g_ShownPa = g_ScanPa;
+            g_LastFlipDone = now;
             flip = TRUE;
+            g_HeldThis = FALSE;
             if (g_DirectActive) {
                 g_NextVsync = now + VSYNC_PERIOD;        /* the latch happened at the panel vsync: lock phase */
             }
@@ -203,12 +216,13 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             LONG f = InterlockedExchange(&g_FlipCount, 0);
             g_FpsTicks = 0;
             if (f != 0) {
-                LogPrint("fps: %u shown/s, %ld flips/s, %u vsyncs/s, timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
-                         "%u deferred to the GPU fence)\n", g_Shown, f, g_Ticks, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
+                LogPrint("fps: %u shown/s, %ld flips/s, %u held, %u vsyncs/s, timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
+                         "%u deferred to the GPU fence)\n", g_Shown, f, g_FlipHeld, g_Ticks, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
                          g_DirectActive ? "direct" : "copy", g_FlipWaits, g_DeferCount);
             }
             g_Ticks = 0;
             g_Shown = 0;
+            g_FlipHeld = 0;
             g_CbMin = 0;
             g_CbMax = 0;
         }
