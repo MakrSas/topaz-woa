@@ -22,6 +22,9 @@
  * ~21 ms - the controller is at least 3x faster and our 5 ms + 1.1 ms polling is now the limit.
  * v0.12: 0x88 = 12 by default (C:\topaz\touch.slow keeps the firmware default); while touching,
  * poll every 2 ms (full 63-byte reads, every read reported - the v0.8 short reads broke touch).
+ * v0.13: touches sometimes stuck. A frame with point count 0 can still carry a stale "contact"
+ * slot, which kept the finger down. Like Linux focaltech: count 0 (or a 0xff frame) releases
+ * everything (the existing "vanished -> lift" report); otherwise all slots are parsed.
  */
 #include "driver.h"
 
@@ -264,13 +267,19 @@ static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf, ULONGLONG ReadTi
 {
     TOUCH_REPORT rpt;
     HID_XFER_PACKET pkt;
-    ULONG i, n = 0;
+    ULONG i, n = 0, slots;
     USHORT mask = 0;
 
     RtlZeroMemory(&rpt, sizeof(rpt));
     rpt.ReportId = REPORTID_TOUCH;
 
-    for (i = 0; i < TS_MAX_CONTACTS; i++) {
+    {
+        ULONG td = Buf[2] & 0x0F;
+        /* like Linux focaltech: point count 0 (or a 0xff idle frame) = everything released;
+           otherwise parse every slot (a remaining finger need not be in slot 0) */
+        slots = (td == 0 || td > TS_MAX_CONTACTS) ? 0 : TS_MAX_CONTACTS;
+    }
+    for (i = 0; i < slots; i++) {
         const UCHAR *p = Buf + 3 + 6 * i;
         UCHAR event = p[0] >> 6;
         UCHAR id = p[2] >> 4;
