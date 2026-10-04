@@ -1148,3 +1148,11 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
     (one core busy) with the mouse. So the touch move loop runs about once per composition and the
     window lags behind the finger by a frame or more - the low vsync rate makes that lag visible.
     TopazTouch is not the bottleneck.
+- 2026-10-04 TopazGpuW v0.45.1 / v0.45.2 (branch `gpuw-vsync`, based on v0.45 = the version on the
+  phone, without the v0.46..v0.48 rotation work): vsync tick accepted up to half a timer-callback
+  interval early + ExSetTimerResolution(1 ms); log line now `fps: N shown/s, M flips/s, K vsyncs/s,
+  timer cb min..max avg us`. Result: **60 vsyncs/s** (was 31..40), timer callback every ~1.8 ms.
+  Frames really shown (new scanout address at a vsync): cursor only 47..56/s, window drag with the
+  mouse 24..48/s, window drag with a finger a steady 22..24/s (flips = shown, almost every flip
+  deferred to the GPU fence). GPU at 785 MHz (C:\topaz\gpu.mhz). Next: per-frame GPU time
+  (submit -> fence) to see whether Adreno render time or DWM cadence limits the finger drag.
