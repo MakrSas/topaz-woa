@@ -19,6 +19,8 @@ Set-Reg 0x0a7c3000 0xD04; Set-Reg 0x0a7c4000 0xD06; Set-Reg 0x0a7c5000 0xD06
 Set-Reg 0x0a95a000 0x3F3F
 # 3. VA macro (fsgen, runs on TX MCLK)
 $va = 0x0a730000; Set-Reg $va 1; Set-Reg ($va + 4) 3; Set-Reg ($va + 4) 1; Set-Reg ($va + 0x80) 2
+# 3b. VA macro SWR clock (clocks the VA SoundWire master; without it the VA master reads all zeros)
+Set-Reg ($va + 8) 2; Set-Reg ($va + 8) 3; Set-Reg ($va + 8) 1
 # 4. RX macro: MCLK+MCLK2, FS, SWR clock with reset; HCTL; master
 $rx = 0x0a600000; Set-Reg ($rx + 0x100) 3; Set-Reg ($rx + 0x104) 3; Set-Reg ($rx + 0x104) 1
 Set-Reg ($rx + 0x108) 2; Set-Reg ($rx + 0x108) 3; Set-Reg ($rx + 0x108) 1

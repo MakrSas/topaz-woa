@@ -197,3 +197,12 @@ policy, use `powershell -ExecutionPolicy Bypass -File`).
   status 1 - maybe it needs a client handle / different payload; compare the PRM HW_CORE packet with
   spf audio_prm.c prm_cmd_request_hw_core_t field by field), and look for an LPASS clock status
   register we can read safely.
+- TopazRpm v0.9 + C:\topaz\rpm.lpi: LPI MX/CX (rwlm/rwlc vlvl 0x180, the ADSP's cx/mx supplies in DT)
+  acked - no change: both masters status 0xa01, irq 0x2008, clock pads still undriven (pull-up reads 1).
+  Ruled out now: L14, LPI rails, LPI cfg bits 10/11, RX muxsel, a running CODEC_DMA graph (started,
+  status OK) - pads stay undriven. tools/audio/lab/padtest.ps1 = the pull-up pad check; bringup.ps1
+  now also starts the VA macro SWR clock.
+- Mainline Linux has sm6115 lpass macro drivers (lpass-rx/tx/va-macro, soundwire qcom.c v1.6) but no
+  DT for a board with it; mainline swrm init = ours (CGCR reset pulse, BUS_CTRL CLK_START 2, ...).
+- Proposed: get a ground-truth register dump from the stock Android (ColorOS vendor kernel) while a
+  sound plays: bolero regmap debugfs, swrm reg dump, LPI pin cfg - and diff with ours.
