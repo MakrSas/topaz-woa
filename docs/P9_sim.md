@@ -219,3 +219,10 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   -> 3, start -> 70: the EMBEDDED/1 port is unknown to the modem, not the format.
 - v0.25: DPM OPEN_PORT first (hardware data port EMBEDDED/1, IPA endpoints rx/tx 9/1 then 1/9),
   then data format -> bind -> start.
+- **v0.25 result:** DPM OPEN_PORT (hw data port EMBEDDED/1, rx 9 / tx 1) -> 0, SET_DATA_FORMAT
+  raw-IP (no aggregation, first variant) -> 0, BIND_MUX_DATA_PORT -> 0, **START_NETWORK sent and
+  never answered** (> 2 min; the modem keeps answering NAS / other QMI). Theory: the call waits for
+  the AP side of the IPA data path that DPM announced (endpoints 9 / 1 = GSI channels 3 / 0 of EE 0)
+  - nothing on the AP sets those channels up yet. Next: port Linux ipa_hardware_config + GSI
+  event ring / channel setup + endpoint config for AP_MODEM_TX (ch 0, ep 1) and AP_MODEM_RX (ch 3,
+  ep 9), RX buffers, then QMAP packets.
