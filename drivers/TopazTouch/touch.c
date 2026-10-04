@@ -8,6 +8,11 @@
  * v0.7: diagnostics only - per second while touching: reads that returned the same frame as the
  * previous read (polling at ~149 Hz vs the controller's own frame rate = repeated frames + uneven
  * steps), reads with the IRQ line asserted, min/max interval between reads.
+ * Result: almost no repeated frames while moving, IRQ never seen low (it is a short pulse), read
+ * gaps 6.0..7.7 ms (5 ms wait + 1.1 ms read) - the controller is faster than us and the samples
+ * reach Windows unevenly.
+ * v0.8: while touching wait 1 ms (1 ms timer resolution) and read only the header + first contact
+ * (9 bytes, the rest only for 2+ fingers); report only frames that changed.
  */
 #include "driver.h"
 
@@ -311,7 +316,8 @@ static VOID TouchThread(PVOID Context)
     ULONG dups = 0, irqAtRead = 0;
     LONG64 gapMin = MAXLONG64, gapMax = 0;
 
-    period.QuadPart = -10000LL * 5; /* 5 ms */
+    period.QuadPart = -10000LL * 8; /* 8 ms idle, 1 ms while touching */
+    ExSetTimerResolution(10000, TRUE);
     LogPrint("thread started\n");
 
     while (KeWaitForSingleObject(&Ctx->StopEvent, Executive, KernelMode, FALSE, &period) == STATUS_TIMEOUT) {
@@ -319,10 +325,8 @@ static VOID TouchThread(PVOID Context)
         BOOLEAN irqLow = !TlmmGetInput(&Ctx->PinIrq);
 
         polls++;
-        /* Read on IRQ assertion, while fingers are down, and every ~100 ms as a fallback. */
-        if (!irqLow && !wasTouching && (polls % 20) != 0) {
-            continue;
-        }
+        /* v0.8: always read (9 bytes, ~0.3 ms) - the IRQ pulse is too short to catch by polling,
+           and the old 100 ms idle fallback delayed the first contact of a drag by up to 100 ms. */
         if (irqLow) {
             irqAtRead++;
         }
@@ -335,7 +339,12 @@ static VOID TouchThread(PVOID Context)
             }
             lastRead = (ULONGLONG)r0;
             readTime = (ULONGLONG)r0;
-            status = GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x00, buf, sizeof(buf));
+            /* header (3) + first contact (6); the other contacts only if there are any */
+            RtlFillMemory(buf, sizeof(buf), 0xFF);              /* unread slots: event 3 = none */
+            status = GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x00, buf, 9);
+            if (NT_SUCCESS(status) && (buf[2] & 0x0F) > 1 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS) {
+                status = GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 9, buf + 9, 6 * ((buf[2] & 0x0F) - 1));
+            }
             LONG64 dt = (LONG64)KeQueryInterruptTime() - r0;   /* 100 ns */
             rdSum += dt;
             if (dt > rdMax) {
@@ -371,11 +380,14 @@ static VOID TouchThread(PVOID Context)
         }
         if (wasTouching && RtlCompareMemory(buf, prev, sizeof(buf)) == sizeof(buf)) {
             dups++;
+            continue;                                   /* same frame: nothing new for Windows */
         }
         RtlCopyMemory(prev, buf, sizeof(buf));
         wasTouching = ((buf[2] & 0x0F) != 0 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS) || Ctx->ActiveMask != 0;
         TouchProcess(Ctx, buf, readTime);
+        period.QuadPart = -10000LL * (wasTouching ? 1 : 8);
     }
+    ExSetTimerResolution(0, FALSE);
     LogPrint("thread exit (polls=%u errors=%u)\n", polls, errors);
     PsTerminateSystemThread(STATUS_SUCCESS);
 }
