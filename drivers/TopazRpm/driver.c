@@ -33,10 +33,14 @@
  * key "vlvl" (rpmpd KEY_LEVEL), 0x1a0 = TURBO_L1. DDR: bus level 7 = qcom,bus-table-ddr 16343750 KB/s;
  * icc-rpm sm6115_bimc: rate = bw * ab_coeff 153 / 100 / buswidth 8 -> bimc clock "clk2" id 0,
  * key "KHz" (the RPM clamps to its top DDR level). Both sets (active + sleep), like qcom,set = 3.
+ * v0.8: with C:\topaz\rpm.l14, switch on pm6125 L14 (WCD937x VDD_BUCK, docs/P9_audio.md: it reads OFF and
+ * apps must not write the PMIC). Stock DT rpm-regulator-ldoa14: resource "ldoa" id 14, pmic5-ldo, 1.7..1.9 V,
+ * qcom,set = 3. Linux qcom_smd-regulator keys: "uv" = 1800000 (the level the PMIC already holds), then
+ * "swen" = 1, both sets.
  */
 #include "driver.h"
 
-#define TOPAZ_RPM_VERSION   "v0.7"
+#define TOPAZ_RPM_VERSION   "v0.8"
 
 #define MSG_RAM_PA          0x045F0000ULL
 #define MSG_RAM_SIZE        0x7000
@@ -74,6 +78,10 @@
 #define CX_LEVEL_TURBO_L1   0x1A0
 #define RPM_RES_MEM_CLK     0x326B6C63u     /* "clk2", id 0 = bimc */
 #define BIMC_KHZ            (16343750u / 100 * 153 / 8)
+#define RPM_RES_LDOA        0x616F646Cu     /* "ldoa" */
+#define RPM_KEY_SWEN        0x6E657773u     /* "swen" */
+#define RPM_KEY_UV          0x00007675u     /* "uv" */
+#define L14_UV              1800000
 
 typedef struct _FIFO {
     ULONG Off, Size;                        /* {tail, head} at Off, data at Off + 8 */
@@ -434,6 +442,15 @@ static VOID Link(PDEVICE_CONTEXT Ctx)
         for (set = RPM_ACTIVE_SET; set <= RPM_SLEEP_SET; set++) {
             LogPrint("rpm: bimc %u kHz (set %u): %s\n", BIMC_KHZ, set,
                      RpmWrite(Ctx, set, RPM_RES_MEM_CLK, 0, RPM_KEY_RATE, BIMC_KHZ) ? "OK" : "FAILED");
+        }
+    }
+    if (ok && FileExists(L"\\??\\C:\\topaz\\rpm.l14")) {
+        ULONG set;
+        for (set = RPM_ACTIVE_SET; set <= RPM_SLEEP_SET; set++) {
+            LogPrint("rpm: L14 %u uV (set %u): %s\n", L14_UV, set,
+                     RpmWrite(Ctx, set, RPM_RES_LDOA, 14, RPM_KEY_UV, L14_UV) ? "OK" : "FAILED");
+            LogPrint("rpm: L14 enable (set %u): %s\n", set,
+                     RpmWrite(Ctx, set, RPM_RES_LDOA, 14, RPM_KEY_SWEN, 1) ? "OK" : "FAILED");
         }
     }
     if (ok && FileExists(L"\\??\\C:\\topaz\\ipa.probe")) {
