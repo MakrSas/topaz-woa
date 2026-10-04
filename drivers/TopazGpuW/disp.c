@@ -86,7 +86,7 @@ static volatile LONG g_FlipPending;
 static volatile LONG g_VsyncOn;
 static KMUTEX g_ScanLock;                       /* engine copies vs. DestroyAllocation */
 
-static volatile LONG g_FlipCount, g_FpsTicks;   /* v0.39: flips per second in the log */
+static volatile LONG g_FlipCount;              /* v0.39: flips per second in the log */
 static KTIMER g_VsyncTimer;
 static KDPC g_VsyncDpc;
 static BOOLEAN g_TimerOn;
@@ -124,13 +124,16 @@ static LONG64 g_CbLast, g_CbAvg;                 /* 100 ns; g_CbAvg = moving ave
 static LONG64 g_CbMin, g_CbMax;
 static ULONG g_Ticks;                            /* vsyncs reported in the current second */
 static BOOLEAN g_TimerRes;
-static PHYSICAL_ADDRESS g_TickPa;                /* v0.45.2: g_ShownPa at the previous vsync */
 static ULONG g_Shown;                            /* vsyncs with a new picture in the current second */
 /* v0.45.3: with the mouse DWM flipped 99..166 times/s at 60 vsyncs/s and most flips never reached the panel: a flip
    was reported done as soon as the CTL flush bit read clear, which can happen sooner than one panel period after
    the previous one. Complete at most one flip per vsync period so DWM is paced to 60 Hz. */
 static LONG64 g_LastFlipDone;
 static BOOLEAN g_HeldThis;
+/* v0.45.5: the stats window was 60 *ticks*, but a completed flip re-locks the tick phase, so while DWM flips ticks
+   are rare and "60 vsyncs/s" was true by construction. Use a 1 s wall-clock window and count what DxgKrnl gets. */
+static LONG64 g_StatStart;
+static ULONG g_Notifies, g_Done;
 static volatile LONG g_FlipOverrun, g_FlipImm;   /* v0.45.4: flips replacing a pending one / FlipImmediate flips */
 static ULONG g_FlipHeld;                         /* flips held back for pacing in the current second */
 
@@ -190,6 +193,10 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             }
         } else {
             InterlockedExchange(&g_FlipPending, 0);
+            if (g_ShownPa.QuadPart != g_ScanPa.QuadPart) {
+                g_Shown++;
+            }
+            g_Done++;
             g_ShownPa = g_ScanPa;
             g_LastFlipDone = now;
             flip = TRUE;
@@ -202,10 +209,6 @@ static VOID VsyncWork(BOOLEAN periodicTick)
     if (periodicTick || now + slack >= g_NextVsync) {
         tick = TRUE;
         g_Ticks++;
-        if (g_ShownPa.QuadPart != g_TickPa.QuadPart) {
-            g_TickPa = g_ShownPa;
-            g_Shown++;
-        }
         if (!periodicTick) {
             g_NextVsync += VSYNC_PERIOD;
             if (g_NextVsync <= now) {
@@ -213,27 +216,34 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             }
         }
         g_LastVsync = now;
-        if (++g_FpsTicks >= REFRESH) {
-            LONG f = InterlockedExchange(&g_FlipCount, 0);
-            g_FpsTicks = 0;
-            if (f != 0) {
-                LogPrint("fps: %u shown/s, %ld flips/s (%ld replaced a pending flip, %ld immediate), %u held, %u vsyncs/s, timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
-                         "%u deferred to the GPU fence)\n", g_Shown, f, InterlockedExchange(&g_FlipOverrun, 0),
-                         InterlockedExchange(&g_FlipImm, 0), g_FlipHeld, g_Ticks, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
-                         g_DirectActive ? "direct" : "copy", g_FlipWaits, g_DeferCount);
-            }
-            g_Ticks = 0;
-            g_Shown = 0;
-            g_FlipHeld = 0;
-            g_CbMin = 0;
-            g_CbMax = 0;
-        }
         if (InterlockedExchange(&g_ScanDirty, 0)) {
             EngKickScanout();
         }
     }
     if (flip || tick) {
+        g_Notifies++;
         VsyncNotify(flip);
+    }
+    if (g_StatStart == 0) {
+        g_StatStart = now;
+    } else if (now - g_StatStart >= 10000000LL) {
+        LONG f = InterlockedExchange(&g_FlipCount, 0);
+        if (f != 0) {
+            LogPrint("fps: %u shown/s, %ld flips/s, %u done, %u held, %ld overrun, %ld immediate | vsync notifies %u "
+                     "(%u timer ticks) in %lld ms | timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
+                     "%u deferred to the GPU fence)\n", g_Shown, f, g_Done, g_FlipHeld,
+                     InterlockedExchange(&g_FlipOverrun, 0), InterlockedExchange(&g_FlipImm, 0), g_Notifies, g_Ticks,
+                     (now - g_StatStart) / 10000, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
+                     g_DirectActive ? "direct" : "copy", g_FlipWaits, g_DeferCount);
+        }
+        g_StatStart = now;
+        g_Ticks = 0;
+        g_Shown = 0;
+        g_Done = 0;
+        g_Notifies = 0;
+        g_FlipHeld = 0;
+        g_CbMin = 0;
+        g_CbMax = 0;
     }
 }
 
