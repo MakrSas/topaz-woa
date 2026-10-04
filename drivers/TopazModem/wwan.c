@@ -188,20 +188,38 @@ STATIC UINT16 PutU32(UINT8 *T, UINT16 N, UINT8 Type, UINT32 V)
   return (UINT16)(N + 7);
 }
 
+/*
+ * v0.23: SET_DATA_FORMAT (raw-IP + QMAP 5 + DL 32/16K + EMBEDDED/1) -> error 70. Try variants in
+ * one boot until one is accepted (Android netmgr_config.xml: msmsteppe QMAPv4 = 8, DL 10 / 8192;
+ * gen4 QMAPv4, DL 31 / 16384, UL 32 / 16384).
+ */
+typedef struct { UINT32 Agg, DlPkt, DlSize; CONST CHAR8 *Name; } DATA_FMT;
+STATIC CONST DATA_FMT mFmt[] = {
+  { 0, 0,  0,     "raw-IP only" },
+  { 8, 10, 8192,  "QMAPv4 DL 10/8192 (Android msmsteppe)" },
+  { 9, 10, 8192,  "QMAPv5 DL 10/8192" },
+  { 5, 32, 32768, "QMAP DL 32/32768" },
+  { 8, 31, 16384, "QMAPv4 DL 31/16384 (Android gen4)" },
+};
+STATIC UINTN mFmtTry;
+
 STATIC VOID SetDataFormat(VOID)
 {
+  CONST DATA_FMT *f = &mFmt[mFmtTry];
   UINT8 t[80];
   UINT16 n = 0;
 
   n = PutU32 (t, n, 0x11, 2);                     /* link layer: raw IP */
-  n = PutU32 (t, n, 0x12, 5);                     /* UL aggregation: QMAP */
-  n = PutU32 (t, n, 0x13, 5);                     /* DL aggregation: QMAP */
-  n = PutU32 (t, n, 0x15, 32);                    /* DL max datagrams */
-  n = PutU32 (t, n, 0x16, 16384);                 /* DL max size */
+  if (f->Agg != 0) {
+    n = PutU32 (t, n, 0x12, f->Agg);              /* UL aggregation protocol */
+    n = PutU32 (t, n, 0x13, f->Agg);              /* DL aggregation protocol */
+    n = PutU32 (t, n, 0x15, f->DlPkt);            /* DL max datagrams */
+    n = PutU32 (t, n, 0x16, f->DlSize);           /* DL max size */
+  }
   t[n] = 0x17; *(UINT16 *)(t + n + 1) = 8;
   *(UINT32 *)(t + n + 3) = EP_TYPE_EMBEDDED; *(UINT32 *)(t + n + 7) = EP_IFACE; n = (UINT16)(n + 11);
   mFormatSent = TRUE;
-  Out ("  wwan: WDA SET_DATA_FORMAT raw-IP, QMAP, endpoint embedded/%u\r\n", EP_IFACE);
+  Out ("  wwan: WDA SET_DATA_FORMAT try %u: %a, endpoint embedded/%u\r\n", (UINT32)mFmtTry, f->Name, EP_IFACE);
   Send (CL_WDA, WDA_SET_DATA_FORMAT, t, n);
 }
 
@@ -236,7 +254,12 @@ STATIC VOID WdaRx(UINT16 Msg, CONST UINT8 *D, UINT32 Len)
     Out (", DL agg %u", *(CONST UINT32 *)v);
   }
   Out ("\r\n");
-  BindMuxPort ();                                 /* even on error: the bind result tells more */
+  if (err != 0 && mFmtTry + 1 < ARRAY_SIZE (mFmt)) {
+    mFmtTry++;
+    SetDataFormat ();
+    return;
+  }
+  BindMuxPort ();                                 /* accepted (or all variants failed): go on */
 }
 
 STATIC VOID StartNetwork(VOID)
@@ -328,6 +351,10 @@ STATIC VOID Poll(VOID)
 VOID WwanArrive(UINT32 Svc, UINT32 Node, UINT32 Port)
 {
   UINTN c;
+
+  if (Svc == 0x2F) {
+    Out ("  wwan: DPM service (0x2f) present: node %u port %x\r\n", Node, Port);   /* Android: qmi_dpm_enabled */
+  }
 
   for (c = 0; c < CL_COUNT; c++) {
     if (mCl[c].Svc == Svc && !mCl[c].Up) {

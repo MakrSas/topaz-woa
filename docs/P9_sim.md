@@ -210,3 +210,8 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   end reason: the data path was never described to the modem.
 - v0.23: WDA SET_DATA_FORMAT (raw-IP, QMAP UL/DL, DL 32 datagrams / 16 KiB, endpoint EMBEDDED/1),
   WDS BIND_MUX_DATA_PORT (EMBEDDED/1, mux 1), then START_NETWORK.
+- v0.23 result: SET_DATA_FORMAT -> error 70, BIND_MUX_DATA_PORT -> error 3, START_NETWORK -> 70.
+- Android reference: vendor_a /etc/data/netmgr_config.xml (platform bengal): qmi_dpm_enabled 1,
+  wda_data_format_enabled 1, QMAPv4 (8), msmsteppe DL 10/8192, gen4 DL 31/16384 + UL 32/16384,
+  phys dev rmnet_ipa0. v0.24 tries data-format variants in one boot (raw-IP only, QMAPv4, QMAPv5,
+  QMAP 32/32K, QMAPv4 gen4) and logs whether the DPM service (0x2f) exists.
