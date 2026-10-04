@@ -90,7 +90,7 @@ static volatile LONG g_FlipPending;
 static volatile LONG g_VsyncOn;
 static KMUTEX g_ScanLock;                       /* engine copies vs. DestroyAllocation */
 
-static volatile LONG g_FlipCount, g_FpsTicks;   /* v0.39: flips per second in the log */
+static volatile LONG g_FlipCount;              /* v0.39: flips per second in the log */
 static KTIMER g_VsyncTimer;
 static KDPC g_VsyncDpc;
 static BOOLEAN g_TimerOn;
@@ -121,6 +121,26 @@ static PEX_TIMER g_HrTimer;
 static LONG64 g_NextVsync;                       /* interrupt time (100 ns) of the next 60 Hz tick */
 #define VSYNC_PERIOD (10000000LL / REFRESH)
 
+/* v0.45.1: a WPR trace showed DxgKrnl getting only 31..40 vsyncs/s (intervals 30..35 ms): the "1 ms" timer
+   callback arrived every ~15.6 ms, so `now >= g_NextVsync` held on every second callback only. Measure the
+   real callback interval (logged with the fps line) and accept a tick up to half an interval early. */
+static LONG64 g_CbLast, g_CbAvg;                 /* 100 ns; g_CbAvg = moving average (1/8) */
+static LONG64 g_CbMin, g_CbMax;
+static ULONG g_Ticks;                            /* vsyncs reported in the current second */
+static BOOLEAN g_TimerRes;
+static ULONG g_Shown;                            /* vsyncs with a new picture in the current second */
+/* v0.45.3: with the mouse DWM flipped 99..166 times/s at 60 vsyncs/s and most flips never reached the panel: a flip
+   was reported done as soon as the CTL flush bit read clear, which can happen sooner than one panel period after
+   the previous one. Complete at most one flip per vsync period so DWM is paced to 60 Hz. */
+static LONG64 g_LastFlipDone;
+static BOOLEAN g_HeldThis;
+/* v0.45.5: the stats window was 60 *ticks*, but a completed flip re-locks the tick phase, so while DWM flips ticks
+   are rare and "60 vsyncs/s" was true by construction. Use a 1 s wall-clock window and count what DxgKrnl gets. */
+static LONG64 g_StatStart;
+static ULONG g_Notifies, g_Done;
+static volatile LONG g_FlipOverrun, g_FlipImm;   /* v0.45.4: flips replacing a pending one / FlipImmediate flips */
+static ULONG g_FlipHeld;                         /* flips held back for pacing in the current second */
+
 static VOID VsyncNotify(BOOLEAN flip)
 {
     BOOLEAN ret;
@@ -136,6 +156,25 @@ static VOID VsyncWork(BOOLEAN periodicTick)
 {
     LONG64 now = (LONG64)KeQueryInterruptTime();
     BOOLEAN flip = FALSE, tick = FALSE;
+    LONG64 slack = 0;
+
+    if (!periodicTick) {
+        if (g_CbLast != 0) {
+            LONG64 d = now - g_CbLast;
+            g_CbAvg = g_CbAvg == 0 ? d : g_CbAvg + (d - g_CbAvg) / 8;
+            if (g_CbMin == 0 || d < g_CbMin) {
+                g_CbMin = d;
+            }
+            if (d > g_CbMax) {
+                g_CbMax = d;
+            }
+        }
+        g_CbLast = now;
+        slack = g_CbAvg / 2;
+        if (slack > VSYNC_PERIOD / 2) {
+            slack = VSYNC_PERIOD / 2;
+        }
+    }
 
     if (g_Deferred) {
         if ((LONG)(HwCompletedFence() - g_DeferFence) >= 0 && g_DeferAl == g_ScanCur) {
@@ -151,17 +190,29 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             if (periodicTick || now >= g_NextVsync) {
                 g_FlipWaits++;
             }
+        } else if (now - g_LastFlipDone < VSYNC_PERIOD - VSYNC_PERIOD / 8) {
+            if (!g_HeldThis) {                   /* latched, but the previous flip completed less than a period ago */
+                g_HeldThis = TRUE;
+                g_FlipHeld++;
+            }
         } else {
             InterlockedExchange(&g_FlipPending, 0);
+            if (g_ShownPa.QuadPart != g_ScanPa.QuadPart) {
+                g_Shown++;
+            }
+            g_Done++;
             g_ShownPa = g_ScanPa;
+            g_LastFlipDone = now;
             flip = TRUE;
+            g_HeldThis = FALSE;
             if (g_DirectActive) {
                 g_NextVsync = now + VSYNC_PERIOD;        /* the latch happened at the panel vsync: lock phase */
             }
         }
     }
-    if (periodicTick || now >= g_NextVsync) {
+    if (periodicTick || now + slack >= g_NextVsync) {
         tick = TRUE;
+        g_Ticks++;
         if (!periodicTick) {
             g_NextVsync += VSYNC_PERIOD;
             if (g_NextVsync <= now) {
@@ -169,20 +220,34 @@ static VOID VsyncWork(BOOLEAN periodicTick)
             }
         }
         g_LastVsync = now;
-        if (++g_FpsTicks >= REFRESH) {
-            LONG f = InterlockedExchange(&g_FlipCount, 0);
-            g_FpsTicks = 0;
-            if (f != 0) {
-                LogPrint("fps: %ld flips/s (%s, %u waits for the MDP latch, %u deferred to the GPU fence)\n", f,
-                         g_DirectActive ? "direct" : "copy", g_FlipWaits, g_DeferCount);
-            }
-        }
         if (InterlockedExchange(&g_ScanDirty, 0)) {
             EngKickScanout();
         }
     }
     if (flip || tick) {
+        g_Notifies++;
         VsyncNotify(flip);
+    }
+    if (g_StatStart == 0) {
+        g_StatStart = now;
+    } else if (now - g_StatStart >= 10000000LL) {
+        LONG f = InterlockedExchange(&g_FlipCount, 0);
+        if (f != 0) {
+            LogPrint("fps: %u shown/s, %ld flips/s, %u done, %u held, %ld overrun, %ld immediate | vsync notifies %u "
+                     "(%u timer ticks) in %lld ms | timer cb %lld..%lld avg %lld us (%s, %u waits for the MDP latch, "
+                     "%u deferred to the GPU fence)\n", g_Shown, f, g_Done, g_FlipHeld,
+                     InterlockedExchange(&g_FlipOverrun, 0), InterlockedExchange(&g_FlipImm, 0), g_Notifies, g_Ticks,
+                     (now - g_StatStart) / 10000, g_CbMin / 10, g_CbMax / 10, g_CbAvg / 10,
+                     g_DirectActive ? "direct" : "copy", g_FlipWaits, g_DeferCount);
+        }
+        g_StatStart = now;
+        g_Ticks = 0;
+        g_Shown = 0;
+        g_Done = 0;
+        g_Notifies = 0;
+        g_FlipHeld = 0;
+        g_CbMin = 0;
+        g_CbMax = 0;
     }
 }
 
@@ -361,6 +426,12 @@ NTSTATUS DispSetSourceAddress(const DXGKARG_SETVIDPNSOURCEADDRESS *A)
 
     BOOLEAN direct;
 
+    if (g_FlipPending) {
+        InterlockedIncrement(&g_FlipOverrun);
+    }
+    if (A->Flags.FlipImmediate) {
+        InterlockedIncrement(&g_FlipImm);
+    }
     g_ScanCur = (TGPU_ALLOCATION *)A->hAllocation;
     g_ScanPa = A->PrimaryAddress;
     InterlockedIncrement(&g_FlipCount);
@@ -474,6 +545,8 @@ NTSTATUS DispStart(PDXGKRNL_INTERFACE Dxgk)
     g_NextVsync = (LONG64)KeQueryInterruptTime() + VSYNC_PERIOD;
     g_HrTimer = ExAllocateTimer(HrTimerCb, NULL, EX_TIMER_HIGH_RESOLUTION);
     if (g_HrTimer != NULL) {
+        LogPrint("vsync: timer resolution %lu us (requested 1000)\n", ExSetTimerResolution(10000, TRUE) / 10);
+        g_TimerRes = TRUE;
         ExSetTimer(g_HrTimer, -10000LL, 10000LL, NULL);     /* 1 ms poll, vsync phase in VsyncWork */
         LogPrint("vsync: 1 ms high-resolution timer, flip done at the MDP latch\n");
     } else {
@@ -499,6 +572,10 @@ VOID DispStop(VOID)
             ExInitializeDeleteTimerParameters(&dp);
             ExDeleteTimer(g_HrTimer, TRUE, TRUE, &dp);   /* cancel + wait for a running callback */
             g_HrTimer = NULL;
+            if (g_TimerRes) {
+                ExSetTimerResolution(0, FALSE);
+                g_TimerRes = FALSE;
+            }
         } else {
             KeCancelTimer(&g_VsyncTimer);
         }

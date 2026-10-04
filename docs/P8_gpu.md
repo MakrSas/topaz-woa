@@ -1181,3 +1181,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   DDR clock is not the limit (or the bootloader already left it high); the blurred touch drag is
   limited by how our GPU stack renders it. Next: per-frame GPU time and what the blur passes cost
   in the Mesa UMD (GMEM vs sysmem / bypass rendering, UBWC, resolve copies).
+- TopazGpuW v0.49 (display): the gpuw-vsync work (v0.45.1..v0.45.5: vsync tick tolerance + 1 ms timer
+  resolution, one flip completion per vsync period, 1 s wall-clock fps stats) ported onto v0.48
+  (rotation) - the disp.c diff e107db5..gpuw-vsync applied cleanly. Not yet run on the phone (it runs
+  v0.45.5 from gpuw-vsync; v0.46/v0.47 had BSODs, v0.48 is untested there). Branch gpuw-vsync is kept
+  as the record of the tested v0.45.x builds.
