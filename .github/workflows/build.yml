@@ -61,6 +61,8 @@ jobs:
           New-Item -ItemType Directory -Force out\taudio | Out-Null
           cl /nologo /O2 /W3 tools\audio\taudio.c /Fe:out\taudio\taudio.exe
           if ($LASTEXITCODE) { throw "taudio build failed" }
+          cl /nologo /O2 /W3 /EHsc tools\audio\wasapitest.cpp /Fe:out\taudio\wasapitest.exe ole32.lib
+          if ($LASTEXITCODE) { throw "wasapitest build failed" }
 
       - name: Package, catalog and test-sign
         shell: pwsh
