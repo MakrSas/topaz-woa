@@ -10,12 +10,13 @@
 #pragma once
 
 #include <ntddk.h>
-#include <wdf.h>
-#include <acx.h>
+#include <windef.h>
+#include <mmsystem.h>
 #include <ks.h>
 #include <ksmedia.h>
-#include <mmsystem.h>
 #include <ntstrsafe.h>
+#include <wdf.h>
+#include <acx.h>
 
 #define TSPK_VERSION   "v0.1"
 #define TSPK_TAG       'kpsT'
