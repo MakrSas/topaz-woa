@@ -1161,3 +1161,12 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   shown/s while DWM flips 99..166/s - more flips than vsyncs, most replaced before they reach the
   panel (direct flips complete at the MDP latch without waiting for the next vsync tick?). Next
   levers: RPM vote for CX level + DDR bandwidth (TopazRpm), and why flips outrun vsync on mouse drags.
+- TopazGpuW v0.45.3..v0.45.5 (branch gpuw-vsync): at most one flip completion per vsync period
+  (v0.45.3), overrun/FlipImmediate counters (v0.45.4: both always 0), and **v0.45.5 1 s wall-clock
+  stats** - the old window was 60 timer ticks, but a completed flip re-locks the tick phase, so while
+  DWM flips there are few ticks: the window stretched to 1.5..2 s and "60 vsyncs/s" was true by
+  construction. Earlier shown/flips numbers (v0.45.2..4) are per stretched window, not per second.
+  Real numbers (v0.45.5, 1260 MHz): window drag with the mouse 38..54 frames/s, with a finger a steady
+  17..22 frames/s; flips = completed = shown, no overruns, almost every frame deferred to the GPU fence.
+  DxgKrnl gets 63..80 vsync notifications/s (flip completions + timer ticks; a tick can land ~1 ms
+  before a flip completion in the same period - minor, to clean up).
