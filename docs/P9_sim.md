@@ -198,3 +198,5 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
 - Next: (1) make the IPA path default (no one-shot gsi.alloc), (2) data path: QMI WDS start network
   with the t2 APN ("internet.tele2.ru"), IPA AP<->modem endpoints (Linux ipa_endpoint / ipa_modem,
   rmnet/QMAP), (3) Windows: MBBCx "Cellular" adapter.
+- v0.21: modem GSI channel allocation on every ipa.on boot (gsi.alloc gone; C:\topaz\fw\gsi.off
+  skips it), step log without flush/stall. Flags for a working SIM: rpm.on, fw\ipa.on, fw\sim.on.

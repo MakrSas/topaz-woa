@@ -492,44 +492,26 @@ STATIC VOID IpaCanaries(VOID)
 
 /*
  * v0.15: the TopazWifi modem thread (pinned to core 0) never came back from this function - no
- * line after the canaries, Wi-Fi dead, the next GPU boot hung. v0.16: one-shot flag
- * C:\topaz\fw\gsi.alloc (deleted before the first access) and a log line before every
- * register access, to find the access that stalls.
+ * line after the canaries, Wi-Fi dead, the next GPU boot hung. v0.16..v0.20 used a one-shot
+ * flag and a log line before every register access; the cause was the GSI interrupt mode (MSI)
+ * - see gsi_irq_setup below. v0.21: runs on every ipa.on boot (C:\topaz\fw\gsi.off skips it).
  */
-STATIC BOOLEAN FlagTake(EFI_FILE_PROTOCOL *Root, CONST CHAR16 *Name)
-{
-  EFI_FILE_PROTOCOL *f = NULL;
-  WCHAR path[64];
-  UNICODE_STRING us;
-  OBJECT_ATTRIBUTES oa;
-  IO_STATUS_BLOCK iosb;
-  HANDLE h;
-
-  if (EFI_ERROR (Root->Open (Root, &f, (CHAR16 *)Name, EFI_FILE_MODE_READ, 0))) {
-    return FALSE;
-  }
-  f->Close (f);
-  RtlStringCbPrintfW (path, sizeof (path), L"\\??\\C:\\topaz\\fw%s", Name);
-  RtlInitUnicodeString (&us, path);
-  InitializeObjectAttributes (&oa, &us, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-  if (NT_SUCCESS (ZwCreateFile (&h, DELETE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
-                                FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE, NULL, 0))) {
-    ZwClose (h);
-  }
-  return TRUE;
-}
-
-#define GSTEP(...)  do { Out ("  ipa: gsi step " __VA_ARGS__); LogHardFlush (); KeStallExecutionProcessor (50000); } while (0)
+#define GSTEP(...)  Out ("  ipa: gsi step " __VA_ARGS__)
 
 STATIC VOID GsiAllocModemChannels(EFI_FILE_PROTOCOL *Root)
 {
   volatile UINT32 *g;
   UINT32 ch, t, st = 0, res, v;
 
-  if (!FlagTake (Root, L"\\gsi.alloc")) {
-    Out ("  ipa: C:\\topaz\\fw\\gsi.alloc absent: modem GSI channels not allocated\r\n");
-    return;
+  /* v0.21: part of every ipa.on boot (v0.20 proved it; the wifi.boot guard covers a crash).
+     C:\topaz\fw\gsi.off skips it for experiments. */
+  {
+    EFI_FILE_PROTOCOL *f = NULL;
+    if (!EFI_ERROR (Root->Open (Root, &f, L"\\gsi.off", EFI_FILE_MODE_READ, 0))) {
+      f->Close (f);
+      Out ("  ipa: C:\\topaz\\fw\\gsi.off present: modem GSI channels not allocated\r\n");
+      return;
+    }
   }
   GSTEP ("map %08x\r\n", GSI_EE0_PA);
   g = MapPhys (GSI_EE0_PA, SIZE_4KB, FALSE);
