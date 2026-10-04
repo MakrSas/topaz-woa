@@ -5,6 +5,9 @@
  * read from the controller. Windows' touch stack smooths / predicts contacts by it; without it
  * only the report arrival time is known, which jitters with the ~1.1 ms I2C read. Finger drags
  * felt rougher than mouse drags at the same ~150 reports/s.
+ * v0.7: diagnostics only - per second while touching: reads that returned the same frame as the
+ * previous read (polling at ~149 Hz vs the controller's own frame rate = repeated frames + uneven
+ * steps), reads with the IRQ line asserted, min/max interval between reads.
  */
 #include "driver.h"
 
@@ -303,7 +306,10 @@ static VOID TouchThread(PVOID Context)
     ULONG errors = 0, polls = 0, reads = 0, statPolls = 0;
     LONG64 rdSum = 0, rdMax = 0, statT0 = (LONG64)KeQueryInterruptTime();
     BOOLEAN wasTouching = FALSE;
-    ULONGLONG readTime = 0;
+    ULONGLONG readTime = 0, lastRead = 0;
+    UCHAR prev[FTS_TOUCH_DATA_LEN];
+    ULONG dups = 0, irqAtRead = 0;
+    LONG64 gapMin = MAXLONG64, gapMax = 0;
 
     period.QuadPart = -10000LL * 5; /* 5 ms */
     LogPrint("thread started\n");
@@ -317,8 +323,17 @@ static VOID TouchThread(PVOID Context)
         if (!irqLow && !wasTouching && (polls % 20) != 0) {
             continue;
         }
+        if (irqLow) {
+            irqAtRead++;
+        }
         {
             LONG64 r0 = (LONG64)KeQueryInterruptTime();
+            if (lastRead != 0 && wasTouching) {
+                LONG64 gap = r0 - (LONG64)lastRead;
+                gapMin = min(gapMin, gap);
+                gapMax = max(gapMax, gap);
+            }
+            lastRead = (ULONGLONG)r0;
             readTime = (ULONGLONG)r0;
             status = GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x00, buf, sizeof(buf));
             LONG64 dt = (LONG64)KeQueryInterruptTime() - r0;   /* 100 ns */
@@ -333,9 +348,14 @@ static VOID TouchThread(PVOID Context)
             LONG64 now = (LONG64)KeQueryInterruptTime();
             if (now - statT0 >= 10000000LL) {
                 if (wasTouching && reads) {
-                    LogPrint("rate: %u polls, %u reads/s, read avg %lld us max %lld us\n", polls - statPolls, reads,
-                             rdSum / reads / 10, rdMax / 10);
+                    LogPrint("rate: %u polls, %u reads/s, read avg %lld us max %lld us, same-frame %u, irq low %u, gap %lld..%lld us\n",
+                             polls - statPolls, reads, rdSum / reads / 10, rdMax / 10, dups, irqAtRead,
+                             gapMin == MAXLONG64 ? 0 : gapMin / 10, gapMax / 10);
                 }
+                dups = 0;
+                irqAtRead = 0;
+                gapMin = MAXLONG64;
+                gapMax = 0;
                 statT0 = now;
                 statPolls = polls;
                 reads = 0;
@@ -349,6 +369,10 @@ static VOID TouchThread(PVOID Context)
             }
             continue;
         }
+        if (wasTouching && RtlCompareMemory(buf, prev, sizeof(buf)) == sizeof(buf)) {
+            dups++;
+        }
+        RtlCopyMemory(prev, buf, sizeof(buf));
         wasTouching = ((buf[2] & 0x0F) != 0 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS) || Ctx->ActiveMask != 0;
         TouchProcess(Ctx, buf, readTime);
     }
