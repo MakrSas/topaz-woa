@@ -237,3 +237,5 @@ WCD937x AUX PA -> sia8159. Sequence after a fresh ADSP boot (tools/audio/lab, al
    (`play.ps1` runs 5-6). Stop: `graphstop.ps1`, amp off: `taudio i2c 0x2b 5 0`.
 Too loud: amplitude 0.3 + stock amp gain. Next: volume (RX2 digital gain 0xa600510? / sia8159 gain,
 lower sine amplitude), then a real Windows audio endpoint (ACX / portcls) on top of this chain.
+- Volume: RX2 digital gain = `RX_RX2_RX_VOL_CTL` 0xa600514 (s8 dB, -84..+40, stock control "RX_RX2 Digital
+  Volume"), `vol.ps1 -Db N`. `beep.ps1` (codec already up): -30 dB + amplitude 0.1 = comfortable (user).
