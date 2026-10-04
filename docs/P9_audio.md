@@ -221,3 +221,19 @@ policy, use `powershell -ExecutionPolicy Bypass -File`).
 - **Result (bringup.ps1, fresh ADSP boot):** RX master MCP_SLV_STATUS 4, enumerated 0x01170224 (wcd937x
   rx slave), VA master 0x01170223 (tx slave); clock pads toggle. Next: WCD937x init (stock regmap
   writes in playback_start_trace.txt), AUX path + sia8159, data path.
+
+### 2026-10-04: FIRST SOUND from the speaker (Windows, lab scripts)
+User: tone at full volume. Chain: shared-memory sine (taudio buf) -> SH_MEM_PULL_MODE -> CODEC_DMA_SINK
+(RX_CODEC_DMA_RX_1 = AIF2_PB -> RX_MACRO RX2 -> INT2 -> AUX) -> RX SoundWire ports 2 (CLSH) / 4 (LO) ->
+WCD937x AUX PA -> sia8159. Sequence after a fresh ADSP boot (tools/audio/lab, all on the phone in C:\topaz\stage):
+1. `bringup.ps1` - DCODEC vote, TX core/NPL clocks only, pins, macros, both SoundWire masters, codec reset.
+2. `smmu_audio.ps1` - identity context bank for the audio DMA stream 0x1C1 (DT msm-audio-ion).
+3. `rx_stock.ps1` - 119 RX macro registers from the stock dump (path CTL last).
+4. `wcd_aux.ps1` - WCD937x init_reg + RX clocks + AUX DAC (TX slave on the VA bus, dev 1).
+5. `tone.ps1` - buffers + APM_CMD_SHARED_MEM_MAP_REGIONS (raw `taudio cmd`, no apm_cmd_header; msw 1 =
+   SID offset; pos buffer with property 0x2 is required or PULL_PUSH_MODE_CFG fails with status 1),
+   graph open/config/prepare/start. The pos buffer index advances = the DSP consumes the buffer.
+6. `ports.ps1` (bank 1 port config + broadcast bank switch), `wcd_auxpa.ps1`, `amp.ps1`, RX2 unmute 0x24
+   (`play.ps1` runs 5-6). Stop: `graphstop.ps1`, amp off: `taudio i2c 0x2b 5 0`.
+Too loud: amplitude 0.3 + stock amp gain. Next: volume (RX2 digital gain 0xa600510? / sia8159 gain,
+lower sine amplitude), then a real Windows audio endpoint (ACX / portcls) on top of this chain.
