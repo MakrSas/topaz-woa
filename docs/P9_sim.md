@@ -188,3 +188,13 @@ qcom_glink_rpm.c: TOC (256 B) at the end of the msg RAM, magic "grt0", FIFOs "ap
   answered result 0, modem DRIVER_INIT_COMPLETE (0x35) acked, INIT_COMPLETE indication sent, then
   the modem continued with IPA QMI requests 0x27 (56 B) and 0x23 (2965 B, filter rules?) - both
   acked generically for now.
+- **2026-10-04: SIM WORKS - registered on t2 LTE.** v0.20 + ipa.on + gsi.alloc + sim.on: IPA
+  handshake as above, USIM READY, then `network REGISTERED, cs 1 ps 1, radio lte, operator
+  250-20 "t"`, LTE rsrp -87..-100 dBm, rsrq -10 dB, snr 2.6..5.8 dB; no modem_cfg starvation,
+  modem + Wi-Fi stay up. Root cause of the old crash confirmed: the modem needs the AP IPA driver
+  (GSI fw, modem GSI channels, INIT_DRIVER/INIT_COMPLETE) once the subscription is active.
+- Required flags now: C:\topaz\rpm.on, C:\topaz\fw\ipa.on, C:\topaz\fw\gsi.alloc (one-shot! make it
+  permanent next), C:\topaz\fw\sim.on.
+- Next: (1) make the IPA path default (no one-shot gsi.alloc), (2) data path: QMI WDS start network
+  with the t2 APN ("internet.tele2.ru"), IPA AP<->modem endpoints (Linux ipa_endpoint / ipa_modem,
+  rmnet/QMAP), (3) Windows: MBBCx "Cellular" adapter.
