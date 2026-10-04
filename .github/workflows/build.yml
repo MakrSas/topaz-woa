@@ -16,14 +16,6 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
-      - name: ACX 1.0 API names (format lists / modes)
-        shell: pwsh
-        run: |
-          $d = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\km\acx\km\1.0"
-          if (-not (Test-Path $d)) { $d = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Recurse -Directory -Filter "1.0" | ? FullName -match "acx" | Select -First 1).FullName }
-          "acx dir: $d"
-          Select-String -Path "$d\*.h" -Pattern "DataFormatList|SignalProcessingMode|ModeDataFormat" | % { "$($_.Filename):$($_.LineNumber): $($_.Line.Trim())" } | Select -First 60
-
       - name: Build drivers (ARM64 Release)
         run: |
           msbuild drivers\TopazTouch\TopazTouch.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal

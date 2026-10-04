@@ -103,7 +103,7 @@ static NTSTATUS SpkEvtPinSetFormat(ACXPIN Pin, ACXDATAFORMAT DataFormat)
 }
 
 static NTSTATUS AddFormat(WDFDEVICE Device, ACXCIRCUIT Circuit, ACXDATAFORMATLIST List,
-                          KSDATAFORMAT_WAVEFORMATEXTENSIBLE *Wave)
+                          KSDATAFORMAT_WAVEFORMATEXTENSIBLE *Wave, ACXDATAFORMAT *Out)
 {
     ACX_DATAFORMAT_CONFIG cfg;
     WDF_OBJECT_ATTRIBUTES attr;
@@ -116,6 +116,9 @@ static NTSTATUS AddFormat(WDFDEVICE Device, ACXCIRCUIT Circuit, ACXDATAFORMATLIS
     status = AcxDataFormatCreate(Device, &attr, &cfg, &fmt);
     if (NT_SUCCESS(status)) {
         status = AcxDataFormatListAddDataFormat(List, fmt);
+    }
+    if (NT_SUCCESS(status) && Out != NULL) {
+        *Out = fmt;
     }
     return status;
 }
@@ -247,21 +250,17 @@ NTSTATUS SpkCreateRenderCircuit(WDFDEVICE Device, ACXCIRCUIT *Circuit)
     if (list == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    status = AddFormat(Device, circuit, list, &g_Fmt48c2);
-    if (NT_SUCCESS(status)) {
-        status = AddFormat(Device, circuit, list, &g_Fmt48c1);
-    }
-    /* the same formats for the DEFAULT processing mode: a pin create without a mode attribute (and the
-       endpoint builder) asks for DEFAULT, and with only a RAW list ACX fails it with INVALID_PARAMETER */
-    if (NT_SUCCESS(status)) {
-        ACXDATAFORMATLIST def = NULL;
-        status = AcxPinRetrieveModeDataFormatList(pins[PinHost], &AUDIO_SIGNALPROCESSINGMODE_DEFAULT, &def);
-        LogPrint("default mode format list: %08x\r\n", status);
-        if (NT_SUCCESS(status) && def != NULL) {
-            status = AddFormat(Device, circuit, def, &g_Fmt48c2);
-            if (NT_SUCCESS(status)) {
-                status = AddFormat(Device, circuit, def, &g_Fmt48c1);
-            }
+    {
+        ACXDATAFORMAT def = NULL;
+        status = AddFormat(Device, circuit, list, &g_Fmt48c2, &def);
+        if (NT_SUCCESS(status)) {
+            status = AddFormat(Device, circuit, list, &g_Fmt48c1, NULL);
+        }
+        /* v0.4: without a default format the endpoint builder computes no device format and the endpoint
+           is unusable (GetMixFormat / endpoint volume 0x80070032) */
+        if (NT_SUCCESS(status)) {
+            status = AcxDataFormatListAssignDefaultDataFormat(list, def);
+            LogPrint("default format 48k/16/2: %08x\r\n", status);
         }
     }
     if (NT_SUCCESS(status)) {
