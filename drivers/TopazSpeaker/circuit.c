@@ -227,7 +227,7 @@ NTSTATUS SpkCreateRenderCircuit(WDFDEVICE Device, ACXCIRCUIT *Circuit)
 
     ACX_JACK_CONFIG_INIT(&jackCfg);
     jackCfg.Description.ChannelMapping = SPEAKER_FRONT_CENTER;
-    jackCfg.Description.Color = RGB(0, 0, 0);
+    jackCfg.Description.Color = 0;          /* RGB(0, 0, 0) */
     jackCfg.Description.ConnectionType = AcxConnTypeAtapiInternal;
     jackCfg.Description.GeoLocation = AcxGeoLocFront;
     jackCfg.Description.GenLocation = AcxGenLocPrimaryBox;
