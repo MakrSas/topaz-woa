@@ -398,10 +398,17 @@ NTSTATUS DispSetSourceAddress(const DXGKARG_SETVIDPNSOURCEADDRESS *A)
     return STATUS_SUCCESS;
 }
 
+static VOID BlPanel(BOOLEAN On);
+
 NTSTATUS DispSetVisibility(const DXGKARG_SETVIDPNSOURCEVISIBILITY *A)
 {
+    BOOLEAN visible = A->Visible ? TRUE : FALSE;
+
     LogPrint("SetVidPnSourceVisibility: src %u visible %u\n", A->VidPnSourceId, A->Visible);
-    g_Visible = A->Visible ? TRUE : FALSE;
+    if (visible != g_Visible) {
+        BlPanel(visible);                                /* v0.45.6: screen off = backlight off */
+    }
+    g_Visible = visible;
     if (g_Visible) {
         InterlockedExchange(&g_ScanDirty, 1);
     }
@@ -1086,6 +1093,31 @@ static NTSTATUS APIENTRY BlSet(HANDLE Ctx, UCHAR Pct)
     KeReleaseMutex(&g_BlLock, FALSE);
     LogPrint("brightness %u%% -> 0x%03x: %s\n", Pct, level, done ? "done" : "NO DONE");
     return done ? STATUS_SUCCESS : STATUS_IO_TIMEOUT;
+}
+
+/* v0.45.6: Windows turning the screen off only hides the source; the panel kept its backlight and
+   showed the last framebuffer picture (the boot spinner). Backlight 0 on hide, the user level on show. */
+static VOID BlPanel(BOOLEAN On)
+{
+    UCHAR cmd[3];
+    ULONG level = (ULONG)g_Brightness * 0x7FF / 100;
+    BOOLEAN done;
+
+    if (g_Dsi == NULL || KeGetCurrentIrql() != PASSIVE_LEVEL) {
+        return;
+    }
+    if (!On) {
+        level = 0;
+    } else if (level < 1) {
+        level = 1;
+    }
+    cmd[0] = 0x51;
+    cmd[1] = (UCHAR)(level >> 8);
+    cmd[2] = (UCHAR)level;
+    KeWaitForSingleObject(&g_BlLock, Executive, KernelMode, FALSE, NULL);
+    done = DsiDcsLong(cmd, sizeof(cmd));
+    KeReleaseMutex(&g_BlLock, FALSE);
+    LogPrint("panel %s (backlight 0x%03x): %s\n", On ? "on" : "off", level, done ? "done" : "NO DONE");
 }
 
 static NTSTATUS APIENTRY BlGet(HANDLE Ctx, UCHAR *Pct)
