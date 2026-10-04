@@ -183,3 +183,17 @@ policy, use `powershell -ExecutionPolicy Bypass -File`).
 - Next ideas: prove whether MCLK really runs in the macros (a register that only latches with MCLK,
   or FS counter); check LPI cfg bits 10/11 (0xC00, not set by downstream's 0x104 = func1 + 10 mA);
   VA chip-wakeup reg 0x3ca04c (DT va_swr_clk_data_pinctrl qcom,chip-wakeup-reg, default 1, bit 0).
+- Pad experiments (same boot, 2026-10-04): SWR clock pads gpio0 / gpio3 in func1 simply follow the
+  pull (pull-up -> 1, pull-down -> 0): **the master never drives its clock pad** (tri-stated), on
+  both buses. Data pads with pull-down read 0 with a rare 1. MASTER_CLASH (irq bit 3) comes back
+  right after a clear even with the codec held in reset (gpio92 low) -> self clash, not the codec.
+  DMIC check: VA DMIC0_CTL 0xa730084 = 1 and gpio6 (dmic01_clk) func1 -> pad driven, but stuck low
+  (pull-up still reads 0), no toggling. Function routing to the pads works (gpio6 is driven), so the
+  likely common cause is **no MCLK in the macros** although PRM acks the 6 codec clocks (same packet
+  as spf audio_prm.c: attr COUPLE_NO, root 0, DT freqs) and the macro registers are writable.
+  RX muxsel 0xa5640d8 = 1 written (reads back 1) - no change. 0x3ca04c (VA chip-wakeup reg) is
+  outside the lab allowlist.
+- Next: find what else gates the codec MCLK on khaje SPF (LPASS core "macro" vote id 1 fails with
+  status 1 - maybe it needs a client handle / different payload; compare the PRM HW_CORE packet with
+  spf audio_prm.c prm_cmd_request_hw_core_t field by field), and look for an LPASS clock status
+  register we can read safely.
