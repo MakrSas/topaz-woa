@@ -1129,3 +1129,22 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   point count 0 (Linux focaltech behaviour). v0.15: back to 5 ms polling, fast rate opt-in only
   (C:\topaz\touch.fast), watchdog: contact frame bit-identical for 500 ms -> release + controller
   reset. User: "normal" after v0.15. Kept: x4 fraction bits, Scan Time.
+- 2026-10-04 WPR trace (CPU + DesktopComposition, finger drag ~12 s then mouse drag ~12 s, parsed on
+  the Mac with python etl-parser; trace kept locally, not in the repo):
+  - **The vsync DxgKrnl sees (VSyncInterrupt) runs at 31 Hz idle, ~33 Hz finger, ~39 Hz mouse,
+    not 60.** Intervals are mostly 30..35 ms (= every second 16.7 ms period), short 11..17 ms ones
+    only right after a flip (VsyncWork re-locks the phase at the MDP latch). DWM composes once per
+    vsync (DxgKrnl QueuePacket = vsync count), so the screen shows ~33..40 new frames/s in both
+    cases - matches the user's "40, maybe 50, clearly not 60" for the mouse. The `fps: N flips/s`
+    line of TopazGpuW (88..125 with the mouse) counts flips, not frames shown; do not quote it as fps.
+  - Likely cause: the "1 ms" EX_TIMER_HIGH_RESOLUTION callback in disp.c actually arrives every
+    ~15..17 ms (the 15.6 ms clock tick) although NtQueryTimerResolution reports 1 ms current, so
+    `now >= g_NextVsync` is only true on every second callback. To confirm: log min/avg callback
+    interval next to the fps line; fix candidates: accept a tick when `now >= g_NextVsync - half a
+    callback interval`, or drive vsync from the real panel vsync (MDP INTF vsync IRQ / counter).
+  - Finger vs mouse on top of that: touch delivers ~150 pointer frames/s (Win32k PointerFrameCommit),
+    but the dragged explorer window retrieves only ~60..75 input messages/s (WM_POINTERUPDATE,
+    coalesced), against ~200..300/s with the mouse; explorer CPU 40..58 % (waiting) vs ~100 %
+    (one core busy) with the mouse. So the touch move loop runs about once per composition and the
+    window lags behind the finger by a frame or more - the low vsync rate makes that lag visible.
+    TopazTouch is not the bottleneck.
