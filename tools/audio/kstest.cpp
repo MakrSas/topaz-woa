@@ -60,42 +60,56 @@ int main(int argc, char **argv)
             }
         }
     }
-    // try creating pin 0 with 48k/16/2ch
-    struct {
-        KSPIN_CONNECT c;
-        KSDATAFORMAT_WAVEFORMATEXTENSIBLE f;
-    } req = {};
-    req.c.Interface.Set = KSINTERFACESETID_Standard;
-    req.c.Interface.Id = KSINTERFACE_STANDARD_LOOPED_STREAMING;
-    req.c.Medium.Set = KSMEDIUMSETID_Standard;
-    req.c.Medium.Id = KSMEDIUM_TYPE_ANYINSTANCE;
-    req.c.PinId = 0;
-    req.c.Priority.PriorityClass = KSPRIORITY_NORMAL;
-    req.c.Priority.PrioritySubClass = 1;
-    req.f.DataFormat.FormatSize = sizeof(req.f);
-    req.f.DataFormat.MajorFormat = KSDATAFORMAT_TYPE_AUDIO;
-    req.f.DataFormat.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
-    req.f.DataFormat.Specifier = KSDATAFORMAT_SPECIFIER_WAVEFORMATEX;
-    req.f.WaveFormatExt.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-    req.f.WaveFormatExt.Format.nChannels = 2;
-    req.f.WaveFormatExt.Format.nSamplesPerSec = 48000;
-    req.f.WaveFormatExt.Format.nAvgBytesPerSec = 192000;
-    req.f.WaveFormatExt.Format.nBlockAlign = 4;
-    req.f.WaveFormatExt.Format.wBitsPerSample = 16;
-    req.f.WaveFormatExt.Format.cbSize = 22;
-    req.f.WaveFormatExt.Samples.wValidBitsPerSample = 16;
-    req.f.WaveFormatExt.dwChannelMask = KSAUDIO_SPEAKER_STEREO;
-    req.f.WaveFormatExt.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
-    HANDLE pin = nullptr;
-    DWORD r = KsCreatePin(g_F, &req.c, GENERIC_WRITE, &pin);
-    printf("KsCreatePin(pin 0, 48k/16/2): %lu handle %p\n", r, pin);
-    if (r == 0) {
-        KSSTATE st = KSSTATE_ACQUIRE;
-        KSPROPERTY sp = { KSPROPSETID_Connection, KSPROPERTY_CONNECTION_STATE, KSPROPERTY_TYPE_SET };
-        DWORD n = 0;
-        BOOL ok = DeviceIoControl(pin, IOCTL_KS_PROPERTY, &sp, sizeof(sp), &st, sizeof(st), &n, nullptr);
-        printf("state ACQUIRE: %d (error %lu)\n", ok, ok ? 0 : GetLastError());
-        CloseHandle(pin);
+    // try creating pin 0: interface STREAMING / LOOPED, format EXTENSIBLE / plain WAVEFORMATEX
+    for (int variant = 0; variant < 4; variant++) {
+        struct {
+            KSPIN_CONNECT c;
+            KSDATAFORMAT_WAVEFORMATEXTENSIBLE f;
+        } req = {};
+        BOOL looped = (variant & 1) != 0, ext = (variant & 2) == 0;
+        req.c.Interface.Set = KSINTERFACESETID_Standard;
+        req.c.Interface.Id = looped ? KSINTERFACE_STANDARD_LOOPED_STREAMING : KSINTERFACE_STANDARD_STREAMING;
+        req.c.Medium.Set = KSMEDIUMSETID_Standard;
+        req.c.Medium.Id = KSMEDIUM_TYPE_ANYINSTANCE;
+        req.c.PinId = 0;
+        req.c.Priority.PriorityClass = KSPRIORITY_NORMAL;
+        req.c.Priority.PrioritySubClass = 1;
+        req.f.DataFormat.FormatSize = ext ? sizeof(req.f) : sizeof(KSDATAFORMAT) + sizeof(WAVEFORMATEX);
+        req.f.DataFormat.SampleSize = 4;
+        req.f.DataFormat.MajorFormat = KSDATAFORMAT_TYPE_AUDIO;
+        req.f.DataFormat.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+        req.f.DataFormat.Specifier = KSDATAFORMAT_SPECIFIER_WAVEFORMATEX;
+        req.f.WaveFormatExt.Format.wFormatTag = ext ? WAVE_FORMAT_EXTENSIBLE : WAVE_FORMAT_PCM;
+        req.f.WaveFormatExt.Format.nChannels = 2;
+        req.f.WaveFormatExt.Format.nSamplesPerSec = 48000;
+        req.f.WaveFormatExt.Format.nAvgBytesPerSec = 192000;
+        req.f.WaveFormatExt.Format.nBlockAlign = 4;
+        req.f.WaveFormatExt.Format.wBitsPerSample = 16;
+        req.f.WaveFormatExt.Format.cbSize = ext ? 22 : 0;
+        req.f.WaveFormatExt.Samples.wValidBitsPerSample = 16;
+        req.f.WaveFormatExt.dwChannelMask = KSAUDIO_SPEAKER_STEREO;
+        req.f.WaveFormatExt.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+        if (variant == 0) {
+            KSP_PIN kp = {};
+            kp.Property.Set = KSPROPSETID_Pin;
+            kp.Property.Id = KSPROPERTY_PIN_PROPOSEDATAFORMAT;
+            kp.Property.Flags = KSPROPERTY_TYPE_SET;
+            kp.PinId = 0;
+            DWORD n = 0;
+            BOOL ok = DeviceIoControl(g_F, IOCTL_KS_PROPERTY, &kp, sizeof(kp), &req.f, sizeof(req.f), &n, nullptr);
+            printf("PROPOSEDATAFORMAT 48k/16/2 ext: %d (error %lu)\n", ok, ok ? 0 : GetLastError());
+        }
+        HANDLE pin = nullptr;
+        DWORD r = KsCreatePin(g_F, &req.c, GENERIC_WRITE, &pin);
+        printf("KsCreatePin(%s, %s): %lu\n", looped ? "LOOPED" : "STREAMING", ext ? "EXTENSIBLE" : "PCM", r);
+        if (r == 0) {
+            KSSTATE st = KSSTATE_ACQUIRE;
+            KSPROPERTY sp = { KSPROPSETID_Connection, KSPROPERTY_CONNECTION_STATE, KSPROPERTY_TYPE_SET };
+            DWORD n = 0;
+            BOOL ok = DeviceIoControl(pin, IOCTL_KS_PROPERTY, &sp, sizeof(sp), &st, sizeof(st), &n, nullptr);
+            printf("  state ACQUIRE: %d (error %lu)\n", ok, ok ? 0 : GetLastError());
+            CloseHandle(pin);
+        }
     }
     CloseHandle(g_F);
     return 0;
