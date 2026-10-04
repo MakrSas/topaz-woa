@@ -37,10 +37,13 @@
  * apps must not write the PMIC). Stock DT rpm-regulator-ldoa14: resource "ldoa" id 14, pmic5-ldo, 1.7..1.9 V,
  * qcom,set = 3. Linux qcom_smd-regulator keys: "uv" = 1800000 (the level the PMIC already holds), then
  * "swen" = 1, both sets.
+ * v0.9: with C:\topaz\rpm.lpi, the LPI island rails the stock PAS driver votes for the ADSP (DT
+ * remoteproc-adsp: cx-supply = pm6125_l3_level = "rwlc", mx-supply = pm6125_l2_level = "rwlm", both
+ * level 0x180): key "vlvl", both sets. Suspect for the codec macros' clocks never reaching the pads.
  */
 #include "driver.h"
 
-#define TOPAZ_RPM_VERSION   "v0.8"
+#define TOPAZ_RPM_VERSION   "v0.9"
 
 #define MSG_RAM_PA          0x045F0000ULL
 #define MSG_RAM_SIZE        0x7000
@@ -82,6 +85,9 @@
 #define RPM_KEY_SWEN        0x6E657773u     /* "swen" */
 #define RPM_KEY_UV          0x00007675u     /* "uv" */
 #define L14_UV              1800000
+#define RPM_RES_RWLC        0x636C7772u     /* "rwlc" */
+#define RPM_RES_RWLM        0x6D6C7772u     /* "rwlm" */
+#define LPI_LEVEL           0x180
 
 typedef struct _FIFO {
     ULONG Off, Size;                        /* {tail, head} at Off, data at Off + 8 */
@@ -451,6 +457,15 @@ static VOID Link(PDEVICE_CONTEXT Ctx)
                      RpmWrite(Ctx, set, RPM_RES_LDOA, 14, RPM_KEY_UV, L14_UV) ? "OK" : "FAILED");
             LogPrint("rpm: L14 enable (set %u): %s\n", set,
                      RpmWrite(Ctx, set, RPM_RES_LDOA, 14, RPM_KEY_SWEN, 1) ? "OK" : "FAILED");
+        }
+    }
+    if (ok && FileExists(L"\\??\\C:\\topaz\\rpm.lpi")) {
+        ULONG set;
+        for (set = RPM_ACTIVE_SET; set <= RPM_SLEEP_SET; set++) {
+            LogPrint("rpm: LPI MX level %x (set %u): %s\n", LPI_LEVEL, set,
+                     RpmWrite(Ctx, set, RPM_RES_RWLM, 0, RPM_KEY_LEVEL, LPI_LEVEL) ? "OK" : "FAILED");
+            LogPrint("rpm: LPI CX level %x (set %u): %s\n", LPI_LEVEL, set,
+                     RpmWrite(Ctx, set, RPM_RES_RWLC, 0, RPM_KEY_LEVEL, LPI_LEVEL) ? "OK" : "FAILED");
         }
     }
     if (ok && FileExists(L"\\??\\C:\\topaz\\ipa.probe")) {
