@@ -226,6 +226,8 @@ static VOID PortsAndPa(VOID)
     LogPrint("ports: rx frame b1 %08x, irq %08x\r\n", TaRd(RX_SWR + 0x105C), TaRd(RX_SWR + 0x200));
 }
 
+static BOOLEAN g_AmpInit;
+
 static VOID AmpOn(BOOLEAN On)
 {
     static const UCHAR regs[][2] = { { 1, 0x7c }, { 2, 0x21 }, { 5, 0x01 }, { 3, 0x30 }, { 4, 0xc5 },
@@ -233,10 +235,13 @@ static VOID AmpOn(BOOLEAN On)
     ULONG i;
     NTSTATUS status = STATUS_SUCCESS;
 
-    if (On) {
+    if (On && !g_AmpInit) {                 /* full playback setup once (each I2C write waits for a bus window) */
         for (i = 0; i < ARRAYSIZE(regs) && NT_SUCCESS(status); i++) {
             status = TaI2cWrite(0x2b, regs[i][0], regs[i][1]);
         }
+        g_AmpInit = NT_SUCCESS(status);
+    } else if (On) {
+        status = TaI2cWrite(0x2b, 5, 1);
     } else {
         status = TaI2cWrite(0x2b, 5, 0);
     }

@@ -1,10 +1,9 @@
 /*
- * RT packet stream. ACX hands us 2 packets; the DSP (SH_MEM_PULL_MODE) wants one physically
- * contiguous ring. Layout (as the ACX sample does it, but in ONE contiguous allocation):
- *   [ page-rounded chunk 0 | page-rounded chunk 1 ]
- *   packet 0 ends at the chunk boundary (RtPacketOffset = chunk - PacketSize), packet 1 starts there,
- * so the two packets are adjacent both in the audio engine's mapping and physically:
- *   ring = base + (chunk - PacketSize), RingBytes = 2 * PacketSize.
+ * RT packet stream. ACX hands us 2 packets (plain non-paged pool, as in the ACX sample); the DSP
+ * (SH_MEM_PULL_MODE) reads its own physically contiguous, non-cached ring of 2 * PacketSize bytes.
+ * v0.7: the packets are copied into the ring (SetRenderPacket + every timer tick for the packet the
+ * DSP is not reading) - v0.6 let the DSP read the engine's mapping directly and it crackled
+ * (CPU cache vs. DSP DMA).
  * Position: a 5 ms timer reads the DSP read index (hw.c) - or, without the DSP, advances by wall
  * clock - accumulates a linear byte count and completes packets with AcxRtStreamNotifyPacketComplete.
  */
@@ -20,9 +19,11 @@ typedef struct {
     KSPIN_LOCK     Lock;
     ULONG          Channels, Rate, BlockAlign;
     ULONG          PacketSize, Chunk;
-    PUCHAR         Va;               /* whole allocation */
+    PUCHAR         Va;               /* DSP ring (contiguous, write-combined) */
     PHYSICAL_ADDRESS Pa;
     SIZE_T         AllocBytes;
+    PUCHAR         Pkt[SPK_PACKETS]; /* packet allocations (engine side) */
+    PUCHAR         PktData[SPK_PACKETS];
     PMDL           Mdl[SPK_PACKETS];
     BOOLEAN        Running, Prepared, HwPos;
     ULONG          LastIndex;        /* last DSP read index (bytes in the ring) */
@@ -59,6 +60,13 @@ static VOID UpdatePosition(SPK_STREAM_CONTEXT *s, BOOLEAN Notify)
     }
 }
 
+static VOID CopyPacket(SPK_STREAM_CONTEXT *s, ULONG k)
+{
+    if (s->Va != NULL && s->PktData[k] != NULL) {
+        RtlCopyMemory(s->Va + (SIZE_T)k * s->PacketSize, s->PktData[k], s->PacketSize);
+    }
+}
+
 static EVT_WDF_TIMER SpkTimer;
 static VOID SpkTimer(WDFTIMER Timer)
 {
@@ -67,6 +75,9 @@ static VOID SpkTimer(WDFTIMER Timer)
 
     KeAcquireSpinLock(&s->Lock, &irql);
     UpdatePosition(s, TRUE);
+    if (s->PacketSize != 0) {
+        CopyPacket(s, 1 - (s->LastIndex / s->PacketSize) % 2);   /* the half the DSP is not reading */
+    }
     KeReleaseSpinLock(&s->Lock, irql);
 }
 
@@ -85,7 +96,7 @@ static NTSTATUS SpkAllocPackets(ACXSTREAM Stream, ULONG PacketCount, ULONG Packe
         return STATUS_NOT_SUPPORTED;
     }
     s->Chunk = (PacketSize + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    s->AllocBytes = (SIZE_T)s->Chunk * SPK_PACKETS;
+    s->AllocBytes = ((SIZE_T)2 * PacketSize + PAGE_SIZE - 1) & ~((SIZE_T)PAGE_SIZE - 1);
     lo.QuadPart = 0;
     hi.QuadPart = 0xEFFFFFFF;                  /* below 4 GiB for the DSP (32-bit lsw + SID msw) */
     bound.QuadPart = 0;
@@ -97,12 +108,14 @@ static NTSTATUS SpkAllocPackets(ACXSTREAM Stream, ULONG PacketCount, ULONG Packe
     s->Pa = MmGetPhysicalAddress(s->Va);
     p = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ACX_RTPACKET) * SPK_PACKETS, TSPK_TAG);
     if (p == NULL) {
-        MmFreeContiguousMemorySpecifyCache(s->Va, s->AllocBytes, MmWriteCombined);
-        s->Va = NULL;
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     for (i = 0; i < SPK_PACKETS; i++) {
-        s->Mdl[i] = IoAllocateMdl(s->Va + (SIZE_T)i * s->Chunk, s->Chunk, FALSE, FALSE, NULL);
+        s->Pkt[i] = ExAllocatePool2(POOL_FLAG_NON_PAGED, s->Chunk, TSPK_TAG);
+        if (s->Pkt[i] == NULL) {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        s->Mdl[i] = IoAllocateMdl(s->Pkt[i], s->Chunk, FALSE, FALSE, NULL);
         if (s->Mdl[i] == NULL) {
             return STATUS_INSUFFICIENT_RESOURCES;
         }
@@ -111,11 +124,11 @@ static NTSTATUS SpkAllocPackets(ACXSTREAM Stream, ULONG PacketCount, ULONG Packe
         WDF_MEMORY_DESCRIPTOR_INIT_MDL(&p[i].RtPacketBuffer, s->Mdl[i], s->Chunk);
         p[i].RtPacketSize = PacketSize;
         p[i].RtPacketOffset = (i == 0) ? s->Chunk - PacketSize : 0;
+        s->PktData[i] = s->Pkt[i] + p[i].RtPacketOffset;
     }
     s->PacketSize = PacketSize;
     *Packets = p;
-    LogPrint("alloc: 2 x %u bytes, ring pa %llx + %x (chunk %x)\r\n", PacketSize,
-             (ULONGLONG)s->Pa.QuadPart + (s->Chunk - PacketSize), 2 * PacketSize, s->Chunk);
+    LogPrint("alloc: 2 x %u bytes, dsp ring pa %llx\r\n", PacketSize, (ULONGLONG)s->Pa.QuadPart);
     return STATUS_SUCCESS;
 }
 
@@ -130,6 +143,11 @@ static VOID SpkFreePackets(ACXSTREAM Stream, PACX_RTPACKET Packets, ULONG Packet
         if (s->Mdl[i] != NULL) {
             IoFreeMdl(s->Mdl[i]);
             s->Mdl[i] = NULL;
+        }
+        if (s->Pkt[i] != NULL) {
+            ExFreePoolWithTag(s->Pkt[i], TSPK_TAG);
+            s->Pkt[i] = NULL;
+            s->PktData[i] = NULL;
         }
     }
     if (s->Va != NULL) {
@@ -179,8 +197,12 @@ static NTSTATUS SpkGetPresentation(ACXSTREAM Stream, PULONGLONG PositionInBlocks
 static EVT_ACX_STREAM_SET_RENDER_PACKET SpkSetRenderPacket;
 static NTSTATUS SpkSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags, ULONG EosPacketLength)
 {
-    UNREFERENCED_PARAMETER(Stream);
-    UNREFERENCED_PARAMETER(Packet);
+    SPK_STREAM_CONTEXT *s = SpkGetStream(Stream);
+    KIRQL irql;
+
+    KeAcquireSpinLock(&s->Lock, &irql);
+    CopyPacket(s, Packet % SPK_PACKETS);
+    KeReleaseSpinLock(&s->Lock, irql);
     UNREFERENCED_PARAMETER(Flags);
     UNREFERENCED_PARAMETER(EosPacketLength);
     return STATUS_SUCCESS;
@@ -199,7 +221,7 @@ static NTSTATUS SpkPrepare(ACXSTREAM Stream)
         LogPrint("prepare without packets\r\n");
         return STATUS_INVALID_DEVICE_STATE;
     }
-    ring.QuadPart = s->Pa.QuadPart + (s->Chunk - s->PacketSize);
+    ring.QuadPart = s->Pa.QuadPart;
     status = HwStreamPrepare(s->Device, ring, 2 * s->PacketSize, s->Channels, s->Rate);
     LogPrint("prepare: %u ch %u Hz, hw %08x\r\n", s->Channels, s->Rate, status);
     s->Prepared = TRUE;
@@ -227,6 +249,8 @@ static NTSTATUS SpkRun(ACXSTREAM Stream)
     KIRQL irql;
     NTSTATUS hw;
 
+    CopyPacket(s, 0);
+    CopyPacket(s, 1);
     hw = HwStreamRun(s->Device);
     KeAcquireSpinLock(&s->Lock, &irql);
     s->LastQpc = (ULONGLONG)KeQueryPerformanceCounter(&freq).QuadPart;
