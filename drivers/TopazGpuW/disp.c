@@ -1081,6 +1081,10 @@ static NTSTATUS APIENTRY BlSet(HANDLE Ctx, UCHAR Pct)
         Pct = 100;
     }
     g_Brightness = Pct;
+    if (!g_Visible) {                       /* v0.45.7: Windows dims after hiding the source - keep the panel dark */
+        LogPrint("brightness %u%% stored (screen off)\n", Pct);
+        return STATUS_SUCCESS;
+    }
     level = (ULONG)Pct * 0x7FF / 100;
     if (level < 1) {
         level = 1;
