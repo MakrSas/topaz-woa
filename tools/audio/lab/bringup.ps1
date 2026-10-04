@@ -3,14 +3,15 @@
 $T = $global:TA
 function Init-Master([long]$m) {
   Set-Reg ($m + 0x008) 1; Set-Reg ($m + 0x008) 1; Set-Reg ($m + 0x1044) 1; Start-Sleep -Milliseconds 2
-  Set-Reg ($m + 0x101C) 0xF; Set-Reg ($m + 0x500) 1
-  Set-Reg ($m + 0x1048) (0x1F -shl 17); Set-Reg ($m + 0x314) 3; Set-Reg ($m + 0x1044) 2
+  Set-Reg ($m + 0x101C) 0x2F0008; Set-Reg ($m + 0x500) 1
+  $cfg = [Convert]::ToInt64(((Get-Reg ($m + 0x1048) 1) -split ' ')[-1], 16); Set-Reg ($m + 0x1048) (($cfg -band (-bnot 0x3E0000L)) -bor (0x1F -shl 17)); Set-Reg ($m + 0x314) 3; Set-Reg ($m + 0x1044) 2
   Set-Reg ($m + 0x04) 2; Set-Reg ($m + 0x208) 0xFFFFFFFF; Set-Reg ($m + 0x204) 0x1FDFD; Set-Reg ($m + 0x210) 0x1FDFD
   Set-Reg ($m + 0x04) 3; Set-Reg ($m + 0x314) 0x80000003
 }
 # 1. ADSP PRM: DCODEC vote + clocks (RX 22.5792 MHz, TX/VA 19.2 MHz, cores + NPL)
 & $T prm-hw 2 | Select-String "<-|^ +0" | Out-Null
-foreach ($c in @(@(0x30e,22579200), @(0x30f,22579200), @(0x30c,19200000), @(0x30d,19200000), @(0x307,19200000), @(0x308,19200000))) {
+# stock (Android trace 2026-10-04) requests only TX core + TX NPL; RX runs on the TX clock (default-clk-id 0)
+foreach ($c in @(@(0x30c,19200000), @(0x30d,19200000))) {
   $r = & $T prm-clk $c[0] $c[1]; "clk {0:x}: {1}" -f $c[0], ($r[-1].Trim())
 }
 # 2. LPI pins (TX/VA swr gpio0-2, RX swr gpio3-5), slew

@@ -206,3 +206,18 @@ policy, use `powershell -ExecutionPolicy Bypass -File`).
   DT for a board with it; mainline swrm init = ours (CGCR reset pulse, BUS_CTRL CLK_START 2, ...).
 - Proposed: get a ground-truth register dump from the stock Android (ColorOS vendor kernel) while a
   sound plays: bolero regmap debugfs, swrm reg dump, LPI pin cfg - and diff with ours.
+
+### 2026-10-04: WCD937x ATTACHED (stock Android ground truth)
+- Booted the stock Android (slot a, HyperOS GSI + ColorOS vendor kernel) with Magisk in init_boot_a
+  (`fastboot --set-active=a`; init_boot_a = Magisk-patched backup_20261001 copy, Windows slot b
+  untouched), dumped debugfs (bolero regmap, rx/va swrm_reg_dump, LPI pinmux, wcd937x regmap) and an
+  ftrace (regmap writes + the drivers' trace_printk) of a cold playback start:
+  `docs/logs/p9_stock/`.
+- **Root cause:** stock requests only the TX core + TX NPL clocks (0x30c / 0x30d, 19.2 MHz); RX and VA
+  run on the TX MCLK (default-clk-id 0, muxsel left 0). Our bring-up also requested RX 0x30e/0x30f
+  (22.5792 MHz) and VA 0x307/0x308 - with those the macros had no working MCLK and the SoundWire
+  masters never drove their pads. Also aligned with stock: MCP_CFG read-modify-write (reset 0x3fff00,
+  we zeroed bits 8..15) and frame bank 0 = 0x2f0008.
+- **Result (bringup.ps1, fresh ADSP boot):** RX master MCP_SLV_STATUS 4, enumerated 0x01170224 (wcd937x
+  rx slave), VA master 0x01170223 (tx slave); clock pads toggle. Next: WCD937x init (stock regmap
+  writes in playback_start_trace.txt), AUX path + sia8159, data path.
