@@ -281,3 +281,25 @@ Status v0.1 (CI run 37207618976, installed with devcon on the phone):
 Phone state: TopazSpeaker v0.1 installed (Root\TopazSpeaker, ROOT\MEDIA\0000), harmless (no hardware
 access). Lab chain still works by scripts; codec stays configured until reboot. USB-C earphones use the
 in-box USB audio driver (that's why their volume works).
+
+### 2026-10-04 night: SPEAKER WORKS AS A WINDOWS DEVICE (TopazSpeaker v0.9/v0.10)
+User: music from apps plays clean, Windows volume slider works ("Динамики (Topaz Speaker)").
+Fixes on the way (all in drivers/TopazSpeaker):
+- v0.4: `AcxDataFormatListAssignDefaultDataFormat` on the host pin list - without a default format the
+  endpoint builder computed no device format (GetMixFormat 0x80070032). (v0.2 OEMFormat in the INF and
+  v0.3 a DEFAULT-mode list were not the fix; AcxPinRetrieveModeDataFormatList(DEFAULT) = NOT_FOUND.)
+- v0.5: `EvtAcxStreamSetRenderPacket` is required for render RT streams - without it every pin create
+  failed with ERROR_INVALID_PARAMETER before our create-stream callback (found with tools/audio/kstest).
+- v0.6: hw.c = the lab chain in C (bring-up once, MEM_MAP + pull-mode graph on the ring, ports, amp,
+  RX2 volume, DSP pos buffer position). Sound, but crackle + ~9 s amp start (10 I2C writes in
+  TopazBattery windows).
+- v0.7: engine packets in normal pool, copied into a separate non-cached DSP ring (cache vs DMA);
+  amp full setup once, later only reg 0x05. v0.8 4-slot ring, lead 2; v0.9 8-slot ring, lead 4 packets
+  (~40 ms extra latency): clean.
+- v0.10: after a successful codec bring-up TopazSpeaker re-creates C:\topaz\audio.arm, so the ADSP
+  (TopazAudio) comes up on the next boot too; a boot that dies earlier comes back without the ADSP.
+Install: devcon install/update TopazSpeaker.inf Root\TopazSpeaker (+ CI cert in Root/TrustedPublisher);
+an update while the audio engine holds the device needs a reboot (Windows shows a notification).
+Tools: tools/audio/wasapitest.cpp (WASAPI + endpoint volume), tools/audio/kstest.cpp (raw KS pin checks).
+Open: headset jack (HPH via fsa4480), microphones (TX/VA path), Bluetooth audio, merging branch audio
+into display/main, init_boot_a on slot a is still the Magisk-patched copy.

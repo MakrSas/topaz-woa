@@ -200,6 +200,25 @@ static NTSTATUS CodecBringUp(VOID)
     g_CodecUp = TRUE;
     ApplyVolume();
     LogPrint("bring-up: codec ready\r\n");
+    /* the speaker works this boot: arm the ADSP for the next one too (TopazAudio consumes C:\topaz\audio.arm at
+       each boot, so a boot that dies before this point comes back without the ADSP) */
+    {
+        UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\audio.arm");
+        OBJECT_ATTRIBUTES oa;
+        IO_STATUS_BLOCK iosb;
+        HANDLE h;
+        static const CHAR on[] = "on";
+        NTSTATUS st;
+
+        InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+        st = ZwCreateFile(&h, GENERIC_WRITE | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OVERWRITE_IF,
+                          FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0);
+        if (NT_SUCCESS(st)) {
+            ZwWriteFile(h, NULL, NULL, NULL, &iosb, (PVOID)on, 2, NULL, NULL);
+            ZwClose(h);
+        }
+        LogPrint("audio.arm re-armed: %08x\r\n", st);
+    }
     return STATUS_SUCCESS;
 }
 
