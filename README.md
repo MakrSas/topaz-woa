@@ -106,7 +106,7 @@ the stack is built from open pieces. Running notes: [docs/P8_gpu.md](docs/P8_gpu
   `umd.log.enable` exists. KMD log `C:\TopazGpuW.log` (an `fps:` line per second).
 - GPU clock: `C:\topaz\gpu.mhz` = one of the stock OPPs (320 465 600 785 820 980 1025 1100 1260); the phone runs
   **1260** with `TopazRpm` + `C:\topaz\rpm.gpu` voting CX TURBO_L1 (rwcx 0x1a0) and the top DDR (bimc) level.
-- KMD **v0.45.5**: vsync really 60 Hz (timer-callback tolerance + 1 ms timer resolution; it ran at 31-40 Hz),
+- KMD **v0.45.8**: screen off = backlight off (no frozen boot picture); vsync really 60 Hz (timer-callback tolerance + 1 ms timer resolution; it ran at 31-40 Hz),
   at most one flip completion per vsync, per-second `fps:` stats (shown / flips / vsync notifies).
 
 ### Fixes that made it usable (details in docs/P8_gpu.md)

@@ -1192,3 +1192,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   with the vsync/flip fixes); v0.46..v0.49 (rotation) dropped. Their commits stay in history
   (a4c977c, 867ce4e, 3cab8db, 019e570) if rotation is attempted again. Phone: v0.45.5 restored,
   the v0.49 binary kept as C:\Windows\System32\drivers\TopazGpuW.sys.v049-black.
+- Screen off (2026-10-04): Windows only hides the source (SetVidPnSourceVisibility 0) - the panel kept
+  its backlight and showed the old boot picture (spinner). v0.45.6: backlight 0 (DCS 0x51) on hide,
+  user level on show; v0.45.7: brightness changes while hidden are only stored (Windows dims after
+  hiding, which lit the panel again); v0.45.8: the boot framebuffer is cleared once (first visibility
+  call, PASSIVE) because a scanout fallback to it still flashed the spinner for a moment. User: OK, kept.
