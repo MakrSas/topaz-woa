@@ -165,3 +165,21 @@ policy, use `powershell -ExecutionPolicy Bypass -File`).
   CODEC_DMA_SINK graph on RX_CODEC_DMA_RX_0 opens/prepares/starts (status 0); SoundWire unchanged.
 - v0.5.4: lab PMIC read. **L14 (WCD937x vdd-buck) is OFF** (en 00, status 03, 1.80 V set), L9 on.
   Next: RPM SMD client to vote L14 on (see HANDOFF_p9_audio.md).
+
+### 2026-10-04: L14 on via RPM (TopazRpm v0.8, branch display)
+- TopazRpm v0.8 + C:\topaz\rpm.l14: RPM acked "ldoa" id 14 uv=1800000 + swen=1 (active + sleep set).
+  PMIC confirms: 0x4d46 = 80 (enabled), 0x4d08 = 87, vset 1.80 V. ADSP READY, APM ready as before.
+- **Codec still does not attach.** bringup.ps1 after L14: same as before. Both masters now inited
+  (VA master needs VA macro SWR_CONTROL 0xa730008 = 2,3,1 first - bringup.ps1 did not do it, VA
+  master read all zeros / SW_RESET_STATUS 1 until then): COMP_STATUS 0x2a01, IRQ 0x2008 = MASTER_CLASH_DET
+  + BUS_RESET_FINISHED, MCP_SLV_STATUS 0, no enumerated id.
+- Pads: clock pins (gpio0 / gpio3, func1 0xD04) read IN = 0 always, data pins (gpio1 / gpio4, func1
+  0xD06 bus-hold) read 1 always. gpio4 as plain GPIO input: pull-down -> 0, pull-up -> 1, no pull -> 1
+  (keeper): nobody drives the data line. So on BOTH buses the master drives neither clock nor data
+  onto the pads while it reports link active - the clash is the keeper's 1 vs the master's 0.
+  Common factor of both buses: the TX core clock (RX default-clk-id = TX, VA uses TX_MCLK) and the
+  LPI pad function routing. RX mclk muxsel 0xa5640d8 reads 0 (downstream sets 1 after enabling RX
+  core clock when dev_up_gfmux).
+- Next ideas: prove whether MCLK really runs in the macros (a register that only latches with MCLK,
+  or FS counter); check LPI cfg bits 10/11 (0xC00, not set by downstream's 0x104 = func1 + 10 mA);
+  VA chip-wakeup reg 0x3ca04c (DT va_swr_clk_data_pinctrl qcom,chip-wakeup-reg, default 1, bit 0).
