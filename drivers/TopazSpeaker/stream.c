@@ -176,6 +176,16 @@ static NTSTATUS SpkGetPresentation(ACXSTREAM Stream, PULONGLONG PositionInBlocks
     return STATUS_SUCCESS;
 }
 
+static EVT_ACX_STREAM_SET_RENDER_PACKET SpkSetRenderPacket;
+static NTSTATUS SpkSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags, ULONG EosPacketLength)
+{
+    UNREFERENCED_PARAMETER(Stream);
+    UNREFERENCED_PARAMETER(Packet);
+    UNREFERENCED_PARAMETER(Flags);
+    UNREFERENCED_PARAMETER(EosPacketLength);
+    return STATUS_SUCCESS;
+}
+
 /* ---------------- state callbacks ---------------- */
 
 static EVT_ACX_STREAM_PREPARE_HARDWARE SpkPrepare;
@@ -260,6 +270,7 @@ NTSTATUS SpkCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, ACXPIN Pin, PACXS
     NTSTATUS status;
 
     UNREFERENCED_PARAMETER(Pin);
+    LogPrint("create stream\r\n");
     ACX_STREAM_CALLBACKS_INIT(&cb);
     cb.EvtAcxStreamPrepareHardware = SpkPrepare;
     cb.EvtAcxStreamReleaseHardware = SpkRelease;
@@ -267,6 +278,7 @@ NTSTATUS SpkCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, ACXPIN Pin, PACXS
     cb.EvtAcxStreamPause = SpkPause;
     status = AcxStreamInitAssignAcxStreamCallbacks(StreamInit, &cb);
     if (!NT_SUCCESS(status)) {
+        LogPrint("AcxStreamInitAssignAcxStreamCallbacks: %08x\r\n", status);
         return status;
     }
     ACX_RT_STREAM_CALLBACKS_INIT(&rt);
@@ -275,8 +287,10 @@ NTSTATUS SpkCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, ACXPIN Pin, PACXS
     rt.EvtAcxStreamFreeRtPackets = SpkFreePackets;
     rt.EvtAcxStreamGetCurrentPacket = SpkGetCurrentPacket;
     rt.EvtAcxStreamGetPresentationPosition = SpkGetPresentation;
+    rt.EvtAcxStreamSetRenderPacket = SpkSetRenderPacket;
     status = AcxStreamInitAssignAcxRtStreamCallbacks(StreamInit, &rt);
     if (!NT_SUCCESS(status)) {
+        LogPrint("AcxStreamInitAssignAcxRtStreamCallbacks: %08x\r\n", status);
         return status;
     }
     AcxStreamInitSetAcxRtStreamSupportsNotifications(StreamInit);

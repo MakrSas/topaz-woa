@@ -89,9 +89,13 @@ static NTSTATUS SpkEvtCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, ACXPIN 
                                    ACXDATAFORMAT StreamFormat, const GUID *SignalProcessingMode,
                                    ACXOBJECTBAG VarArguments)
 {
-    UNREFERENCED_PARAMETER(SignalProcessingMode);
+    NTSTATUS status;
+
     UNREFERENCED_PARAMETER(VarArguments);
-    return SpkCreateStream(Device, Circuit, Pin, StreamInit, StreamFormat);
+    LogPrint("circuit create stream (mode %08x)\r\n", SignalProcessingMode ? SignalProcessingMode->Data1 : 0);
+    status = SpkCreateStream(Device, Circuit, Pin, StreamInit, StreamFormat);
+    LogPrint("create stream: %08x\r\n", status);
+    return status;
 }
 
 static EVT_ACX_PIN_SET_DATAFORMAT SpkEvtPinSetFormat;
