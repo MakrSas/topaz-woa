@@ -27,10 +27,16 @@
  * v0.6: after an acked IPA vote, publish it for this boot in a volatile registry key
  * (HKLM\SYSTEM\CurrentControlSet\Services\TopazRpm\State, IpaClockKhz): TopazWifi waits for it
  * before it touches IPA/GSI (ipa_fws load ahead of the modem). Volatile = gone after a reboot.
+ * v0.7: with C:\topaz\rpm.gpu, after the IPA vote, the votes the stock kernel makes for the top GPU
+ * level (fdt qcom,gpu-pwrlevel@0: 1260 MHz, level 0x1a0, bus level 7) - TopazGpuW runs the GPU at
+ * gpu.mhz = 1260 without them. GX/CX rail: gpu_gx_gdsc parent = pm6125_s3_level = "rwcx" id 0,
+ * key "vlvl" (rpmpd KEY_LEVEL), 0x1a0 = TURBO_L1. DDR: bus level 7 = qcom,bus-table-ddr 16343750 KB/s;
+ * icc-rpm sm6115_bimc: rate = bw * ab_coeff 153 / 100 / buswidth 8 -> bimc clock "clk2" id 0,
+ * key "KHz" (the RPM clamps to its top DDR level). Both sets (active + sleep), like qcom,set = 3.
  */
 #include "driver.h"
 
-#define TOPAZ_RPM_VERSION   "v0.6"
+#define TOPAZ_RPM_VERSION   "v0.7"
 
 #define MSG_RAM_PA          0x045F0000ULL
 #define MSG_RAM_SIZE        0x7000
@@ -62,6 +68,12 @@
 #define RPM_RES_IPA_CLK     0x00617069u     /* "ipa" */
 #define RPM_KEY_RATE        0x007A484Bu     /* "KHz" */
 #define IPA_CLK_KHZ         100000          /* ipa_data-v4.2.c core clock 100 MHz */
+#define RPM_SLEEP_SET       1
+#define RPM_RES_RWCX        0x78637772u     /* "rwcx" */
+#define RPM_KEY_LEVEL       0x6C766C76u     /* "vlvl" */
+#define CX_LEVEL_TURBO_L1   0x1A0
+#define RPM_RES_MEM_CLK     0x326B6C63u     /* "clk2", id 0 = bimc */
+#define BIMC_KHZ            (16343750u / 100 * 153 / 8)
 
 typedef struct _FIFO {
     ULONG Off, Size;                        /* {tail, head} at Off, data at Off + 8 */
@@ -412,6 +424,17 @@ static VOID Link(PDEVICE_CONTEXT Ctx)
     LogPrint("rpm: IPA clock %u kHz (active set): %s\n", IPA_CLK_KHZ, ok ? "OK" : "FAILED");
     if (ok) {
         PublishIpaClock(IPA_CLK_KHZ);
+    }
+    if (ok && FileExists(L"\\??\\C:\\topaz\\rpm.gpu")) {
+        ULONG set;
+        for (set = RPM_ACTIVE_SET; set <= RPM_SLEEP_SET; set++) {
+            LogPrint("rpm: CX level %x (set %u): %s\n", CX_LEVEL_TURBO_L1, set,
+                     RpmWrite(Ctx, set, RPM_RES_RWCX, 0, RPM_KEY_LEVEL, CX_LEVEL_TURBO_L1) ? "OK" : "FAILED");
+        }
+        for (set = RPM_ACTIVE_SET; set <= RPM_SLEEP_SET; set++) {
+            LogPrint("rpm: bimc %u kHz (set %u): %s\n", BIMC_KHZ, set,
+                     RpmWrite(Ctx, set, RPM_RES_MEM_CLK, 0, RPM_KEY_RATE, BIMC_KHZ) ? "OK" : "FAILED");
+        }
     }
     if (ok && FileExists(L"\\??\\C:\\topaz\\ipa.probe")) {
         LogPrint("C:\\topaz\\ipa.probe present (deleted: %u): reading IPA / GSI registers\n",
