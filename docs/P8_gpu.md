@@ -1156,3 +1156,8 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   mouse 24..48/s, window drag with a finger a steady 22..24/s (flips = shown, almost every flip
   deferred to the GPU fence). GPU at 785 MHz (C:\topaz\gpu.mhz). Next: per-frame GPU time
   (submit -> fence) to see whether Adreno render time or DWM cadence limits the finger drag.
+- 2026-10-04 gpu.mhz back to 1260 (user request; same rail-voltage caveat as before, no RPM GX/CX vote):
+  finger window drag 37..42 shown/s (was 22..24 at 785 MHz), flips = shown. Mouse window drag 22..41
+  shown/s while DWM flips 99..166/s - more flips than vsyncs, most replaced before they reach the
+  panel (direct flips complete at the MDP latch without waiting for the next vsync tick?). Next
+  levers: RPM vote for CX level + DDR bandwidth (TopazRpm), and why flips outrun vsync on mouse drags.
