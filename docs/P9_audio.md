@@ -239,3 +239,45 @@ Too loud: amplitude 0.3 + stock amp gain. Next: volume (RX2 digital gain 0xa6005
 lower sine amplitude), then a real Windows audio endpoint (ACX / portcls) on top of this chain.
 - Volume: RX2 digital gain = `RX_RX2_RX_VOL_CTL` 0xa600514 (s8 dB, -84..+40, stock control "RX_RX2 Digital
   Volume"), `vol.ps1 -Db N`. `beep.ps1` (codec already up): -30 dB + amplitude 0.1 = comfortable (user).
+
+### 2026-10-04 evening: TopazSpeaker (Windows audio endpoint, ACX 1.0) - PAUSED HERE
+Goal: a real Windows speaker device (volume slider, sound from apps) on top of the lab chain above.
+Design (drivers/TopazSpeaker, branch audio):
+- New KMDF 1.31 + ACX 1.0 driver (Acx01000.sys is in-box on 22621; WDK 26100 has acx\km\1.0 headers +
+  acxstub.lib; KS GUIDs in C need ksguid.lib; windef.h before ks.h). Root\TopazSpeaker, INF class MEDIA,
+  interfaces KSCATEGORY_AUDIO/RENDER/REALTIME with reference "Speaker0" = the circuit name.
+- TopazAudio keeps the ADSP; TopazSpeaker will talk to it through \\.\TopazAudio (ta.c: ZwCreateFile
+  \??\TopazAudio + ZwDeviceIoControlFile: MMIO allowlist, I2C, raw GPR send + wait reply by token,
+  TaApm checks GPR_BASIC_RSP status). Written, not yet compiled/used (ta.c / ta.h, hw.c is still stubs).
+- circuit.c: render circuit, host pin (sink) -> volume (-84..0 dB, 1 dB steps) -> mute -> bridge pin
+  (KSNODETYPE_SPEAKER, integrated jack). Raw format list: 48k/16/2ch and 48k/16/1ch.
+- stream.c: RT packets. ACX gives 2 packets; we allocate ONE contiguous write-combined buffer below
+  4 GiB, packet 0 ends at the page-rounded chunk boundary, packet 1 starts there -> the 2 packets are
+  one physical ring for SH_MEM_PULL_MODE (ring = base + chunk - PacketSize, 2*PacketSize bytes).
+  5 ms WDF timer: position from the DSP pos buffer index (HwReadPosition) or, without hardware, from
+  the wall clock; AcxRtStreamNotifyPacketComplete per completed packet.
+- Planned hw.c (port of the lab scripts): first Prepare -> codec bring-up once (bringup.ps1,
+  smmu_audio.ps1, rx_stock.ps1 table, wcd_aux.ps1), MEM_MAP ring + pos buffer (raw cmd, msw 1),
+  graph open (PULL 2 ch -> CODEC_DMA RX_1 mask 0x3, RX2 = left -> AUX) / prepare; Run -> start + ports
+  (first time) + wcd_auxpa + amp + unmute; Pause -> amp off + GRAPH_STOP; Release -> close + unmap.
+  Volume -> RX2 gain 0xa600514 (s8 dB), mute -> 0xa600500 = 0x04 / 0x24 or amp 0x05.
+Status v0.1 (CI run 37207618976, installed with devcon on the phone):
+- Driver loads (AcxDriverInitialize / circuit / AcxDeviceAddCircuit OK), endpoint "Динамики (Topaz
+  Speaker (WCD937x / sia8159))" exists in MMDevices, state ACTIVE.
+- **Blocker:** Windows can't use it: Settings shows no output device, volume icon crossed out, slider
+  does nothing; the driver never sees a stream or a volume call. tools/audio/wasapitest.exe (run in the
+  user session via schtasks /IT, C:\topaz\stage\wt.cmd -> wasapi.log): IAudioEndpointVolume activate
+  and IAudioClient::GetMixFormat both fail 0x80070032 (ERROR_NOT_SUPPORTED). The endpoint's
+  Properties have NO PKEY_AudioEngine_DeviceFormat {f19f064d-082c-4e27-bc73-6882a1bb8e4c},0: the
+  AudioEndpointBuilder never computed a device format. Restarting AudioEndpointBuilder/Audiosrv: same.
+- Suspects / next: (1) the ACX sample's speaker circuits create an ACX audio-engine element
+  (EVT_ACX_AUDIOENGINE_ASSIGN_ENGINE_FORMAT, Speaker_EvtAcxAudioEngineAssignEngineDeviceFormat in
+  Common/Private.h) - check whether the plain codec render circuit really works without it on 22621,
+  else add a default-mode format list / engine node; (2) set PKEY_AudioEngine_OEMFormat in the INF
+  (48k/16/2ch WAVEFORMATEXTENSIBLE blob) so the builder has a device format; (3) power policy like the
+  sample's Codec_SetPowerPolicy; (4) ETW trace of AudioEndpointBuilder / Microsoft-Windows-Audio to see
+  which KS property fails. Sample sources: s8build ~/work/wds-acx (sparse clone of
+  microsoft/Windows-driver-samples audio/Acx).
+Phone state: TopazSpeaker v0.1 installed (Root\TopazSpeaker, ROOT\MEDIA\0000), harmless (no hardware
+access). Lab chain still works by scripts; codec stays configured until reboot. USB-C earphones use the
+in-box USB audio driver (that's why their volume works).
