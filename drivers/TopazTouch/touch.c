@@ -12,6 +12,12 @@
  * v0.9: raw dump of contact 0 for 3 s after every touch-down, to find the extra coordinate bits:
  * Android's DT says display-coords 10800 x 24000 = 8 x our 12-bit 1350 x 3000, and p[0] bits
  * 5:4 / p[4] bits 7:4 change from frame to frame.
+ * v0.9 result (slow horizontal + vertical drags): p[4] bits 7:6 = 2 fraction bits of X, bits 5:4
+ * = 2 fraction bits of Y (vertical path twice as smooth with them); the controller makes a new
+ * frame only every ~21 ms (~48 Hz) - the main reason finger drags lag behind the mouse.
+ * v0.10: X/Y with the fraction bits (x4: 0..5399 x 0..11999); registers 0x80..0x8F / 0xA0..0xAF
+ * logged at start; C:\topaz\touch.r12 writes 12 (= 120 Hz, units of 10 Hz) to the report-rate
+ * register 0x88.
  */
 #include "driver.h"
 
@@ -40,8 +46,8 @@
     0x55, 0x00, 0x65, 0x00, 0x45, 0x00,                                 \
     0xC0
 
-#define MAXX TS_RAW_MAX_X
-#define MAXY TS_RAW_MAX_Y
+#define MAXX (((TS_RAW_MAX_X) << 2) | 3)
+#define MAXY (((TS_RAW_MAX_Y) << 2) | 3)
 
 static const UCHAR g_ReportDescriptor[] = {
     0x05, 0x0D,             /* Usage Page (Digitizer) */
@@ -201,6 +207,36 @@ NTSTATUS TouchHwInit(PDEVICE_CONTEXT Ctx)
     LogPrint("chip_id2 (0x9F) = %02x fw_ver (0xA6) = %02x vendor (0xA8) = %02x irq_line=%u\n",
              id2, fw, vendor, TlmmGetInput(&Ctx->PinIrq));
 
+    {
+        UCHAR r, base, i, v[16];
+        for (base = 0x80; base != 0xC0; base = (UCHAR)(base + 0x20)) {
+            for (i = 0; i < 16; i++) {
+                v[i] = 0xEE;
+                r = (UCHAR)(base + i);
+                GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, r, &v[i], 1);
+            }
+            LogPrint("regs %02x: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", base,
+                     v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]);
+        }
+    }
+    {
+        UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\??\\C:\\topaz\\touch.r12");
+        OBJECT_ATTRIBUTES oa;
+        IO_STATUS_BLOCK iosb;
+        HANDLE h;
+        InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+        if (NT_SUCCESS(ZwCreateFile(&h, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &oa, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+                                    FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+            UCHAR w[2] = { 0x88, 12 }, back = 0;
+            NTSTATUS ws;
+            ZwClose(h);
+            ws = GeniI2cWrite(&Ctx->Bus, TS_I2C_ADDR, w, 2, TRUE);
+            GeniI2cReadReg(&Ctx->Bus, TS_I2C_ADDR, 0x88, &back, 1);
+            LogPrint("C:\\topaz\\touch.r12: report rate reg 0x88 <- 12: %08x, reads back %02x\n", ws, back);
+        }
+    }
+
     Ctx->HwReady = TRUE;
     return STATUS_SUCCESS;
 }
@@ -234,6 +270,8 @@ static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf, ULONGLONG ReadTi
         UCHAR id = p[2] >> 4;
         ULONG x = ((ULONG)(p[0] & 0x0F) << 8) | p[1];
         ULONG y = ((ULONG)(p[2] & 0x0F) << 8) | p[3];
+        ULONG xf = (x << 2) | (p[4] >> 6);           /* + 2 fraction bits each (v0.9 analysis) */
+        ULONG yf = (y << 2) | ((p[4] >> 4) & 3);
         BOOLEAN down = (event != 1);                /* 0 down, 1 up, 2 contact, 3 none */
 
         if (id >= TS_MAX_CONTACTS || event == 3) {
@@ -259,8 +297,8 @@ static VOID TouchProcess(PDEVICE_CONTEXT Ctx, const UCHAR *Buf, ULONGLONG ReadTi
         }
         rpt.Finger[n].Tip = down ? 1 : 0;
         rpt.Finger[n].Id = id;
-        rpt.Finger[n].X = (USHORT)min(x, (ULONG)MAXX);
-        rpt.Finger[n].Y = (USHORT)min(y, (ULONG)MAXY);
+        rpt.Finger[n].X = (USHORT)min(xf, (ULONG)MAXX);
+        rpt.Finger[n].Y = (USHORT)min(yf, (ULONG)MAXY);
         Ctx->LastX[id] = rpt.Finger[n].X;
         Ctx->LastY[id] = rpt.Finger[n].Y;
         if (down) {
@@ -384,7 +422,7 @@ static VOID TouchThread(PVOID Context)
             if (!wasTouching && (buf[2] & 0x0F) != 0) {
                 dumpUntil = now + 30000000ULL;          /* 3 s */
             }
-            if (now < dumpUntil && dumpLines < 3000) {
+            if (now < dumpUntil && dumpLines < 600) {
                 dumpLines++;
                 LogPrint("raw %llu: %02x %02x %02x %02x %02x %02x\n", (now / 10000) % 100000,
                          buf[3], buf[4], buf[5], buf[6], buf[7], buf[8]);
