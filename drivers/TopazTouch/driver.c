@@ -9,7 +9,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS status;
 
     LogOpen();
-    LogPrint("==== TopazTouch v0.8 (1 ms touch polling, short reads, changed frames) ====\n");
+    LogPrint("==== TopazTouch v0.9 (scan time, raw contact dump) ====\n");
 
     WDF_DRIVER_CONFIG_INIT(&config, TopazEvtDeviceAdd);
     config.EvtDriverUnload = TopazEvtDriverUnload;
