@@ -844,7 +844,6 @@ static NTSTATUS APIENTRY TgPresent(const HANDLE hContext, DXGKARG_PRESENT *A)
         c->SrcRect = A->SrcRect;
         c->DstRect = A->DstRect;
         c->Color = A->Color;
-        c->Rotation = A->Flags.Rotate ? DispRotation() : D3DKMDT_VPPR_IDENTITY;
         if (A->SubRectCnt > 0 && A->SubRectCnt <= TG_CMD_MAX_RECTS) {
             c->NumRects = A->SubRectCnt;
             for (i = 0; i < A->SubRectCnt; i++) {
@@ -1180,7 +1179,6 @@ static NTSTATUS APIENTRY TgQueryVidPnHWCapability(const HANDLE hAdapter, DXGKARG
 {
     UNREFERENCED_PARAMETER(hAdapter);
     RtlZeroMemory(&A->VidPnHWCaps, sizeof(A->VidPnHWCaps));
-    A->VidPnHWCaps.DriverRotation = 1;                   /* v0.46: rotation done by the driver (CPU copy) */
     return STATUS_SUCCESS;
 }
 
@@ -1227,7 +1225,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     NTSTATUS st;
 
     LogOpen();
-    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, 1 ms high-res vsync, gpu.mhz, async present, rotation) ====\n");
+    LogPrint("==== TopazGpuW " TGPU_VERSION " (display + msm escapes, step C2, 1 ms high-res vsync, gpu.mhz, async present flips) ====\n");
     MsmInit();
     RtlZeroMemory(&d, sizeof(d));
     d.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;

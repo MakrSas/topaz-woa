@@ -19,7 +19,7 @@
 #include "msm_drm_k.h"
 #include "topazgpu_escape.h"
 
-#define TGPU_VERSION        "v0.49"
+#define TGPU_VERSION        "v0.45.5"
 #define TGPU_POOL_TAG       'WupG'
 
 /* ---- log.c ---- */
@@ -67,8 +67,6 @@ ULONGLONG VaAlloc(SIZE_T Size);
 VOID      VaFree(ULONGLONG Va, SIZE_T Size);
 NTSTATUS  HwSubmit(const ULONGLONG *IbIova, const ULONG *IbDwords, ULONG Count, PULONG Fence);
 ULONG     HwCompletedFence(VOID);
-BOOLEAN   DispRotated(VOID);
-LONG      DispRotation(VOID);
 BOOLEAN   HwWaitFence(ULONG Fence, ULONG TimeoutMs);
 BOOLEAN   HwWedged(VOID);
 BOOLEAN   HwRecover(VOID);
@@ -134,7 +132,6 @@ typedef struct _TG_CMD {
     SIZE_T            Bytes;
     ULONG             SrcSeg, DstSeg;           /* v0.30: final placement, written by DxgkDdiPatch */
     ULONGLONG         SrcAddr, DstAddr;
-    LONG              Rotation;                 /* v0.48: Present Flags.Rotate -> path rotation to apply */
 } TG_CMD;
 
 typedef VOID (*TG_FENCE_DONE)(PVOID Ctx, ULONG Fence);

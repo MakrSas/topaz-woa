@@ -1186,3 +1186,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
   (rotation) - the disp.c diff e107db5..gpuw-vsync applied cleanly. Not yet run on the phone (it runs
   v0.45.5 from gpuw-vsync; v0.46/v0.47 had BSODs, v0.48 is untested there). Branch gpuw-vsync is kept
   as the record of the tested v0.45.x builds.
+- v0.49 on the phone (2026-10-04): black screen - dxgkrnl kept calling SetVidPnSourceVisibility(0) in a
+  loop after EnumVidPnCofuncModality (the rotation work, v0.46+, never ran cleanly on the phone).
+  User decision: TopazGpuW in display/main goes back to v0.45.5 (= branch gpuw-vsync, the tested build
+  with the vsync/flip fixes); v0.46..v0.49 (rotation) dropped. Their commits stay in history
+  (a4c977c, 867ce4e, 3cab8db, 019e570) if rotation is attempted again. Phone: v0.45.5 restored,
+  the v0.49 binary kept as C:\Windows\System32\drivers\TopazGpuW.sys.v049-black.

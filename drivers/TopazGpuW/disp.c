@@ -27,10 +27,6 @@ static const GUID g_BrightnessGuid = { 0xFDE5BBA4, 0xB3F9, 0x46FB, { 0xBD, 0xAA,
 static PDXGKRNL_INTERFACE g_Dxgk;
 static DXGK_DISPLAY_INFORMATION g_Post;
 static PUCHAR g_Fb;                             /* WC mapping of the framebuffer */
-/* v0.46 rotation: committed path rotation; when not identity the MDP cannot rotate a linear RGB fetch, so
-   direct scanout is off and every frame is copied into the framebuffer with a rotation (tiled CPU copy) */
-static volatile LONG g_Rot = D3DKMDT_VPPR_IDENTITY;
-static ULONG g_RotTile[64 * 64];
 static BOOLEAN g_Visible = TRUE;
 static BOOLEAN g_Committed;
 
@@ -310,37 +306,6 @@ static VOID CopyRectToFb(PUCHAR Src, ULONG SrcPitch, ULONG SrcW, ULONG SrcH, con
     }
 }
 
-/* src W x H (landscape for 90/270) -> portrait framebuffer, 64x64 tiles: sequential reads of the write-combined
-   source rows into a cached tile, then sequential row writes of the rotated tile */
-static VOID RotCopyToFb(PUCHAR Src, ULONG SrcPitch, ULONG W, ULONG H, LONG Rot)
-{
-    ULONG tx, ty, x, y, fw = g_Post.Width, fh = g_Post.Height;
-
-    for (ty = 0; ty < H; ty += 64) {
-        for (tx = 0; tx < W; tx += 64) {
-            ULONG tw = min(64u, W - tx), th = min(64u, H - ty);
-            for (y = 0; y < th; y++) {
-                RtlCopyMemory(&g_RotTile[y * 64], Src + (SIZE_T)(ty + y) * SrcPitch + (SIZE_T)tx * 4, (SIZE_T)tw * 4);
-            }
-            for (y = 0; y < th; y++) {
-                for (x = 0; x < tw; x++) {
-                    ULONG sx = tx + x, sy = ty + y, dx, dy;
-                    if (Rot == D3DKMDT_VPPR_ROTATE90) {          /* clockwise */
-                        dx = H - 1 - sy; dy = sx;
-                    } else if (Rot == D3DKMDT_VPPR_ROTATE270) {
-                        dx = sy; dy = W - 1 - sx;
-                    } else {                                     /* 180 */
-                        dx = W - 1 - sx; dy = H - 1 - sy;
-                    }
-                    if (dx < fw && dy < fh) {
-                        *(ULONG *)(g_Fb + (SIZE_T)dy * g_Post.Pitch + (SIZE_T)dx * 4) = g_RotTile[y * 64 + x];
-                    }
-                }
-            }
-        }
-    }
-}
-
 VOID DispScanoutWork(VOID)
 {
     TGPU_ALLOCATION *al;
@@ -354,30 +319,7 @@ VOID DispScanoutWork(VOID)
         all.left = all.top = 0;
         all.right = al->Desc.width;
         all.bottom = al->Desc.height;
-        if (g_Rot != D3DKMDT_VPPR_IDENTITY && g_Rot != D3DKMDT_VPPR_UNINITIALIZED &&
-            al->Desc.width > al->Desc.height) {
-            /* v0.48: only a landscape (unrotated) primary needs rotating; Dxgkrnl/DWM primaries keep the physical
-               portrait orientation (content already rotated). v0.47: never read past the CPU view (v0.46 BSOD 0x50 in memcpy here) */
-            SIZE_T avail = al->Bo != NULL ? (al->Bo->Size > al->Desc.bo_offset ? al->Bo->Size - al->Desc.bo_offset : 0)
-                                          : (al->ApBytes != 0 ? al->ApBytes : al->Size);
-            ULONG w = al->Desc.width, h = al->Desc.height, pitch = al->Desc.pitch;
-            static ULONG rlog;
-            if (pitch != 0 && w * 4 > pitch) {
-                w = pitch / 4;
-            }
-            if (pitch != 0 && (SIZE_T)h * pitch > avail) {
-                h = (ULONG)(avail / pitch);
-            }
-            if (++rlog <= 5) {
-                LogPrint("scanout rotated %d: alloc %ux%u pitch %u bytes %llu (%s) -> copy %ux%u\n", g_Rot, al->Desc.width,
-                         al->Desc.height, pitch, (ULONGLONG)avail, al->Bo != NULL ? "bo" : "vidmm", w, h);
-            }
-            if (pitch != 0 && w != 0 && h != 0) {
-                RotCopyToFb(px, pitch, w, h, g_Rot);
-            }
-        } else {
-            CopyRectToFb(px, al->Desc.pitch, al->Desc.width, al->Desc.height, &all);
-        }
+        CopyRectToFb(px, al->Desc.pitch, al->Desc.width, al->Desc.height, &all);
         if (++count <= 5) {
             LogPrint("scanout: %ux%u pitch %u from %p (%s)\n", al->Desc.width, al->Desc.height, al->Desc.pitch, al,
                      al->Bo != NULL ? "bo" : "vidmm");
@@ -394,7 +336,6 @@ VOID DispPresentRects(TGPU_ALLOCATION *Dst, const RECT *Rects, ULONG Count)
     if (Dst != g_ScanCur || g_DirectActive || g_Fb == NULL || !g_Visible) {
         return;
     }
-
     KeWaitForSingleObject(&g_ScanLock, Executive, KernelMode, FALSE, NULL);
     if (Dst == g_ScanCur && (px = AllocPixels(Dst)) != NULL) {
         for (i = 0; i < Count; i++) {
@@ -934,9 +875,6 @@ NTSTATUS DispEnumCofuncModality(PDXGKRNL_INTERFACE Dxgk, const DXGKARG_ENUMVIDPN
             path->ContentTransformation.Rotation == D3DKMDT_VPPR_UNPINNED) {
             RtlZeroMemory(&local.ContentTransformation.RotationSupport, sizeof(local.ContentTransformation.RotationSupport));
             local.ContentTransformation.RotationSupport.Identity = 1;
-            local.ContentTransformation.RotationSupport.Rotate90 = 1;    /* v0.46: CPU-rotated scanout */
-            local.ContentTransformation.RotationSupport.Rotate180 = 1;
-            local.ContentTransformation.RotationSupport.Rotate270 = 1;
             local.ContentTransformation.RotationSupport.Offset0 = 1;
             modified = TRUE;
         }
@@ -992,20 +930,6 @@ NTSTATUS DispCommitVidPn(PDXGKRNL_INTERFACE Dxgk, const DXGKARG_COMMITVIDPN *A)
         st = vi->pfnAcquireSourceModeSet(A->hFunctionalVidPn, A->AffectedVidPnSourceId, &sset, &si);
         if (NT_SUCCESS(st)) {
             st = si->pfnAcquirePinnedModeInfo(sset, &pin);
-        }
-    }
-    if (NT_SUCCESS(st) && paths != 0) {
-        const D3DKMDT_VIDPN_PRESENT_PATH *pp = NULL;
-        if (NT_SUCCESS(ti->pfnAcquireFirstPathInfo(topo, &pp)) && pp != NULL) {
-            LONG rot = pp->ContentTransformation.Rotation;
-            if (rot == D3DKMDT_VPPR_UNINITIALIZED || rot == D3DKMDT_VPPR_UNPINNED) {
-                rot = D3DKMDT_VPPR_IDENTITY;
-            }
-            if (rot != g_Rot) {
-                LogPrint("CommitVidPn: path rotation %d -> %d\n", g_Rot, rot);
-            }
-            InterlockedExchange(&g_Rot, rot);
-            ti->pfnReleasePathInfo(topo, pp);
         }
     }
     if (NT_SUCCESS(st)) {
@@ -1275,14 +1199,4 @@ VOID DispSurveyMdp(VOID)
         }
     }
     MmUnmapIoSpace((PVOID)smmu, 0x2000);
-}
-
-BOOLEAN DispRotated(VOID)
-{
-    return g_Rot != D3DKMDT_VPPR_IDENTITY;
-}
-
-LONG DispRotation(VOID)
-{
-    return g_Rot;
 }
