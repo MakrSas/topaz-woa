@@ -18,7 +18,7 @@
 #include <wdf.h>
 #include <acx.h>
 
-#define TSPK_VERSION   "v0.1"
+#define TSPK_VERSION   "v0.2"
 #define TSPK_TAG       'kpsT'
 
 /* ---- log.c ---- */

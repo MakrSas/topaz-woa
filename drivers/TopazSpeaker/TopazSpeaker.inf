@@ -56,6 +56,8 @@ HKR,,CLSID,,%Proxy.CLSID%
 HKR,,FriendlyName,,%SpeakerName%
 HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
 HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+; device (mix) format 48 kHz 16-bit stereo, WAVEFORMATEXTENSIBLE as a VT_BLOB (same blob as SYSVAD)
+HKR,EP\0,%PKEY_AudioEngine_OEMFormat%,0x00000001,41,00,00,00,28,00,00,00,FE,FF,02,00,80,BB,00,00,00,EE,02,00,04,00,10,00,16,00,10,00,03,00,00,00,01,00,00,00,00,00,10,00,80,00,00,AA,00,38,9B,71
 
 [Spk_Device.NT.Interfaces]
 AddInterface=%KSCATEGORY_AUDIO%,    %KSNAME_Speaker%, Spk_Device.I.Speaker
@@ -76,3 +78,4 @@ KSCATEGORY_REALTIME = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
 KSNODETYPE_ANY      = "{00000000-0000-0000-0000-000000000000}"
 PKEY_AudioEndpoint_Association               = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
 PKEY_AudioEndpoint_Supports_EventDriven_Mode = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},7"
+PKEY_AudioEngine_OEMFormat                   = "{E4870E26-3CC5-4CD2-BA46-CA0A9A70ED04},3"
