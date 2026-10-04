@@ -38,6 +38,8 @@ jobs:
           if ($LASTEXITCODE) { throw "TopazGpuW build failed" }
           msbuild drivers\TopazAudio\TopazAudio.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
           if ($LASTEXITCODE) { throw "TopazAudio build failed" }
+          msbuild drivers\TopazSpeaker\TopazSpeaker.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ApiValidator_Enable=false /m /v:minimal
+          if ($LASTEXITCODE) { throw "TopazSpeaker build failed" }
 
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -72,13 +74,13 @@ jobs:
           # Windows on the phone boots with its clock at 2022: keep the cert valid from 2015
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=topaz-woa test signing" -CertStoreLocation Cert:\CurrentUser\My -NotBefore (Get-Date "2015-01-01") -NotAfter (Get-Date "2045-01-01")
 
-          foreach ($name in @("TopazTouch", "TopazBattery", "TopazDisplay", "TopazButtons", "TopazModem", "TopazWifi", "TopazCpu", "TopazGpu", "TopazGpuW", "TopazAudio")) {
+          foreach ($name in @("TopazTouch", "TopazBattery", "TopazDisplay", "TopazButtons", "TopazModem", "TopazWifi", "TopazCpu", "TopazGpu", "TopazGpuW", "TopazAudio", "TopazSpeaker")) {
             $out = "out\$name"
             New-Item -ItemType Directory -Force $out | Out-Null
             Copy-Item "drivers\$name\ARM64\Release\$name.sys" $out
             Copy-Item "drivers\$name\$name.inf" $out
 
-            & "$bin\x64\stampinf.exe" -f "$out\$name.inf" -d "*" -a "arm64" -v "0.1.${{ github.run_number }}.0" -k "1.15"
+            & "$bin\x64\stampinf.exe" -f "$out\$name.inf" -d "*" -a "arm64" -v "0.1.${{ github.run_number }}.0" -k $(if ($name -eq "TopazSpeaker") { "1.31" } else { "1.15" })
             if ($LASTEXITCODE) { throw "stampinf $name failed" }
             & $inf2cat.FullName /driver:"$((Resolve-Path $out).Path)" /os:10_NI_ARM64 /uselocaltime
             if ($LASTEXITCODE) { throw "inf2cat $name failed" }
@@ -144,3 +146,8 @@ jobs:
           path: |
             out/TopazAudio
             out/taudio
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TopazSpeaker-arm64
+          path: out/TopazSpeaker
