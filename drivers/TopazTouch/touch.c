@@ -419,10 +419,11 @@ static VOID TouchThread(PVOID Context)
             static ULONGLONG dumpUntil;
             static ULONG dumpLines;
             ULONGLONG now = KeQueryInterruptTime();
-            if (!wasTouching && (buf[2] & 0x0F) != 0) {
+            if (!wasTouching && (buf[2] & 0x0F) != 0 && (buf[2] & 0x0F) <= TS_MAX_CONTACTS) {
                 dumpUntil = now + 30000000ULL;          /* 3 s */
+                dumpLines = 0;                          /* every touch gets its dump */
             }
-            if (now < dumpUntil && dumpLines < 600) {
+            if (now < dumpUntil && dumpLines < 400) {
                 dumpLines++;
                 LogPrint("raw %llu: %02x %02x %02x %02x %02x %02x\n", (now / 10000) % 100000,
                          buf[3], buf[4], buf[5], buf[6], buf[7], buf[8]);
