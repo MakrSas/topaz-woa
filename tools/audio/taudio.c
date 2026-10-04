@@ -12,12 +12,17 @@
  *   taudio wr <pa> <value>                        MMIO write32
  *   taudio i2c <addr> [wbytes..] [rN]             QUP0 SE1 transaction (write, then read N)
  *   taudio pmic <sid> <addr> [count]              PMIC read (SPMI observer), addr = periph<<8|reg
+ *   taudio buf alloc <size>                       contiguous buffer below 4 GiB (prints id, pa)
+ *   taudio buf sine <id> <bytes> <hz> <rate> [amp] fill with a 16-bit mono sine (whole periods)
+ *   taudio buf rd <id> <off> <n>                  read n bytes (hex dwords)
+ *   taudio buf free <id>
  */
 #include <windows.h>
 #include <winioctl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "../../drivers/TopazAudio/taudio_ioctl.h"
 
@@ -227,6 +232,51 @@ int main(int argc, char **argv)
                 printf(" %02x", t.R[i]);
             }
             printf("\n");
+        }
+    } else if (strcmp(c, "buf") == 0 && argc >= 4) {
+        static unsigned char io[sizeof(TAUDIO_BUF) + 65536];
+        TAUDIO_BUF *b = (TAUDIO_BUF *)io;
+        DWORD got = 0;
+        memset(b, 0, sizeof(*b));
+        if (strcmp(argv[2], "alloc") == 0) {
+            b->Op = 0; b->Size = Num(argv[3]);
+            if (Ioctl(IOCTL_TAUDIO_BUF, b, sizeof(*b), b, sizeof(*b), NULL)) {
+                printf("  buf %u pa %llx size %x\n", b->Id, b->Pa, b->Size);
+            }
+        } else if (strcmp(argv[2], "free") == 0) {
+            b->Op = 3; b->Id = Num(argv[3]);
+            Ioctl(IOCTL_TAUDIO_BUF, b, sizeof(*b), b, sizeof(*b), NULL);
+        } else if (strcmp(argv[2], "rd") == 0 && argc >= 6) {
+            unsigned n = Num(argv[5]);
+            b->Op = 2; b->Id = Num(argv[3]); b->Offset = Num(argv[4]); b->Size = n > 4096 ? 4096 : n;
+            if (Ioctl(IOCTL_TAUDIO_BUF, b, sizeof(*b), io, sizeof(*b) + b->Size, &got)) {
+                unsigned *d = (unsigned *)(b + 1);
+                for (i = 0; i * 4 < got - sizeof(*b); i++) {
+                    printf("%s%08x", (i % 8) ? " " : (i ? "\n  " : "  "), d[i]);
+                }
+                printf("\n");
+            }
+        } else if (strcmp(argv[2], "sine") == 0 && argc >= 7) {
+            unsigned id = Num(argv[3]), bytes = Num(argv[4]), hz = Num(argv[5]), rate = Num(argv[6]);
+            double amp = argc > 7 ? atof(argv[7]) : 0.25;
+            unsigned total = bytes / 2, off = 0, k = 0;
+            /* whole periods so the circular buffer loops without a click */
+            unsigned per = rate / hz;
+            total = (total / per) * per;
+            while (off < total * 2) {
+                unsigned chunk = (total * 2 - off) > 32768 ? 32768 : (total * 2 - off);
+                short *pcm = (short *)(b + 1);
+                memset(b, 0, sizeof(*b));
+                b->Op = 1; b->Id = id; b->Offset = off;
+                for (i = 0; i < chunk / 2; i++, k++) {
+                    pcm[i] = (short)(amp * 32767.0 * sin(2.0 * 3.14159265358979 * (double)(k % per) / per));
+                }
+                if (!Ioctl(IOCTL_TAUDIO_BUF, b, sizeof(*b) + chunk, b, sizeof(*b), NULL)) {
+                    break;
+                }
+                off += chunk;
+            }
+            printf("  buf %u: %u bytes of %u Hz sine at %u Hz (period %u samples)\n", id, total * 2, hz, rate, per);
         }
     } else if (strcmp(c, "pmic") == 0 && argc >= 4) {
         TAUDIO_PMIC p;
