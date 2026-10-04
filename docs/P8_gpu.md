@@ -1123,3 +1123,9 @@ once it scans out: PnP waits for CDD/DWM even with dwm killed; new .sys only via
     touching -> ~285 reads/s, new frames delivered within ~3-5 ms, x4 coordinates, Scan Time.
   - User: still feels worse than the mouse. Remaining suspects are on the Windows side (no cursor
     to hide the window lag behind the finger, DWM composition rate, touch visualization).
+- Stuck touches (TopazTouch v0.12..v0.14): with 2 ms polling (~290 reads/s) the controller sometimes
+  froze after a touch - every read the same contact frame, IRQ silent - and Windows kept the finger
+  down (also with the firmware-default rate, so not only 0x88 = 12). v0.13 releases everything on
+  point count 0 (Linux focaltech behaviour). v0.15: back to 5 ms polling, fast rate opt-in only
+  (C:\topaz\touch.fast), watchdog: contact frame bit-identical for 500 ms -> release + controller
+  reset. User: "normal" after v0.15. Kept: x4 fraction bits, Scan Time.
