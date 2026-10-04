@@ -1,0 +1,135 @@
+          writer-14502   [004] .....   265.428378: lpass_hw_vote_prepare: lpass_hw_vote_prepare: audio vote clk_id 10a 
+          writer-14502   [004] .....   265.428388: digital_cdc_rsc_mgr_hw_vote_enable: digital_cdc_rsc_mgr_hw_vote_enable: return 0
+          writer-14502   [004] .....   265.428391: bolero_runtime_resume: bolero_runtime_resume: audio vote count 1
+          writer-14502   [004] .....   265.428416: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1190 val=7
+          writer-14502   [006] .....   265.466172: bolero_runtime_resume: bolero_runtime_resume: audio vote count 2
+          writer-14502   [006] .....   265.466444: audio_ext_clk_prepare: audio_ext_clk_prepare: clk_id 30c 
+          writer-14502   [004] .....   265.466705: audio_ext_clk_prepare: audio_ext_clk_prepare: clk_id 30d 
+          writer-14502   [004] .....   265.466833: bolero_clk_rsc_request_clock: bolero_clk_rsc_request_clock: clk_cnt: 1 for requested clk: 0, enable: 1
+          writer-14502   [004] .....   265.466865: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=3000 val=1
+          writer-14502   [004] .....   265.466867: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=3004 val=3
+          writer-14502   [004] .....   265.466869: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=3004 val=1
+          writer-14502   [004] .....   265.466872: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=3080 val=2
+          writer-14502   [004] .....   265.466931: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1100 val=1
+          writer-14502   [004] .....   265.466933: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1100 val=3
+          writer-14502   [004] .....   265.466935: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1104 val=0
+          writer-14502   [004] .....   265.466937: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1104 val=1
+          writer-14502   [004] .....   265.466939: rx_macro_mclk_enable: rx_macro_mclk_enable: mclk_enable = 1, dapm = 1 clk_users= 1
+          writer-14502   [004] .....   265.466952: swrm_runtime_resume: swrm_runtime_resume: pm_runtime: resume, state:3
+          writer-14502   [004] .....   265.466953: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+          writer-14502   [004] .....   265.466955: digital_cdc_rsc_mgr_hw_vote_enable: digital_cdc_rsc_mgr_hw_vote_enable: return 0
+          writer-14502   [004] .....   265.466956: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+          writer-14502   [004] .....   265.466958: swrm_clk_request: swrm_clk_request: clock enable count 1
+          writer-14502   [004] .....   265.466960: rx_swrm_clock: rx_swrm_clock: swrm clock enable
+          writer-14502   [004] .....   265.467119: lpi_pinctrl_runtime_resume: lpi_pinctrl_runtime_resume: enter
+          writer-14502   [004] .....   265.467121: digital_cdc_rsc_mgr_hw_vote_enable: digital_cdc_rsc_mgr_hw_vote_enable: return 0
+          writer-14502   [004] .....   265.467123: lpi_pinctrl_runtime_resume: lpi_pinctrl_runtime_resume: exit
+          writer-14502   [004] .....   265.467162: rx_macro_mclk_enable: rx_macro_mclk_enable: mclk_enable = 1, dapm = 1 clk_users= 2
+          writer-14502   [004] .....   265.467170: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1108 val=1
+          writer-14502   [004] .....   265.467171: rx_swrm_clock: rx_swrm_clock: swrm clock users 1
+ irq/219-swr_mas-1804    [000] .....   265.467254: swr_mstr_interrupt: swr_mstr_interrupt enter
+          writer-14502   [005] .....   265.467321: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+          writer-14502   [005] .....   265.467333: swrm_runtime_resume: swrm_runtime_resume: pm_runtime: resume done, state:2
+          writer-14502   [005] .....   265.467354: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=154c val=1
+ irq/219-swr_mas-1804    [000] .....   265.467355: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+          writer-14502   [005] .....   265.467356: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=150c val=8f
+ irq/219-swr_mas-1804    [000] .....   265.467357: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 2
+          writer-14502   [005] .....   265.467360: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1200 val=1
+          writer-14502   [005] .....   265.467365: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1514 val=0
+ irq/219-swr_mas-1804    [000] .....   265.467366: swr_mstr_interrupt: swr_mstr_interrupt: status: 0x4000 
+ irq/219-swr_mas-1804    [000] .....   265.467375: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+ irq/219-swr_mas-1804    [000] .....   265.467376: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+          writer-14502   [005] .....   265.467377: swrm_runtime_resume: swrm_runtime_resume: pm_runtime: resume, state:3
+          writer-14502   [005] .....   265.467378: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+ irq/219-swr_mas-1804    [000] .....   265.467379: swr_mstr_interrupt: swr_mstr_interrupt exit
+          writer-14502   [005] .....   265.467380: digital_cdc_rsc_mgr_hw_vote_enable: digital_cdc_rsc_mgr_hw_vote_enable: return 0
+          writer-14502   [005] .....   265.467380: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+          writer-14502   [005] .....   265.467384: swrm_clk_request: swrm_clk_request: clock enable count 1
+          writer-14502   [005] .....   265.467597: bolero_clk_rsc_request_clock: bolero_clk_rsc_request_clock: clk_cnt: 2 for requested clk: 0, enable: 1
+          writer-14502   [005] .....   265.467598: bolero_clk_rsc_request_clock: bolero_clk_rsc_request_clock: clk_cnt: 3 for requested clk: 0, enable: 1
+          writer-14502   [005] .....   265.467606: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=3008 val=1
+          writer-14502   [005] .....   265.467607: bolero_clk_rsc_request_clock: bolero_clk_rsc_request_clock: clk_cnt: 2 for requested clk: 0, enable: 0
+ irq/218-swr_mas-1802    [001] .....   265.467661: swr_mstr_interrupt: swr_mstr_interrupt enter
+          writer-14502   [006] .....   265.467870: digital_cdc_rsc_mgr_hw_vote_disable: digital_cdc_rsc_mgr_hw_vote_disable
+          writer-14502   [006] .....   265.467871: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+          writer-14502   [006] .....   265.467872: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+          writer-14502   [006] .....   265.467883: swrm_runtime_resume: swrm_runtime_resume: pm_runtime: resume done, state:2
+ irq/218-swr_mas-1802    [001] .....   265.467905: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+ irq/218-swr_mas-1802    [001] .....   265.467909: digital_cdc_rsc_mgr_hw_vote_enable: digital_cdc_rsc_mgr_hw_vote_enable: return 0
+ irq/218-swr_mas-1802    [001] .....   265.467910: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+ irq/218-swr_mas-1802    [001] .....   265.467917: swr_mstr_interrupt: swr_mstr_interrupt: status: 0x4000 
+ irq/218-swr_mas-1802    [001] .....   265.467925: digital_cdc_rsc_mgr_hw_vote_disable: digital_cdc_rsc_mgr_hw_vote_disable
+ irq/218-swr_mas-1802    [001] .....   265.467930: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+ irq/218-swr_mas-1802    [001] .....   265.467931: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+ irq/218-swr_mas-1802    [001] .....   265.467934: swr_mstr_interrupt: swr_mstr_interrupt exit
+          writer-14502   [005] .....   265.468088: regmap_reg_write: wcd937x-slave.a01170223 reg=3408 val=1
+          writer-14502   [005] .....   265.468289: regmap_reg_write: wcd937x-slave.a01170223 reg=3008 val=1
+          writer-14502   [004] .....   265.468489: regmap_reg_write: wcd937x-slave.a01170223 reg=3408 val=3
+          writer-14502   [006] .....   265.468687: regmap_reg_write: wcd937x-slave.a01170223 reg=3408 val=7
+          writer-14502   [006] .....   265.468993: regmap_reg_write: wcd937x-slave.a01170223 reg=3409 val=c
+          writer-14502   [006] .....   265.469187: regmap_reg_write: wcd937x-slave.a01170223 reg=3008 val=41
+          writer-14502   [007] .....   265.470388: regmap_reg_write: wcd937x-slave.a01170223 reg=3008 val=c1
+ irq/219-swr_mas-1804    [000] .....   265.477757: swr_mstr_interrupt: swr_mstr_interrupt enter
+ irq/219-swr_mas-1804    [000] .....   265.477773: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+ irq/219-swr_mas-1804    [000] .....   265.477774: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 2
+ irq/219-swr_mas-1804    [000] .....   265.477784: swr_mstr_interrupt: swr_mstr_interrupt: status: 0x400 
+ irq/219-swr_mas-1804    [000] .....   265.477793: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+ irq/219-swr_mas-1804    [000] .....   265.477795: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+ irq/219-swr_mas-1804    [000] .....   265.477799: swr_mstr_interrupt: swr_mstr_interrupt exit
+          writer-14502   [002] .....   265.481570: regmap_reg_write: wcd937x-slave.a01170223 reg=3467 val=5
+          writer-14502   [002] .....   265.481842: regmap_reg_write: wcd937x-slave.a01170223 reg=3128 val=80
+          writer-14502   [000] .....   265.483109: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1500 val=4
+          writer-14502   [000] .....   265.483117: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1518 val=4
+          writer-14502   [001] .....   265.483386: regmap_reg_write: wcd937x-slave.a01170223 reg=346b val=4c
+          writer-14502   [000] .....   265.483733: regmap_reg_write: wcd937x-slave.a01170223 reg=346c val=7f
+          writer-14502   [001] .....   265.483991: regmap_reg_write: wcd937x-slave.a01170223 reg=346d val=f
+          writer-14502   [004] .....   265.485660: regmap_reg_write: 0-002b reg=1 val=7c
+          writer-14502   [004] .....   265.485950: regmap_reg_write: 0-002b reg=2 val=21
+          writer-14502   [004] .....   265.486156: regmap_reg_write: 0-002b reg=5 val=1
+          writer-14502   [004] .....   265.486356: regmap_reg_write: 0-002b reg=3 val=30
+          writer-14502   [004] .....   265.486557: regmap_reg_write: 0-002b reg=4 val=c5
+          writer-14502   [004] .....   265.486780: regmap_reg_write: 0-002b reg=6 val=48
+          writer-14502   [004] .....   265.486983: regmap_reg_write: 0-002b reg=7 val=5d
+          writer-14502   [004] .....   265.487177: regmap_reg_write: 0-002b reg=8 val=8a
+          writer-14502   [006] .....   265.487991: regmap_reg_write: 0-002b reg=9 val=e
+          writer-14502   [004] .....   265.488340: regmap_reg_write: 0-002b reg=a val=a4
+          writer-14502   [004] .....   265.490966: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=1500 val=24
+     kworker/4:1-83      [004] .....   265.535658: bolero_runtime_suspend: bolero_runtime_suspend: hw vote count 0
+     kworker/4:1-83      [004] .....   265.535667: bolero_runtime_suspend: bolero_runtime_suspend: audio vote count 1
+     kworker/4:1-83      [004] .....   265.587892: lpi_pinctrl_runtime_suspend: lpi_pinctrl_runtime_suspend: enter
+     kworker/4:1-83      [004] .....   265.587898: digital_cdc_rsc_mgr_hw_vote_disable: digital_cdc_rsc_mgr_hw_vote_disable
+     kworker/4:1-83      [004] .....   265.587899: lpi_pinctrl_runtime_suspend: lpi_pinctrl_runtime_suspend: exit
+     kworker/4:1-83      [004] .....   265.598376: bolero_runtime_suspend: bolero_runtime_suspend: hw vote count 0
+     kworker/4:1-83      [004] .....   265.598380: digital_cdc_rsc_mgr_hw_vote_disable: digital_cdc_rsc_mgr_hw_vote_disable
+     kworker/4:1-83      [004] .....   265.598381: bolero_runtime_suspend: bolero_runtime_suspend: audio vote count 0
+     kworker/5:3-562     [005] .....   266.048467: swrm_runtime_suspend: swrm_runtime_suspend: pm_runtime: suspend state: 2
+     kworker/5:3-562     [005] .....   266.048474: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+     kworker/5:3-562     [005] .....   266.048479: digital_cdc_rsc_mgr_hw_vote_enable: digital_cdc_rsc_mgr_hw_vote_enable: return 0
+     kworker/5:3-562     [005] .....   266.048480: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+     kworker/5:3-562     [005] .....   266.048490: digital_cdc_rsc_mgr_hw_vote_enable: digital_cdc_rsc_mgr_hw_vote_enable: return 0
+     kworker/5:3-562     [005] .....   266.048492: bolero_runtime_resume: bolero_runtime_resume: audio vote count 1
+ irq/218-swr_mas-1802    [001] .....   266.048947: swr_mstr_interrupt: swr_mstr_interrupt enter
+ irq/218-swr_mas-1802    [001] .....   266.048980: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+ irq/218-swr_mas-1802    [001] .....   266.048984: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 2
+ irq/218-swr_mas-1802    [001] .....   266.048998: swr_mstr_interrupt: swr_mstr_interrupt: status: 0x400 
+ irq/218-swr_mas-1802    [001] .....   266.049040: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+ irq/218-swr_mas-1802    [001] .....   266.049045: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 1
+ irq/218-swr_mas-1802    [001] .....   266.049061: swr_mstr_interrupt: swr_mstr_interrupt exit
+     kworker/5:3-562     [005] .....   266.049191: swrm_clk_request: swrm_clk_request: clock disable count 0
+     kworker/5:3-562     [005] .....   266.049208: bolero_clk_rsc_request_clock: bolero_clk_rsc_request_clock: clk_cnt: 3 for requested clk: 0, enable: 1
+     kworker/5:3-562     [005] .....   266.049228: regmap_reg_write: soc:spf_core_platform:bolero-codec reg=3008 val=0
+     kworker/5:3-562     [005] .....   266.049233: bolero_clk_rsc_request_clock: bolero_clk_rsc_request_clock: clk_cnt: 2 for requested clk: 0, enable: 0
+     kworker/5:3-562     [005] .....   266.049235: bolero_clk_rsc_request_clock: bolero_clk_rsc_request_clock: clk_cnt: 1 for requested clk: 0, enable: 0
+     kworker/5:3-562     [005] .....   266.049515: lpi_pinctrl_runtime_resume: lpi_pinctrl_runtime_resume: enter
+     kworker/5:3-562     [005] .....   266.049517: digital_cdc_rsc_mgr_hw_vote_enable: digital_cdc_rsc_mgr_hw_vote_enable: return 0
+     kworker/5:3-562     [005] .....   266.049518: lpi_pinctrl_runtime_resume: lpi_pinctrl_runtime_resume: exit
+     kworker/5:3-562     [005] .....   266.049560: digital_cdc_rsc_mgr_hw_vote_disable: digital_cdc_rsc_mgr_hw_vote_disable
+     kworker/5:3-562     [005] .....   266.049561: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+     kworker/5:3-562     [005] .....   266.049563: swrm_request_hw_vote: swrm_request_hw_vote: hw_clk_en: 0 audio_core_clk_en: 0
+     kworker/5:3-562     [005] .....   266.049564: swrm_runtime_suspend: swrm_runtime_suspend: pm_runtime: suspend done state: 3
+     kworker/5:3-562     [005] .....   266.174294: bolero_runtime_suspend: bolero_runtime_suspend: hw vote count 0
+     kworker/5:3-562     [005] .....   266.174304: digital_cdc_rsc_mgr_hw_vote_disable: digital_cdc_rsc_mgr_hw_vote_disable
+     kworker/5:3-562     [005] .....   266.174306: bolero_runtime_suspend: bolero_runtime_suspend: audio vote count 0
+     kworker/5:3-562     [005] .....   266.174316: lpi_pinctrl_runtime_suspend: lpi_pinctrl_runtime_suspend: enter
+     kworker/5:3-562     [005] .....   266.174318: digital_cdc_rsc_mgr_hw_vote_disable: digital_cdc_rsc_mgr_hw_vote_disable
+     kworker/5:3-562     [005] .....   266.174319: lpi_pinctrl_runtime_suspend: lpi_pinctrl_runtime_suspend: exit

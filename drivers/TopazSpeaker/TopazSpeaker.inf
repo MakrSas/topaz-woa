@@ -1,0 +1,81 @@
+;
+; TopazSpeaker: speaker endpoint (ACX render circuit) for Redmi Note 12 4G (topaz / tapas).
+; Root-enumerated: devcon install TopazSpeaker.inf Root\TopazSpeaker
+;
+[Version]
+Signature="$WINDOWS NT$"
+Class=MEDIA
+ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+DriverVer=10/04/2026,0.1.0.0
+CatalogFile=TopazSpeaker.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskId1%,,,""
+
+[SourceDisksFiles]
+TopazSpeaker.sys = 1,,
+
+[Manufacturer]
+%StdMfg%=Standard,NT$ARCH$.10.0...22000
+
+[Standard.NT$ARCH$.10.0...22000]
+%DeviceDesc%=Spk_Device, Root\TopazSpeaker
+
+[Spk_Device.NT]
+CopyFiles=Spk_Copy
+
+[Spk_Copy]
+TopazSpeaker.sys
+
+[Spk_Device.NT.Services]
+AddService = TopazSpeaker, 0x00000002, Spk_Service
+
+[Spk_Service]
+DisplayName    = %DeviceDesc%
+ServiceType    = 1
+StartType      = 3
+ErrorControl   = 1
+ServiceBinary  = %13%\TopazSpeaker.sys
+
+[Spk_Device.NT.Wdf]
+KmdfService = TopazSpeaker, Spk_wdfsect
+
+[Spk_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Spk_Device.I.Speaker]
+AddReg=Spk_Speaker.AddReg
+
+[Spk_Speaker.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%SpeakerName%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+; device (mix) format 48 kHz 16-bit stereo, WAVEFORMATEXTENSIBLE as a VT_BLOB (same blob as SYSVAD)
+HKR,EP\0,%PKEY_AudioEngine_OEMFormat%,0x00000001,41,00,00,00,28,00,00,00,FE,FF,02,00,80,BB,00,00,00,EE,02,00,04,00,10,00,16,00,10,00,03,00,00,00,01,00,00,00,00,00,10,00,80,00,00,AA,00,38,9B,71
+
+[Spk_Device.NT.Interfaces]
+AddInterface=%KSCATEGORY_AUDIO%,    %KSNAME_Speaker%, Spk_Device.I.Speaker
+AddInterface=%KSCATEGORY_RENDER%,   %KSNAME_Speaker%, Spk_Device.I.Speaker
+AddInterface=%KSCATEGORY_REALTIME%, %KSNAME_Speaker%, Spk_Device.I.Speaker
+
+[Strings]
+ProviderName = "topaz-woa"
+StdMfg = "topaz-woa"
+DiskId1 = "TopazSpeaker"
+DeviceDesc = "Topaz Speaker (WCD937x / sia8159)"
+SpeakerName = "Speaker"
+KSNAME_Speaker = "Speaker0"
+Proxy.CLSID         = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
+KSCATEGORY_AUDIO    = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_RENDER   = "{65E8773E-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_REALTIME = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
+KSNODETYPE_ANY      = "{00000000-0000-0000-0000-000000000000}"
+PKEY_AudioEndpoint_Association               = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
+PKEY_AudioEndpoint_Supports_EventDriven_Mode = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},7"
+PKEY_AudioEngine_OEMFormat                   = "{E4870E26-3CC5-4CD2-BA46-CA0A9A70ED04},3"

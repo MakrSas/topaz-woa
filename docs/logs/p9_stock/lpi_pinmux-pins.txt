@@ -1,0 +1,21 @@
+Pinmux settings per pin
+Format: pin (name): mux_owner gpio_owner hog?
+pin 0 (gpio0): soc:spf_core_platform:va_swr_clk_data_pinctrl (GPIO UNCLAIMED) function func1 group gpio0
+pin 1 (gpio1): soc:spf_core_platform:va_swr_clk_data_pinctrl (GPIO UNCLAIMED) function func1 group gpio1
+pin 2 (gpio2): soc:spf_core_platform:va_swr_clk_data_pinctrl (GPIO UNCLAIMED) function func1 group gpio2
+pin 3 (gpio3): soc:spf_core_platform:rx_swr_clk_data_pinctrl (GPIO UNCLAIMED) function func1 group gpio3
+pin 4 (gpio4): soc:spf_core_platform:rx_swr_clk_data_pinctrl (GPIO UNCLAIMED) function func1 group gpio4
+pin 5 (gpio5): soc:spf_core_platform:rx_swr_clk_data_pinctrl (GPIO UNCLAIMED) function func1 group gpio5
+pin 6 (gpio6): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 7 (gpio7): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 8 (gpio8): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 9 (gpio9): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 10 (gpio10): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 11 (gpio11): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 12 (gpio12): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 13 (gpio13): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 14 (gpio14): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 15 (gpio15): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 16 (gpio16): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 17 (gpio17): (MUX UNCLAIMED) (GPIO UNCLAIMED)
+pin 18 (gpio18): (MUX UNCLAIMED) (GPIO UNCLAIMED)
